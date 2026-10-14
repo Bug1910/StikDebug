@@ -105,15 +105,23 @@ def bundle_id(app):
     return sh("/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", app + "/Info.plist", quiet=True).stdout.strip()
 
 
-def prepare(udid, app, bid):
-    """Boot, install, seed the 5 public places."""
-    sh("xcrun", "simctl", "boot", udid, check=False)
-    sh("xcrun", "simctl", "bootstatus", udid, "-b", check=False, quiet=True)
-    sh("xcrun", "simctl", "install", udid, app)
+def seed(udid, bid):
+    """(Re)write the 5 public places, so every screenshot state starts from the same data
+    (the undoToast state really deletes one)."""
     data = sh("xcrun", "simctl", "get_app_container", udid, bid, "data").stdout.strip()
     os.makedirs(data + "/Documents", exist_ok=True)
     with open(data + "/Documents/places.json", "w", encoding="utf-8") as f:
         json.dump(PLACES, f, ensure_ascii=False)
+
+
+def prepare(udid, app, bid):
+    """Boot, install, grant location (the system prompt covered screens and the stop button), seed."""
+    sh("xcrun", "simctl", "boot", udid, check=False)
+    sh("xcrun", "simctl", "bootstatus", udid, "-b", check=False, quiet=True)
+    sh("xcrun", "simctl", "install", udid, app)
+    for service in ("location-always", "location"):
+        sh("xcrun", "simctl", "privacy", udid, "grant", service, bid, check=False)
+    seed(udid, bid)
 
 
 def launch(udid, bid, extra=()):

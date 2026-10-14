@@ -42,6 +42,8 @@ for i, (size, name, tid) in enumerate(sizes):
             for state in STATES:
                 for mode in (["light", "dark"] if state in ("home", "simulating") else ["light"]):
                     sh("xcrun", "simctl", "ui", udid, "appearance", mode, check=False, quiet=True)
+                    sh("xcrun", "simctl", "terminate", udid, bid, check=False, quiet=True)
+                    seed(udid, bid)
                     launch(udid, bid, ["-GpsSimDemo", state])
                     time.sleep(6)
                     p = "%s/%s_%s_%s%s.png" % (out, tag, state, mode, suffix)
@@ -58,11 +60,16 @@ for i, (size, name, tid) in enumerate(sizes):
                     break
         # Display Zoom can't be switched via simctl: emulate the 320 pt layouts with a demo launch arg
         # (needs the app to honour -GpsSimDemoWidth; harmless if it ignores it)
+        # plus the largest accessibility text size, so truncation and button growth show up
         if family == "iphone" and size in ("375x667", "390x844"):
-            for state in ("home", "edit"):
+            sh("xcrun", "simctl", "ui", udid, "content_size", "accessibility-extra-extra-extra-large", check=False)
+            for state in ("home", "edit", "simulating"):
+                sh("xcrun", "simctl", "terminate", udid, bid, check=False, quiet=True)
+                seed(udid, bid)
                 launch(udid, bid, ["-GpsSimDemo", state, "-GpsSimDemoWidth", "320"])
                 time.sleep(6)
-                sh("xcrun", "simctl", "io", udid, "screenshot", "%s/%s_%s_light_zoom320.png" % (out, tag, state), check=False, quiet=True)
+                sh("xcrun", "simctl", "io", udid, "screenshot", "%s/%s_%s_light_zoom320_axxxl.png" % (out, tag, state), check=False, quiet=True)
+            sh("xcrun", "simctl", "ui", udid, "content_size", "large", check=False)
     except Exception as e:  # one broken device must not kill the rest
         print("ERROR", tag, e, flush=True)
     finally:
