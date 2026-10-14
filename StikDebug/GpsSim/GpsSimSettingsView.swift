@@ -27,17 +27,42 @@ struct GpsSimSettingsView: View {
         return "GpsSim fork · 以 StikDebug \(v)（\(b)）為基底"
     }
 
+    /// 0...1 slider position <-> radius metres, snapped to 5 m.
+    private var radiusSliderPosition: Binding<Double> {
+        let range = GpsGeo.radiusRange
+        return Binding(
+            get: { ((defaultRadius - range.lowerBound) / (range.upperBound - range.lowerBound)).squareRoot() },
+            set: { position in
+                let metres = range.lowerBound + position * position * (range.upperBound - range.lowerBound)
+                defaultRadius = min(range.upperBound, max(range.lowerBound, (metres / 5).rounded() * 5))
+            }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("1. 手機連上 Wi-Fi（沒有 Wi-Fi 可試飛航模式，未確認）")
+                        Text("2. 打開 LocalDevVPN")
+                        Text("3. 回定位儀按「重試」")
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("連不上？")
+                }
+
+                Section {
                     HStack {
                         Text("預設半徑 \(Int(defaultRadius)) 公尺").monospacedDigit()
                         Spacer()
-                        Stepper("預設半徑", value: $defaultRadius, in: 5...1000, step: 5).labelsHidden()
+                        Stepper("預設半徑", value: $defaultRadius, in: GpsGeo.radiusRange, step: 5).labelsHidden()
                     }
-                    Slider(value: $defaultRadius, in: 5...1000, step: 5)
+                    // Square-root scale: fine control near 25 m, still reaches 5000 m.
+                    Slider(value: radiusSliderPosition, in: 0...1)
                         .accessibilityLabel("預設半徑")
+                        .accessibilityValue("\(Int(defaultRadius)) 公尺")
                 } header: {
                     Text("落點")
                 } footer: {
@@ -124,6 +149,7 @@ struct GpsSimSettingsView: View {
         .fullScreenCover(isPresented: $showAdvanced) {
             GpsSimAdvancedView()
         }
+        .gpsSimPadSheetSizing()
     }
 }
 

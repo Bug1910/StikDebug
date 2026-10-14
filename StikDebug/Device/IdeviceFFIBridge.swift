@@ -755,6 +755,19 @@ private enum LocationSimulationState {
     static var remoteServer: OpaquePointer?
     static var locationSimulation: OpaquePointer?
 
+    /// Frees only the location-simulation handle (and the remote server it owns), leaving the
+    /// RSD adapter + handshake, i.e. the live connection to the phone, open for the next send.
+    static func cleanupSimulationOnly() {
+        if let locationSimulation {
+            location_simulation_free(locationSimulation)
+            self.locationSimulation = nil
+        }
+        if let remoteServer {
+            remote_server_free(remoteServer)
+            self.remoteServer = nil
+        }
+    }
+
     static func cleanup() {
         if let locationSimulation {
             location_simulation_free(locationSimulation)
@@ -786,6 +799,16 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
             LocationSimulationState.cleanup()
         } else {
             return LocationSimulationStatus.ok
+        }
+    }
+
+    // After a clear we keep the adapter/handshake (the tunnel to the phone). Reuse it so a send
+    // after 停止 needs no new connection (on cellular a new one only works via the airplane trick).
+    // If the reused connection is dead, drop everything and fall through to a fresh connect.
+    if LocationSimulationState.adapter != nil, LocationSimulationState.handshake != nil {
+        if let reusedStatus = openSimulation(latitude, longitude) {
+            if reusedStatus == LocationSimulationStatus.ok { return reusedStatus }
+            LocationSimulationState.cleanup()
         }
     }
 
@@ -832,6 +855,15 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
         return LocationSimulationStatus.providerCreate
     }
 
+    let status = openSimulation(latitude, longitude) ?? LocationSimulationStatus.remoteServer
+    if status != LocationSimulationStatus.ok { LocationSimulationState.cleanup() }
+    return status
+}
+
+/// Opens a remote-server + location-simulation on the existing adapter/handshake and sets the point.
+/// Returns the status code (nil only if there is no adapter/handshake to use).
+private func openSimulation(_ latitude: Double, _ longitude: Double) -> Int32? {
+    guard LocationSimulationState.adapter != nil, LocationSimulationState.handshake != nil else { return nil }
     let remoteServerError = remote_server_connect_rsd(
         LocationSimulationState.adapter,
         LocationSimulationState.handshake,
@@ -839,7 +871,6 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     )
     if let remoteServerError {
         idevice_error_free(remoteServerError)
-        LocationSimulationState.cleanup()
         return LocationSimulationStatus.remoteServer
     }
 
@@ -849,7 +880,7 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     )
     if let locationSimulationError {
         idevice_error_free(locationSimulationError)
-        LocationSimulationState.cleanup()
+        LocationSimulationState.cleanupSimulationOnly()
         return LocationSimulationStatus.locationSimulation
     }
 
@@ -862,7 +893,7 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     )
     if let locationSetError {
         idevice_error_free(locationSetError)
-        LocationSimulationState.cleanup()
+        LocationSimulationState.cleanupSimulationOnly()
         return LocationSimulationStatus.locationSet
     }
 
@@ -875,7 +906,8 @@ func clear_simulated_location() -> Int32 {
     }
 
     let ffiError = location_simulation_clear(locationSimulation)
-    LocationSimulationState.cleanup()
+    // Only the simulation handle goes away; the adapter/handshake (tunnel) stays for the next send.
+    LocationSimulationState.cleanupSimulationOnly()
 
     if let ffiError {
         idevice_error_free(ffiError)

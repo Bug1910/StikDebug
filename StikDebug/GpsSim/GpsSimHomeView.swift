@@ -70,7 +70,10 @@ private struct GpsToast: Identifiable {
 /// (works whatever shape GpsGeo.parseCoordinate has).
 private enum GpsCoordinateInput {
     case valid(CLLocationCoordinate2D)
-    case outOfRange
+    /// `swapped` is the lat/lon-reversed pair when that would be valid (the UI can offer 「對調」).
+    case outOfRange(swapped: CLLocationCoordinate2D?)
+    /// Two parts where one is a number and the other is not; never sent to MKLocalSearch.
+    case malformed(String)
     case notCoordinate
 
     static func parse(_ text: String) -> GpsCoordinateInput {
@@ -82,10 +85,18 @@ private enum GpsCoordinateInput {
             .split(whereSeparator: { $0 == "," || $0 == " " })
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        guard parts.count == 2, let lat = Double(parts[0]), let lon = Double(parts[1]) else {
-            return .notCoordinate
+        guard parts.count == 2 else { return .notCoordinate }
+        let first = Double(parts[0])
+        let second = Double(parts[1])
+        guard let lat = first, let lon = second else {
+            if first == nil && second == nil { return .notCoordinate }
+            let which = first == nil ? "緯度" : "經度"
+            return .malformed("座標格式不對：\(which)不是數字（範例：24.1443, 120.6851）")
         }
-        guard (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else { return .outOfRange }
+        guard (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else {
+            let swappedValid = (-90.0...90.0).contains(lon) && (-180.0...180.0).contains(lat)
+            return .outOfRange(swapped: swappedValid ? CLLocationCoordinate2D(latitude: lon, longitude: lat) : nil)
+        }
         return .valid(CLLocationCoordinate2D(latitude: lat, longitude: lon))
     }
 }
@@ -108,6 +119,8 @@ struct GpsSimHomeView: View {
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
     @State private var searchMessage: String?
+    /// Lat/lon swapped version of an out-of-range paste, offered via the 「對調」 button.
+    @State private var swappedSuggestion: CLLocationCoordinate2D?
     @State private var editing: GpsPlace?
     @State private var showHidden = false
     @State private var showSettings = false
@@ -144,6 +157,8 @@ struct GpsSimHomeView: View {
     /// Device chain not ready: rows show orange "先打開 LocalDevVPN" instead of the normal subtitle.
     private var deviceNotReady: Bool { !demoReady && (!tunnel.isConnected || !mounting.coolisMounted) }
     private var deviceHint: String {
+        if isConnecting { return "連線中…" }
+        if !tunnel.isConnected && engine.activeName != nil { return GpsSimNetwork.disconnectedHint }
         network.onWiFi ? network.deviceHint(tunnelConnected: tunnel.isConnected) : "先連上 Wi-Fi"
     }
     private var demoIsError: Bool {
@@ -188,6 +203,9 @@ struct GpsSimHomeView: View {
                     .frame(minHeight: 200, maxHeight: .infinity)
                     .layoutPriority(1)
                 placesPanel
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if isSimulating { simulatingBar }
+                    }
                     .frame(height: max(120, min(geo.size.height * 0.40, geo.size.height - topHeight - 200)))
             }
         }
@@ -195,7 +213,7 @@ struct GpsSimHomeView: View {
         .background(GpsTheme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(GpsTheme.mint)
-        .overlay(alignment: .bottom) { toastView.padding(.bottom, 12) }
+        .overlay(alignment: .bottom) { toastView.padding(.bottom, isSimulating ? 66 : 12) }
         .onPreferenceChange(GpsTopHeightKey.self) { topHeight = $0 }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
@@ -239,6 +257,9 @@ struct GpsSimHomeView: View {
                 onSave: { store.upsert($0) },
                 onDelete: { deletePlace($0) }
             )
+            // A sheet is its own presentation: the root's .preferredColorScheme does not reach it,
+            // so in light system appearance it came up white-on-white.
+            .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showSettings, onDismiss: { refreshFromDisk(startTunnel: true) }) {
             GpsSimSettingsView(onImportPlaces: {
@@ -246,6 +267,7 @@ struct GpsSimHomeView: View {
                 // Let the settings sheet finish dismissing before presenting the picker.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showPlacesImporter = true }
             })
+            .preferredColorScheme(.dark)
         }
         .fileImporter(isPresented: $showPlacesImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
             importPlaces(result)
@@ -275,6 +297,7 @@ struct GpsSimHomeView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("設定")
+            .accessibilityIdentifier("btn.settings")
         }
         .padding(.horizontal, 12)
         .padding(.top, 2)
@@ -299,10 +322,16 @@ struct GpsSimHomeView: View {
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
         .gpsChrome(Capsule(), stroke: isSimulating ? GpsTheme.mint.opacity(0.6) : GpsTheme.line)
+        .contentShape(Capsule())
+        .accessibilityValue(statusText)
+        .onTapGesture {
+            if !isSimulating { showToast("目前沒有在模擬，點下面的地點就會開始", autoClear: true) }
+        }
         .accessibilityElement(children: .combine)
     }
 
     private var statusText: String {
+        if let note = engine.statusNote { return note }
         if isSimulating {
             let name = engine.activeName ?? "外部連結的位置"
             if let center = engine.activeCenter, let cur = simulatedPoint {
@@ -316,29 +345,52 @@ struct GpsSimHomeView: View {
         return "真實位置"
     }
 
-    // MARK: - Floating stop (overlay on the map, only while simulating: nothing shifts)
+    // MARK: - Bottom action bar (only while simulating; an inset of the list panel, so nothing above moves)
 
-    private var floatingStop: some View {
-        Button {
-            clearToast()
-            engine.stop()
-        } label: {
-            Text("停止模擬")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 36)
-                .background(GpsTheme.red, in: Capsule())
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+    private var showsBackButton: Bool { engine.previous != nil || Self.demoState == "simulating" }
+
+    private var simulatingBar: some View {
+        HStack(spacing: 8) {
+            if showsBackButton {
+                Button {
+                    clearToast()
+                    engine.undoLastSend()
+                } label: {
+                    Text("回上一個")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .foregroundStyle(GpsTheme.mint)
+                        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(GpsTheme.mint.opacity(0.6), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .disabled(engine.isBusy)
+                .accessibilityIdentifier("btn.back")
+                .accessibilityHint("回到上一個定位")
+            }
+            Button {
+                clearToast()
+                engine.stop()
+            } label: {
+                Text("停止模擬")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .foregroundStyle(.white)
+                    .background(GpsTheme.red, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .layoutPriority(1)
+            .frame(maxWidth: .infinity)
+            .disabled(engine.isBusy)
+            .accessibilityIdentifier("btn.stop")
+            .accessibilityHint("讓手機回到真實位置")
         }
-        .buttonStyle(.plain)
-        .disabled(engine.isBusy)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
-        .accessibilityHint("讓手機回到真實位置")
-        .padding(.trailing, 12)
-        // Sits above the candidate card when one is showing.
-        .padding(.bottom, candidate == nil ? 6 : 100)
+        .background(GpsTheme.background)
     }
 
     // MARK: - Search
@@ -352,12 +404,15 @@ struct GpsSimHomeView: View {
                 .submitLabel(.search)
                 .focused($searchFocused)
                 .onSubmit(runSearch)
+                .accessibilityLabel("搜尋地點")
+                .accessibilityIdentifier("search.field")
             if isSearching { ProgressView() }
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
                     searchResults = []
                     searchMessage = nil
+                    swappedSuggestion = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(GpsTheme.sub)
@@ -378,13 +433,19 @@ struct GpsSimHomeView: View {
         guard !q.isEmpty else { return }
         clearToast()
         searchMessage = nil
+        swappedSuggestion = nil
         switch GpsCoordinateInput.parse(q) {
         case .valid(let c):
             searchResults = []
             setCandidate(c, title: String(format: "%.6f, %.6f", c.latitude, c.longitude))
             searchFocused = false
             return
-        case .outOfRange:
+        case .malformed(let reason):
+            searchResults = []
+            searchMessage = reason
+            return
+        case .outOfRange(let swapped):
+            swappedSuggestion = swapped
             searchResults = []
             searchMessage = "座標超出範圍：緯度要在 -90～90、經度要在 -180～180，請檢查有沒有填反。"
             return
@@ -441,7 +502,7 @@ struct GpsSimHomeView: View {
                         .tag(p.id)
                 }
                 if let c = candidate, c.place == nil {
-                    Marker("候選位置", systemImage: "mappin", coordinate: c.coordinate)
+                    Marker(c.title, coordinate: c.coordinate)
                         .tint(GpsTheme.mint)
                 }
                 if let point = simulatedPoint, isSimulating {
@@ -457,6 +518,8 @@ struct GpsSimHomeView: View {
                 }
             }
             .mapStyle(.standard)
+            // Circles, pins and the blue dot are duplicates of the list for VoiceOver: places are read once there.
+            .accessibilityHidden(true)
             .onMapCameraChange { context in
                 mapCenter = context.region.center
             }
@@ -476,9 +539,6 @@ struct GpsSimHomeView: View {
                     )
                 }
             }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if isSimulating { floatingStop }
         }
         .overlay(alignment: .bottom) {
             if let c = candidate {
@@ -558,11 +618,28 @@ struct GpsSimHomeView: View {
                 GpsBannerRow(banner: b).listRowStyle()
             }
             if let msg = searchMessage {
-                Text(msg)
-                    .font(.subheadline)
-                    .foregroundStyle(GpsTheme.sub)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .listRowStyle()
+                HStack(spacing: 8) {
+                    Text(msg)
+                        .font(.subheadline)
+                        .foregroundStyle(GpsTheme.sub)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let swapped = swappedSuggestion {
+                        Button {
+                            swappedSuggestion = nil
+                            searchMessage = nil
+                            setCandidate(swapped, title: String(format: "%.6f, %.6f", swapped.latitude, swapped.longitude))
+                        } label: {
+                            Text("對調")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .frame(minHeight: 44)
+                                .foregroundStyle(GpsTheme.mint)
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(GpsTheme.mint, lineWidth: 1.5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .listRowStyle()
             }
             ForEach(searchResults, id: \.self) { item in
                 searchRow(item).listRowStyle()
@@ -676,12 +753,14 @@ struct GpsSimHomeView: View {
     }
 
     private func placeRow(_ p: GpsPlace) -> some View {
-        let active = engine.activePlaceID == p.id && isSimulating
+        // engine.activePlaceID is set by send(place:); the demo state has no place id, so fake the first row.
+        let active = (engine.activePlaceID == p.id && isSimulating)
+            || (Self.demoState == "simulating" && p.id == visiblePlaces.first?.id)
         var parts: [String] = []
         if let county = p.county { parts.append(county) }
         parts.append("半徑 \(Int(GpsGeo.radius(of: p).rounded())) m")
-        let subtitle = parts.joined(separator: " · ")
-        return HStack(spacing: 0) {
+        let subtitle = active ? "模擬中" : parts.joined(separator: " · ")
+        return HStack(spacing: 10) {
             Button {
                 clearToast()
                 searchFocused = false
@@ -724,6 +803,7 @@ struct GpsSimHomeView: View {
             .disabled(engine.isBusy)
             .accessibilityLabel(deviceNotReady ? "\(p.name)，\(deviceHint)" : "\(p.name)，\(subtitle)")
             .accessibilityHint("點一下就把手機定位傳到這裡")
+            .accessibilityIdentifier("place.row.\(p.id)")
 
             Button {
                 editing = p
@@ -736,6 +816,7 @@ struct GpsSimHomeView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("編輯\(p.name)")
+            .accessibilityIdentifier("place.edit.\(p.id)")
         }
         .contextMenu {
             Button {
@@ -789,7 +870,7 @@ struct GpsSimHomeView: View {
                     .lineLimit(1)
                 if c.title != coords {
                     Text(coords)
-                        .font(.caption.monospacedDigit())
+                        .font(.caption2.monospacedDigit())
                         .foregroundStyle(GpsTheme.sub)
                         .lineLimit(1)
                         .textSelection(.enabled)
@@ -876,16 +957,16 @@ struct GpsSimHomeView: View {
             list.append(GpsBanner(
                 id: "pairing", color: GpsTheme.red,
                 title: "還沒有配對檔",
-                detail: "請在電腦上用 iloader（電腦上的簽名工具）放配對檔，放好後按「重新檢查」。",
-                buttonTitle: "重新檢查",
-                action: { refreshFromDisk(startTunnel: true) }
+                detail: "請到「設定 › 匯入配對檔」放入配對檔（檔案在電腦上用 iloader 簽名工具產生）。",
+                buttonTitle: "去設定",
+                action: { showSettings = true }
             ))
         } else if !demoReady && !tunnel.isConnected {
             if tunnelGraceOver {
                 list.append(GpsBanner(
                     id: "tunnel", color: GpsTheme.orange,
                     title: network.onWiFi ? "連不到手機" : GpsSimNetwork.noWifiTitle,
-                    detail: network.onWiFi ? GpsSimNetwork.checkVPNMessage : GpsSimNetwork.noWifiMessage,
+                    detail: engine.activeName != nil ? GpsSimNetwork.disconnectedHint : (network.onWiFi ? GpsSimNetwork.checkVPNMessage : GpsSimNetwork.noWifiMessage),
                     buttonTitle: "重試",
                     action: { retryTunnel() }
                 ))
@@ -899,7 +980,7 @@ struct GpsSimHomeView: View {
                 action: { mountDDI() }
             ))
         }
-        if let issue = engine.issue {
+        if let issue = engine.issue, engine.activeName == nil {
             var banner = GpsBanner(
                 id: "issue", color: GpsTheme.red,
                 title: "定位沒有送出",
@@ -1025,7 +1106,7 @@ struct GpsSimHomeView: View {
                 searchText = "台北"
                 runSearch()
             case "undoToast":
-                showToast("已刪除「\(first?.name ?? "台北101")」", actionTitle: "復原", action: {}, autoClear: false)
+                if let p = first { deletePlace(p) }
             case "errorNoWifi":
                 engine.applyDemoIssue(noWifi: true)
             case "errorVPN":
@@ -1110,7 +1191,7 @@ private struct GpsBannerRow: View {
     let banner: GpsBanner
     @State private var expanded = false
     /// Error causes are shown inline; only device-setup banners use the chevron.
-    private var showsDetailInline: Bool { banner.id == "issue" || banner.id == "file" }
+    private var showsDetailInline: Bool { banner.id == "issue" || banner.id == "file" || banner.id == "pairing" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -1174,6 +1255,16 @@ private struct GpsBannerRow: View {
 }
 
 private extension View {
+    /// iPad (regular width) gets engineer C's sizing; iPhone keeps medium/large detents.
+    @ViewBuilder
+    func editSheetSizing(regular: Bool) -> some View {
+        if regular {
+            self.gpsSimPadSheetSizing()
+        } else {
+            self.presentationDetents([.medium, .large])
+        }
+    }
+
     /// Pill / gear background: Liquid Glass on iOS 26, the dark card material before that.
     /// Applied in place (chrome is not floated over the map; keeps the layout math simple).
     @ViewBuilder
@@ -1214,6 +1305,7 @@ struct GpsPlaceEditSheet: View {
     let onDelete: (GpsPlace) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private let original: GpsPlace
     @State private var draft: GpsPlace
     @State private var useDefaultRadius: Bool
@@ -1324,6 +1416,6 @@ struct GpsPlaceEditSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .editSheetSizing(regular: sizeClass == .regular)
     }
 }

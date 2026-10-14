@@ -22,8 +22,9 @@ final class GpsSimNetwork: ObservableObject {
     static let shared = GpsSimNetwork()
 
     nonisolated static let noWifiTitle = "沒有連上 Wi-Fi"
-    nonisolated static let noWifiMessage = "沒有連上 Wi-Fi：定位儀要連 Wi-Fi 才能改定位（LocalDevVPN 開著也一樣）"
-    nonisolated static let checkVPNMessage = "請確認 LocalDevVPN 已連線"
+    nonisolated static let noWifiMessage = "目前沒有 Wi-Fi，定位儀改不了定位（LocalDevVPN 開著也一樣）。可以試試：先開 LocalDevVPN，再開飛航模式；這招還沒確認有效，沒用就要找 Wi-Fi。"
+    nonisolated static let disconnectedHint = "連線中斷了：用「定位儀連線」捷徑（或 開飛航→開 Wi-Fi→重試→關飛航）重新連上"
+    nonisolated static let checkVPNMessage = "LocalDevVPN 開著還是連不到：請把它關掉再打開，然後按「重試」。"
 
     @Published private(set) var onWiFi = true
     /// A utun interface holding a 10.7.0.x address was seen (LocalDevVPN's range). Used only as a
@@ -140,8 +141,16 @@ final class GpsSimEngine: ObservableObject {
     @Published private(set) var previous: GpsSendTarget?
     /// Last time the device accepted a point (first send or a 4 s resend).
     @Published var lastSendSucceeded: Date?
+    /// The tunnel/connection dropped after a successful send (e.g. airplane mode). The phone is
+    /// still simulated, so this is NOT an error and not "真實位置".
+    @Published private(set) var connectionLost = false
+    /// Last target sent in a previous launch (UserDefaults); only shown while nothing is active.
+    @Published private(set) var staleTarget: GpsSendTarget?
     @Published var issue: GpsSimIssue?
     @Published var toast: String?
+
+    /// Completion code meaning "another send/stop was already running" (not a device status code).
+    static let busyCode: Int32 = -100
 
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private var failStreak = 0
@@ -149,7 +158,37 @@ final class GpsSimEngine: ObservableObject {
     private var sessionPairingPath: String?
     private var sessionIP: String?
 
-    private init() { _ = GpsSimNetwork.shared }
+    private static let lastTargetKey = "gpssimLastTarget"
+
+    private init() {
+        _ = GpsSimNetwork.shared
+        if let d = UserDefaults.standard.dictionary(forKey: Self.lastTargetKey),
+           let name = d["name"] as? String, let lat = d["lat"] as? Double, let lon = d["lon"] as? Double {
+            staleTarget = GpsSendTarget(name: name, placeID: d["placeID"] as? String,
+                                        coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+        }
+    }
+
+    /// UI hook: text for the status pill when it is not the plain 「模擬中」 / 「真實位置」, else nil.
+    ///  - connection dropped while active: 「已定位：<name>（連線已中斷，定位仍保留）」
+    ///  - nothing active but a persisted target: 「上次定位：<name>（可能仍在作用中）」
+    var statusNote: String? {
+        if let name = activeName, connectionLost { return "已定位：\(name)（連線已中斷，定位仍保留）" }
+        if activeName == nil, let stale = staleTarget { return "上次定位：\(stale.name)（可能仍在作用中）" }
+        return nil
+    }
+
+    private func persistLastTarget(name: String, placeID: String?, coordinate: CLLocationCoordinate2D) {
+        var d: [String: Any] = ["name": name, "lat": coordinate.latitude, "lon": coordinate.longitude]
+        if let placeID { d["placeID"] = placeID }
+        UserDefaults.standard.set(d, forKey: Self.lastTargetKey)
+        staleTarget = GpsSendTarget(name: name, placeID: placeID, coordinate: coordinate)
+    }
+
+    private func clearLastTarget() {
+        UserDefaults.standard.removeObject(forKey: Self.lastTargetKey)
+        staleTarget = nil
+    }
 
     /// Screenshot-only: `-GpsSimDemo errorNoWifi` / `errorVPN` — sets the matching error without touching the device.
     func applyDemoIssue(noWifi: Bool) {
@@ -159,12 +198,20 @@ final class GpsSimEngine: ObservableObject {
 
     /// Screenshot-only: pretends a simulation is running (`-GpsSimDemo simulating`).
     /// Sets published state only: no device, DVT or StikDebug calls, no timer.
-    func applyDemoSimulation(name: String, coordinate: CLLocationCoordinate2D) {
+    /// The landing sits `landingOffsetMeters` from the centre (north 60 % / east 80 %), so the
+    /// status line's 「離圓心 N 公尺」 is a real, non-zero distance.
+    func applyDemoSimulation(name: String, coordinate: CLLocationCoordinate2D, landingOffsetMeters: Double = 18) {
+        let north = landingOffsetMeters * 0.6
+        let east = landingOffsetMeters * 0.8
+        let landed = CLLocationCoordinate2D(
+            latitude: coordinate.latitude + north / 111_320,
+            longitude: coordinate.longitude + east / (111_320 * cos(coordinate.latitude * Double.pi / 180))
+        )
         activeName = name
         activePlaceID = nil
         activeCenter = coordinate
-        landing = coordinate
-        current = coordinate
+        landing = landed
+        current = landed
     }
 
     static var pairingFilePath: String { PairingFileStore.prepareURL().path }
@@ -191,11 +238,13 @@ final class GpsSimEngine: ObservableObject {
 
     /// Send an exact coordinate (map tap / search result / external link / place landing).
     func send(to coordinate: CLLocationCoordinate2D, name: String,
-              center: CLLocationCoordinate2D? = nil, placeID: String? = nil) {
-        guard !isBusy else { return }
+              center: CLLocationCoordinate2D? = nil, placeID: String? = nil,
+              completion: ((Int32) -> Void)? = nil) {
+        guard !isBusy else { completion?(Self.busyCode); return }
         let path = Self.pairingFilePath
         guard FileManager.default.fileExists(atPath: path) else {
             issue = GpsSimIssue(kind: .pairing, message: "還沒有配對檔。請在電腦上用 iloader 放配對檔。")
+            completion?(2)
             return
         }
         isBusy = true
@@ -213,10 +262,13 @@ final class GpsSimEngine: ObservableObject {
                     // The earlier simulation is still on the phone; keep it alive.
                     if let landing = self.landing { self.startTimer(at: landing) }
                     Haptics.light()
+                    completion?(code)
                     return
                 }
                 self.issue = nil
                 self.failStreak = 0
+                self.connectionLost = false
+                self.persistLastTarget(name: name, placeID: placeID, coordinate: coordinate)
                 self.sessionPairingPath = path
                 self.sessionIP = ip
                 self.previous = before
@@ -230,6 +282,7 @@ final class GpsSimEngine: ObservableObject {
                 LocationSimulationSession.shared.clearRoute()
                 self.startTimer(at: coordinate)
                 Haptics.medium()
+                completion?(0)
             }
         }
     }
@@ -267,6 +320,7 @@ final class GpsSimEngine: ObservableObject {
             Task { @MainActor in
                 if code == 0 {
                     self.failStreak = 0
+                    self.connectionLost = false
                     self.lastSendSucceeded = Date()
                     return
                 }
@@ -274,7 +328,13 @@ final class GpsSimEngine: ObservableObject {
                 // pretending the blue dot is still being delivered.
                 self.failStreak += 1
                 if self.failStreak == 3 {
-                    self.issue = GpsSimIssue.from(code: code)
+                    if (code == 3 || code == 9) && self.activeName != nil {
+                        // Real disconnect (airplane mode, VPN off): the phone keeps the fake
+                        // location, so say that instead of an error banner or 真實位置.
+                        self.connectionLost = true
+                    } else {
+                        self.issue = GpsSimIssue.from(code: code)
+                    }
                 }
             }
         }
@@ -282,8 +342,8 @@ final class GpsSimEngine: ObservableObject {
 
     /// 停止模擬: stop the timer first so no resend can re-enable simulation after the clear.
     /// The UI is only reset when the phone confirmed (code 0); otherwise the stop button stays.
-    func stop() {
-        guard !isBusy else { return }
+    func stop(completion: ((Int32) -> Void)? = nil) {
+        guard !isBusy else { completion?(Self.busyCode); return }
         isBusy = true
         LocationSimulationSession.shared.pauseResending()
         LocationSimulationSession.shared.clearRoute()
@@ -307,8 +367,11 @@ final class GpsSimEngine: ObservableObject {
                     self.issue = GpsSimIssue.from(code: finalCode)
                     if let landing = self.landing { self.startTimer(at: landing) }
                     Haptics.light()
+                    completion?(finalCode)
                     return
                 }
+                self.clearLastTarget()
+                self.connectionLost = false
                 self.issue = nil
                 self.toast = "已回到真實位置"
                 self.previous = self.activeTarget
@@ -320,6 +383,7 @@ final class GpsSimEngine: ObservableObject {
                 self.failStreak = 0
                 LocationSimulationSession.shared.stop()
                 self.endBackgroundTask()
+                completion?(0)
             }
         }
     }

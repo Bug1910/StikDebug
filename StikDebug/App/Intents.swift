@@ -291,6 +291,25 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             shortTitle: "Kill Process",
             systemImageName: "xmark.circle.fill"
         )
+        // GpsSim fork intents (GpsSim/GpsSimIntents.swift); an app may have only one provider.
+        AppShortcut(
+            intent: ConnectIntent(),
+            phrases: ["\(.applicationName)連線", "用\(.applicationName)連線"],
+            shortTitle: "定位儀連線",
+            systemImageName: "location.fill"
+        )
+        AppShortcut(
+            intent: SendToPlaceIntent(),
+            phrases: ["用\(.applicationName)定位到\(\.$place)", "\(.applicationName)定位到\(\.$place)"],
+            shortTitle: "定位到地點",
+            systemImageName: "location.fill"
+        )
+        AppShortcut(
+            intent: StopSimulationIntent(),
+            phrases: ["\(.applicationName)停止定位", "用\(.applicationName)停止定位"],
+            shortTitle: "停止定位",
+            systemImageName: "location.fill"
+        )
     }
 }
 

@@ -112,6 +112,8 @@ enum GpsGeo {
     static let driftKey = "gpssimDrift"
     /// Drift radius around the landing point (web: JITTER = 4).
     static let jitter = 4.0
+    /// Allowed radius for the default-radius setting (metres); web tool allows large radii too.
+    static let radiusRange: ClosedRange<Double> = 5...5000
 
     static var defaultRadius: Double {
         let v = UserDefaults.standard.double(forKey: defaultRadiusKey)
