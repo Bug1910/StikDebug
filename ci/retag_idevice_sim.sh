@@ -4,6 +4,7 @@
 # arm64 device and arm64 simulator code are the same instructions; only the Mach-O platform tag differs.
 # This rewrites the tag on every object inside the archive (in the CI workspace copy only; never committed).
 set -euo pipefail
+REPO="$(pwd)"
 LIB="${1:-StikDebug/idevice/libidevice_ffi.a}"
 LIB="$(cd "$(dirname "$LIB")" && pwd)/$(basename "$LIB")"
 W="$(mktemp -d)"
@@ -12,13 +13,7 @@ cd "$W"
 mkdir objs && cd objs
 ar -t ../orig.a | sort | uniq -d | sed 's/^/WARNING duplicate member name: /' || true
 ar -x ../orig.a
-n=0
-for o in *.o; do
-  xcrun vtool -set-build-version iossim 17.4 17.4 -replace -output "$o.new" "$o" >/dev/null
-  mv "$o.new" "$o"
-  n=$((n+1))
-done
-echo "retagged $n objects"
+python3 "$REPO/ci/retag_objs.py" *.o
 rm -f ../new.a
 ar crs ../new.a *.o
 cp ../new.a "$LIB"
