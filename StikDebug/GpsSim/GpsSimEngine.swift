@@ -40,6 +40,14 @@ struct GpsSimIssue: Equatable {
     }
 }
 
+/// Where a send put the blue dot; used for "回上一個" (undo).
+struct GpsSendTarget {
+    let name: String
+    let placeID: String?
+    let coordinate: CLLocationCoordinate2D
+}
+
+@MainActor
 final class GpsSimEngine: ObservableObject {
     static let shared = GpsSimEngine()
 
@@ -54,11 +62,18 @@ final class GpsSimEngine: ObservableObject {
     @Published private(set) var landing: CLLocationCoordinate2D?
     /// Point most recently sent to the device (landing or a drift step).
     @Published private(set) var current: CLLocationCoordinate2D?
+    /// What was active before the latest send/stop; nil = the real location.
+    @Published private(set) var previous: GpsSendTarget?
+    /// Last time the device accepted a point (first send or a 4 s resend).
+    @Published var lastSendSucceeded: Date?
     @Published var issue: GpsSimIssue?
     @Published var toast: String?
 
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private var failStreak = 0
+    /// Resolved once per send() so the 4 s resend ticks do no disk work (prepareURL touches the file system).
+    private var sessionPairingPath: String?
+    private var sessionIP: String?
 
     private init() {}
 
@@ -72,64 +87,97 @@ final class GpsSimEngine: ObservableObject {
         UserDefaults.standard.object(forKey: GpsGeo.driftKey) as? Bool ?? true
     }
 
-    /// One tap on a place: random landing inside its circle (union with overlapping circles).
-    func send(place: GpsPlace, among all: [GpsPlace]) {
-        let pt = GpsGeo.sampleLanding(place, among: all)
-        send(to: pt, name: place.name, center: place.coordinate, placeID: place.id)
+    /// What is being simulated right now (nil = real location).
+    private var activeTarget: GpsSendTarget? {
+        guard let name = activeName, let point = landing else { return nil }
+        return GpsSendTarget(name: name, placeID: activePlaceID, coordinate: point)
     }
 
-    /// Send an exact coordinate (map tap / search result / place landing).
+    /// One tap on a place: random landing inside its circle (union with overlapping circles).
+    func send(place: GpsPlace) {
+        let point = GpsGeo.sampleLanding(place, among: GpsPlaceStore.shared.places)
+        send(to: point, name: place.name, center: place.coordinate, placeID: place.id)
+    }
+
+    /// Send an exact coordinate (map tap / search result / external link / place landing).
     func send(to coordinate: CLLocationCoordinate2D, name: String,
               center: CLLocationCoordinate2D? = nil, placeID: String? = nil) {
         guard !isBusy else { return }
-        guard Self.pairingExists else {
+        let path = Self.pairingFilePath
+        guard FileManager.default.fileExists(atPath: path) else {
             issue = GpsSimIssue(kind: .pairing, message: "還沒有配對檔。請在電腦上用 iloader 放配對檔。")
             return
         }
         isBusy = true
-        let path = Self.pairingFilePath
+        // The old 4 s timer would otherwise fire during this send and could pull the dot back
+        // to the previous place after the new one landed.
+        LocationSimulationSession.shared.pauseResending()
         let ip = DeviceConnectionContext.targetIPAddress
+        let before = activeTarget
         LocationSimulationCommandQueue.shared.async {
             let code = simulate_location(ip, coordinate.latitude, coordinate.longitude, path)
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.isBusy = false
                 guard code == 0 else {
                     self.issue = GpsSimIssue.from(code: code)
+                    // The earlier simulation is still on the phone; keep it alive.
+                    if let landing = self.landing { self.startTimer(at: landing) }
                     Haptics.light()
                     return
                 }
                 self.issue = nil
                 self.failStreak = 0
+                self.sessionPairingPath = path
+                self.sessionIP = ip
+                self.previous = before
                 self.activeName = name
                 self.activePlaceID = placeID
                 self.activeCenter = center
                 self.landing = coordinate
                 self.current = coordinate
+                self.lastSendSucceeded = Date()
                 self.beginBackgroundTask()
                 LocationSimulationSession.shared.clearRoute()
-                // Same 4 s keep-alive timer StikDebug uses (MapSelectionView.startResendLoop),
-                // but each tick picks a fresh point within 4 m of the landing.
-                LocationSimulationSession.shared.startResending(at: coordinate) { [weak self] in
-                    self?.resendTick()
-                }
+                self.startTimer(at: coordinate)
                 Haptics.medium()
             }
         }
     }
 
-    /// Runs on the main run loop (LocationSimulationSession's Timer).
+    /// Go back to what was active before the last send: re-send it exactly, or stop if that was the real location.
+    func undoLastSend() {
+        guard !isBusy else { return }
+        guard let target = previous else {
+            stop()
+            return
+        }
+        let center = target.placeID.flatMap { id in
+            GpsPlaceStore.shared.places.first(where: { $0.id == id })?.coordinate
+        }
+        send(to: target.coordinate, name: target.name, center: center, placeID: target.placeID)
+    }
+
+    /// Same 4 s keep-alive timer StikDebug uses (MapSelectionView.startResendLoop),
+    /// but each tick picks a fresh point within 4 m of the landing.
+    private func startTimer(at coordinate: CLLocationCoordinate2D) {
+        LocationSimulationSession.shared.startResending(at: coordinate) { [weak self] in
+            // Hop explicitly: the session's closure is not main-actor typed. A tick that lands
+            // after stop() sees landing == nil and does nothing.
+            Task { @MainActor in self?.resendTick() }
+        }
+    }
+
     private func resendTick() {
-        guard let landing else { return }
+        guard !isBusy, let landing, let path = sessionPairingPath, let ip = sessionIP else { return }
         let next = driftEnabled ? GpsGeo.offset(landing.latitude, landing.longitude, GpsGeo.jitter) : landing
         current = next
         LocationSimulationSession.shared.updateCoordinate(next)
-        let path = Self.pairingFilePath
-        let ip = DeviceConnectionContext.targetIPAddress
         LocationSimulationCommandQueue.shared.async {
             let code = simulate_location(ip, next.latitude, next.longitude, path)
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if code == 0 {
                     self.failStreak = 0
+                    self.lastSendSucceeded = Date()
                     return
                 }
                 // Like the web tool: after 3 failures in a row, say so instead of
@@ -143,28 +191,43 @@ final class GpsSimEngine: ObservableObject {
     }
 
     /// 停止模擬: stop the timer first so no resend can re-enable simulation after the clear.
+    /// The UI is only reset when the phone confirmed (code 0); otherwise the stop button stays.
     func stop() {
         guard !isBusy else { return }
         isBusy = true
         LocationSimulationSession.shared.pauseResending()
         LocationSimulationSession.shared.clearRoute()
+        let reopenPoint = current ?? landing
+        let path = sessionPairingPath ?? Self.pairingFilePath
+        let ip = sessionIP ?? DeviceConnectionContext.targetIPAddress
         LocationSimulationCommandQueue.shared.async {
-            let code = clear_simulated_location()
-            DispatchQueue.main.async {
+            var code = clear_simulated_location()
+            // Code 12 = this process has no open simulation handle (e.g. the connection was
+            // dropped). Re-send the current point once to reopen it, then clear for real.
+            if code == 12, let point = reopenPoint {
+                let reopened = simulate_location(ip, point.latitude, point.longitude, path)
+                code = reopened == 0 ? clear_simulated_location() : reopened
+            }
+            let finalCode = code
+            let nothingToStop = reopenPoint == nil
+            Task { @MainActor in
                 self.isBusy = false
-                // Code 12 also means "no open simulation handle in this process" (nothing of
-                // ours to clear; the service connection is already gone), so treat it as done.
-                if code == 0 || code == 12 {
-                    self.issue = nil
-                    self.toast = "已回到真實位置"
-                } else {
-                    self.issue = GpsSimIssue.from(code: code)
+                // With no point of ours at all, 12 just means "nothing simulated by us".
+                guard finalCode == 0 || (finalCode == 12 && nothingToStop) else {
+                    self.issue = GpsSimIssue.from(code: finalCode)
+                    if let landing = self.landing { self.startTimer(at: landing) }
+                    Haptics.light()
+                    return
                 }
+                self.issue = nil
+                self.toast = "已回到真實位置"
+                self.previous = self.activeTarget
                 self.activeName = nil
                 self.activePlaceID = nil
                 self.activeCenter = nil
                 self.landing = nil
                 self.current = nil
+                self.failStreak = 0
                 LocationSimulationSession.shared.stop()
                 self.endBackgroundTask()
             }
@@ -174,7 +237,7 @@ final class GpsSimEngine: ObservableObject {
     private func beginBackgroundTask() {
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask { [weak self] in
-            self?.endBackgroundTask()
+            Task { @MainActor in self?.endBackgroundTask() }
         }
     }
 

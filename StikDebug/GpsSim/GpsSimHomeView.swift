@@ -2,8 +2,11 @@
 //  GpsSimHomeView.swift
 //  StikDebug (GpsSim fork)
 //
-//  The app's root screen: status pill, map with place circles, search, place list.
-//  One tap on a place = send a random landing inside its circle, no confirmation.
+//  The app's root screen: status pill, edge-to-edge map with place circles, search,
+//  place list. One tap on a place = send a random landing inside its circle, no confirmation;
+//  a toast with "回到上一個" is the safety net instead.
+//  Layout is built from fixed-size pieces (top bar, map, 55% list, 56 pt bottom bar)
+//  so nothing jumps when the state changes.
 //
 
 import SwiftUI
@@ -29,12 +32,15 @@ enum GpsTheme {
     )
 }
 
+/// Something the user picked on the map / in search, waiting for a send decision.
+/// `place` set = a saved place (random landing inside its circle); nil = an exact point.
 private struct GpsCandidate: Equatable {
     var coordinate: CLLocationCoordinate2D
     var title: String
+    var place: GpsPlace?
 
     static func == (a: GpsCandidate, b: GpsCandidate) -> Bool {
-        a.title == b.title &&
+        a.title == b.title && a.place?.id == b.place?.id &&
             a.coordinate.latitude == b.coordinate.latitude &&
             a.coordinate.longitude == b.coordinate.longitude
     }
@@ -46,8 +52,42 @@ private struct GpsBanner: Identifiable {
     let title: String
     let detail: String
     var buttonTitle: String?
-    var busy = false
     var action: (() -> Void)?
+    var secondaryTitle: String?
+    var secondaryAction: (() -> Void)?
+}
+
+/// A toast with an optional action button. `id` lets a delayed auto-clear check it is still
+/// the toast it was scheduled for (a newer toast must never be wiped by an older timer).
+private struct GpsToast: Identifiable {
+    let id = UUID()
+    let text: String
+    var actionTitle: String?
+    var action: (() -> Void)?
+}
+
+/// Own coordinate parser so the home view can say *why* a pasted pair was rejected
+/// (works whatever shape GpsGeo.parseCoordinate has).
+private enum GpsCoordinateInput {
+    case valid(CLLocationCoordinate2D)
+    case outOfRange
+    case notCoordinate
+
+    static func parse(_ text: String) -> GpsCoordinateInput {
+        let normalized = text
+            .replacingOccurrences(of: "，", with: ",")
+            .replacingOccurrences(of: "、", with: ",")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = normalized
+            .split(whereSeparator: { $0 == "," || $0 == " " })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard parts.count == 2, let lat = Double(parts[0]), let lon = Double(parts[1]) else {
+            return .notCoordinate
+        }
+        guard (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else { return .outOfRange }
+        return .valid(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+    }
 }
 
 struct GpsSimHomeView: View {
@@ -60,6 +100,7 @@ struct GpsSimHomeView: View {
     @AppStorage(GpsGeo.defaultRadiusKey) private var defaultRadius: Double = 25
 
     @State private var position: MapCameraPosition = .region(GpsTheme.taiwanRegion)
+    @State private var mapSelection: String?
     @State private var mapCenter: CLLocationCoordinate2D?
     @State private var candidate: GpsCandidate?
     @State private var searchText = ""
@@ -75,6 +116,8 @@ struct GpsSimHomeView: View {
     @State private var pairingExists = GpsSimEngine.pairingExists
     @State private var tunnelGraceOver = false
     @State private var didInitialFit = false
+    @State private var toast: GpsToast?
+    @State private var sendingPlaceID: String?
     @FocusState private var searchFocused: Bool
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
@@ -82,35 +125,71 @@ struct GpsSimHomeView: View {
     private var isSimulating: Bool { session.isActive || engine.activeName != nil }
     private var simulatedPoint: CLLocationCoordinate2D? { engine.current ?? session.coordinate }
 
+    /// Waiting for the tunnel (first seconds after launch / retry).
+    private var isConnecting: Bool { pairingExists && !tunnel.isConnected && !tunnelGraceOver }
+    private var isMountingNow: Bool {
+        pairingExists && tunnel.isConnected && !mounting.coolisMounted && mounting.mountingThread != nil
+    }
+    /// Device chain not ready: rows show orange "先打開 LocalDevVPN" instead of the normal subtitle.
+    private var deviceNotReady: Bool { !tunnel.isConnected || !mounting.coolisMounted }
+
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            searchBar
-            map
-                .frame(maxHeight: .infinity)
-                .layoutPriority(1)
-            bottomPanel
-                .frame(maxHeight: .infinity)
-                .layoutPriority(1)
+        // Why a fixed 55% panel instead of a bottom sheet with detents: the app already uses
+        // sheets (edit, settings, importer), and a persistent sheet would fight them
+        // (only one sheet at a time). A plain split layout is simpler and cannot be dismissed.
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                topBar
+                searchBar
+                map
+                    .frame(minHeight: 200, maxHeight: .infinity)
+                    .layoutPriority(1)
+                placesPanel
+                    .frame(height: max(220, geo.size.height * 0.55))
+            }
         }
+        .ignoresSafeArea(.keyboard)
         .background(GpsTheme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(GpsTheme.mint)
-        .overlay(alignment: .bottom) { toastView }
+        .overlay(alignment: .bottom) { toastView.padding(.bottom, 12) }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshFromDisk(startTunnel: true) }
         }
         .onChange(of: engine.toast) { _, value in
+            guard let value else { return }
+            showToast(value, autoClear: true)
+            engine.toast = nil
+        }
+        .onChange(of: engine.lastSendSucceeded) { _, value in
             guard value != nil else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { engine.toast = nil }
+            let name = engine.activeName ?? "新位置"
+            if engine.previous != nil {
+                showToast("已傳到 \(name)", actionTitle: "↩ 回到上一個", action: { engine.undoLastSend() }, autoClear: false)
+            } else {
+                showToast("已傳到 \(name)", autoClear: true)
+            }
+        }
+        .onChange(of: engine.isBusy) { _, busy in
+            if !busy { sendingPlaceID = nil }
+        }
+        .onChange(of: statusText) { _, text in
+            AccessibilityAnnouncer.announce(text)
+        }
+        .onChange(of: mapSelection) { _, id in
+            guard let id, let p = store.places.first(where: { $0.id == id }) else { return }
+            clearToast()
+            searchFocused = false
+            candidate = GpsCandidate(coordinate: p.coordinate, title: p.name, place: p)
         }
         .sheet(item: $editing) { place in
             GpsPlaceEditSheet(
                 place: place,
                 mapCenter: mapCenter,
                 onSave: { store.upsert($0) },
-                onDelete: { store.delete(id: $0.id) }
+                onDelete: { deletePlace($0) }
             )
         }
         .sheet(isPresented: $showSettings, onDismiss: { refreshFromDisk(startTunnel: true) }) {
@@ -128,42 +207,24 @@ struct GpsSimHomeView: View {
             Button("儲存") { saveCandidate() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("半徑先用預設 \(Int(defaultRadius)) 公尺，之後可按 ✎ 修改。")
+            Text("半徑先用預設 \(Int(defaultRadius)) 公尺，之後可按鉛筆圖示修改。")
         }
     }
 
     // MARK: - Top bar / status
 
     private var topBar: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                statusPill
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(GpsTheme.card, in: Circle())
-                }
-                .accessibilityLabel("設定")
+        HStack(spacing: 10) {
+            statusPill
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+                    .background(GpsTheme.card, in: Circle())
             }
-            if isSimulating {
-                Button {
-                    engine.stop()
-                } label: {
-                    HStack {
-                        if engine.isBusy { ProgressView().tint(.white) }
-                        Text("⏹ 停止模擬")
-                            .font(.headline)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .foregroundStyle(.white)
-                    .background(GpsTheme.red, in: RoundedRectangle(cornerRadius: 14))
-                }
-                .disabled(engine.isBusy)
-                .accessibilityHint("讓手機回到真實位置")
-            }
+            .accessibilityLabel("設定")
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -178,12 +239,14 @@ struct GpsSimHomeView: View {
             Text(statusText)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            if engine.isBusy && !isSimulating { ProgressView() }
+            // Spinner lives inside the pill so connecting/sending never adds a row.
+            if engine.isBusy || isConnecting || isMountingNow { ProgressView() }
         }
         .padding(.horizontal, 14)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background(GpsTheme.card, in: Capsule())
         .overlay(Capsule().stroke(isSimulating ? GpsTheme.mint.opacity(0.6) : GpsTheme.line, lineWidth: 1))
@@ -191,13 +254,47 @@ struct GpsSimHomeView: View {
     }
 
     private var statusText: String {
-        guard isSimulating else { return "真實位置" }
-        let name = engine.activeName ?? "外部連結的位置"
-        if let center = engine.activeCenter, let cur = simulatedPoint {
-            let d = Int(GpsGeo.meters(center, cur).rounded())
-            return "模擬中：\(name)（離圓心 \(d) 公尺）"
+        if isSimulating {
+            let name = engine.activeName ?? "外部連結的位置"
+            if let center = engine.activeCenter, let cur = simulatedPoint {
+                let d = Int(GpsGeo.meters(center, cur).rounded())
+                return "模擬中：\(name)（離圓心 \(d) 公尺）"
+            }
+            return "模擬中：\(name)"
         }
-        return "模擬中：\(name)"
+        if isConnecting { return "正在連線手機…" }
+        if isMountingNow { return "正在掛載開發者磁碟映像…" }
+        return "真實位置"
+    }
+
+    // MARK: - Bottom bar (fixed height, never changes size)
+
+    private var bottomBar: some View {
+        Group {
+            if isSimulating {
+                Button {
+                    clearToast()
+                    engine.stop()
+                } label: {
+                    Text("⏹ 停止模擬")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 56)
+                        .foregroundStyle(.white)
+                        .background(GpsTheme.red, in: RoundedRectangle(cornerRadius: 14))
+                }
+                .disabled(engine.isBusy)
+                .accessibilityHint("讓手機回到真實位置")
+            } else {
+                Text("真實位置")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .foregroundStyle(GpsTheme.sub)
+                    .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 14))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(GpsTheme.background)
     }
 
     // MARK: - Search
@@ -235,12 +332,20 @@ struct GpsSimHomeView: View {
     private func runSearch() {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
+        clearToast()
         searchMessage = nil
-        if let c = GpsGeo.parseCoordinate(q) {
+        switch GpsCoordinateInput.parse(q) {
+        case .valid(let c):
             searchResults = []
             setCandidate(c, title: String(format: "%.6f, %.6f", c.latitude, c.longitude))
             searchFocused = false
             return
+        case .outOfRange:
+            searchResults = []
+            searchMessage = "座標超出範圍：緯度要在 -90～90、經度要在 -180～180，請檢查有沒有填反。"
+            return
+        case .notCoordinate:
+            break
         }
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = q
@@ -261,11 +366,25 @@ struct GpsSimHomeView: View {
         }
     }
 
+    private func coordinate(of item: MKMapItem) -> CLLocationCoordinate2D {
+        if #available(iOS 26, *) {
+            return item.location.coordinate
+        }
+        return item.placemark.coordinate
+    }
+
+    private func addressText(of item: MKMapItem) -> String? {
+        if #available(iOS 26, *) {
+            return item.address?.fullAddress
+        }
+        return item.placemark.title
+    }
+
     // MARK: - Map
 
     private var map: some View {
         MapReader { proxy in
-            Map(position: $position) {
+            Map(position: $position, selection: $mapSelection) {
                 ForEach(visiblePlaces) { p in
                     MapCircle(center: p.coordinate, radius: GpsGeo.radius(of: p))
                         .foregroundStyle(GpsTheme.yellow.opacity(0.18))
@@ -274,8 +393,9 @@ struct GpsSimHomeView: View {
                 ForEach(visiblePlaces) { p in
                     Marker(p.name, coordinate: p.coordinate)
                         .tint(GpsTheme.yellow)
+                        .tag(p.id)
                 }
-                if let c = candidate {
+                if let c = candidate, c.place == nil {
                     Marker("候選位置", systemImage: "mappin", coordinate: c.coordinate)
                         .tint(GpsTheme.mint)
                 }
@@ -297,12 +417,37 @@ struct GpsSimHomeView: View {
             }
             .onTapGesture { location in
                 guard let c = proxy.convert(location, from: .local) else { return }
+                clearToast()
                 searchFocused = false
-                candidate = GpsCandidate(coordinate: c, title: String(format: "%.6f, %.6f", c.latitude, c.longitude))
+                mapSelection = nil
+                // Inside a saved circle -> that place (random landing); otherwise the exact point.
+                if let hit = placeContaining(c) {
+                    candidate = GpsCandidate(coordinate: hit.coordinate, title: hit.name, place: hit)
+                } else {
+                    candidate = GpsCandidate(
+                        coordinate: c,
+                        title: String(format: "%.6f, %.6f", c.latitude, c.longitude),
+                        place: nil
+                    )
+                }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .padding(.horizontal, 16)
+        .overlay(alignment: .bottom) {
+            if let c = candidate {
+                candidateCard(c)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+        }
+    }
+
+    /// Nearest-centre place whose circle contains the point.
+    private func placeContaining(_ c: CLLocationCoordinate2D) -> GpsPlace? {
+        visiblePlaces
+            .map { (place: $0, dist: GpsGeo.meters($0.coordinate, c)) }
+            .filter { $0.dist <= GpsGeo.radius(of: $0.place) }
+            .min { $0.dist < $1.dist }?
+            .place
     }
 
     private func focus(on c: CLLocationCoordinate2D, radius: Double) {
@@ -329,62 +474,131 @@ struct GpsSimHomeView: View {
     }
 
     private func setCandidate(_ c: CLLocationCoordinate2D, title: String) {
-        candidate = GpsCandidate(coordinate: c, title: title)
+        candidate = GpsCandidate(coordinate: c, title: title, place: nil)
         focus(on: c, radius: GpsGeo.defaultRadius)
     }
 
-    // MARK: - Bottom panel
+    // MARK: - Places panel
 
-    private var bottomPanel: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(banners) { bannerView($0) }
-                if let c = candidate { candidateCard(c) }
-                if let msg = searchMessage {
-                    Text(msg).font(.subheadline).foregroundStyle(GpsTheme.sub)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                ForEach(searchResults, id: \.self) { item in searchRow(item) }
-
-                if store.places.isEmpty {
-                    emptyState
-                } else {
-                    ForEach(visiblePlaces) { placeRow($0) }
-                    if !hiddenPlaces.isEmpty {
-                        Button {
-                            withAnimation { showHidden.toggle() }
-                        } label: {
-                            Text(showHidden ? "‹ 收起" : "\(hiddenPlaces.count) 個已隱藏")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(GpsTheme.sub)
-                                .frame(maxWidth: .infinity, minHeight: 44)
+    private var placesPanel: some View {
+        List {
+            ForEach(banners) { b in
+                bannerView(b).listRowStyle()
+            }
+            if let msg = searchMessage {
+                Text(msg)
+                    .font(.subheadline)
+                    .foregroundStyle(GpsTheme.sub)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .listRowStyle()
+            }
+            ForEach(searchResults, id: \.self) { item in
+                searchRow(item).listRowStyle()
+            }
+            if store.places.isEmpty {
+                emptyState.listRowStyle()
+            } else {
+                ForEach(visiblePlaces) { p in
+                    placeRow(p)
+                        .listRowStyle()
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                deletePlace(p)
+                            } label: {
+                                Label("刪除", systemImage: "trash")
+                            }
+                            Button {
+                                editing = p
+                            } label: {
+                                Label("編輯", systemImage: "pencil")
+                            }
+                            .tint(GpsTheme.blue)
                         }
-                        .buttonStyle(.plain)
-                        if showHidden {
-                            ForEach(hiddenPlaces) { placeRow($0).opacity(0.75) }
+                }
+                if !hiddenPlaces.isEmpty {
+                    Button {
+                        withAnimation { showHidden.toggle() }
+                    } label: {
+                        Text(showHidden ? "‹ 收起已隱藏地點" : "👁 顯示 \(hiddenPlaces.count) 個已隱藏地點")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(GpsTheme.sub)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowStyle()
+                    if showHidden {
+                        ForEach(hiddenPlaces) { p in
+                            placeRow(p).opacity(0.75)
+                                .listRowStyle()
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        deletePlace(p)
+                                    } label: {
+                                        Label("刪除", systemImage: "trash")
+                                    }
+                                    Button {
+                                        editing = p
+                                    } label: {
+                                        Label("編輯", systemImage: "pencil")
+                                    }
+                                    .tint(GpsTheme.blue)
+                                }
                         }
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(GpsTheme.background)
         .refreshable {
             refreshFromDisk(startTunnel: false)
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 10) {
             Text("還沒有地點").font(.headline).foregroundStyle(.white)
-            Text("點地圖或搜尋後按「＋ 存成地點」，或在設定裡匯入 places.json。也可以從電腦把 places.json 放進本 App 的文件資料夾，再下拉重新整理。")
+            Text("匯入電腦版的 places.json，或在地圖上點一下新增。")
                 .font(.subheadline)
                 .foregroundStyle(GpsTheme.sub)
                 .multilineTextAlignment(.center)
+            HStack(spacing: 8) {
+                Button {
+                    showPlacesImporter = true
+                } label: {
+                    Text("匯入地點檔")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(GpsTheme.background)
+                        .background(GpsTheme.mint, in: RoundedRectangle(cornerRadius: 12))
+                }
+                Button {
+                    addByMapTap()
+                } label: {
+                    Text("點地圖新增")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(GpsTheme.mint)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(GpsTheme.mint, lineWidth: 1.5))
+                }
+            }
+            .buttonStyle(.plain)
         }
         .padding(16)
         .frame(maxWidth: .infinity)
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Puts a candidate at the current map centre so "＋ 存成地點" is one tap away.
+    private func addByMapTap() {
+        let c = mapCenter ?? GpsTheme.taiwanRegion.center
+        candidate = GpsCandidate(
+            coordinate: c,
+            title: String(format: "%.6f, %.6f", c.latitude, c.longitude),
+            place: nil
+        )
+        showToast("先把地圖移到想要的位置，點一下地圖，再按「＋ 存成地點」", autoClear: true)
     }
 
     private func placeRow(_ p: GpsPlace) -> some View {
@@ -395,17 +609,32 @@ struct GpsSimHomeView: View {
         let subtitle = parts.joined(separator: " · ")
         return HStack(spacing: 0) {
             Button {
+                clearToast()
                 searchFocused = false
+                sendingPlaceID = p.id
                 focus(on: p.coordinate, radius: GpsGeo.radius(of: p))
-                engine.send(place: p, among: store.places)
+                engine.send(place: p)
             } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(p.name)
-                        .font(.headline)
-                        .foregroundStyle(active ? GpsTheme.mint : .white)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(GpsTheme.sub)
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(p.name)
+                            .font(.headline)
+                            .foregroundStyle(active ? GpsTheme.mint : .white)
+                            .lineLimit(nil)
+                        if deviceNotReady {
+                            Text("先打開 LocalDevVPN")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(GpsTheme.orange)
+                                .lineLimit(nil)
+                        } else {
+                            Text(subtitle)
+                                .font(.subheadline)
+                                .foregroundStyle(GpsTheme.sub)
+                                .lineLimit(nil)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if sendingPlaceID == p.id && engine.isBusy { ProgressView() }
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .padding(.vertical, 10)
@@ -414,15 +643,16 @@ struct GpsSimHomeView: View {
             }
             .buttonStyle(.plain)
             .disabled(engine.isBusy)
+            .accessibilityLabel(deviceNotReady ? "\(p.name)，先打開 LocalDevVPN" : "\(p.name)，\(subtitle)")
             .accessibilityHint("點一下就把手機定位傳到這裡")
 
             Button {
                 editing = p
             } label: {
-                Text("✎")
-                    .font(.title3)
+                Image(systemName: "pencil")
+                    .font(.body)
                     .foregroundStyle(GpsTheme.sub)
-                    .frame(width: 52, height: 52)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -430,19 +660,37 @@ struct GpsSimHomeView: View {
         }
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(active ? GpsTheme.mint : GpsTheme.line, lineWidth: 1))
+        .contextMenu {
+            Button {
+                editing = p
+            } label: {
+                Label("編輯", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                deletePlace(p)
+            } label: {
+                Label("刪除", systemImage: "trash")
+            }
+        }
+    }
+
+    private func deletePlace(_ p: GpsPlace) {
+        clearToast()
+        store.delete(id: p.id)
+        showToast("已刪除「\(p.name)」", actionTitle: "復原", action: { store.undoDelete() }, autoClear: false)
     }
 
     private func searchRow(_ item: MKMapItem) -> some View {
         Button {
-            let c = item.placemark.coordinate
+            let c = coordinate(of: item)
             searchResults = []
             searchFocused = false
             setCandidate(c, title: item.name ?? String(format: "%.6f, %.6f", c.latitude, c.longitude))
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name ?? "（未命名）").font(.body.weight(.semibold)).foregroundStyle(.white)
-                if let sub = item.placemark.title {
-                    Text(sub).font(.footnote).foregroundStyle(GpsTheme.sub).lineLimit(2)
+                if let sub = addressText(of: item) {
+                    Text(sub).font(.footnote).foregroundStyle(GpsTheme.sub).lineLimit(nil)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -453,11 +701,13 @@ struct GpsSimHomeView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Candidate card (floats over the bottom of the map, so the list never shifts)
+
     private func candidateCard(_ c: GpsCandidate) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(c.title).font(.headline).foregroundStyle(.white)
+                    Text(c.title).font(.headline).foregroundStyle(.white).lineLimit(nil)
                     Text(String(format: "%.6f, %.6f", c.coordinate.latitude, c.coordinate.longitude))
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(GpsTheme.sub)
@@ -466,6 +716,7 @@ struct GpsSimHomeView: View {
                 Spacer()
                 Button {
                     candidate = nil
+                    mapSelection = nil
                 } label: {
                     Image(systemName: "xmark")
                         .foregroundStyle(GpsTheme.sub)
@@ -473,30 +724,48 @@ struct GpsSimHomeView: View {
                 }
                 .accessibilityLabel("關閉")
             }
-            HStack(spacing: 8) {
+            if let place = c.place {
                 Button {
-                    // Exact point, no scatter.
-                    engine.send(to: c.coordinate, name: c.title)
+                    clearToast()
+                    sendingPlaceID = place.id
+                    engine.send(place: place)
                 } label: {
-                    Text("📍 傳送到這裡")
+                    Text("傳到「\(place.name)」（圈內隨機）")
                         .font(.headline)
+                        .lineLimit(nil)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .foregroundStyle(GpsTheme.background)
                         .background(GpsTheme.mint, in: RoundedRectangle(cornerRadius: 12))
                 }
+                .buttonStyle(.plain)
                 .disabled(engine.isBusy)
-                Button {
-                    newPlaceName = c.title
-                    showSaveName = true
-                } label: {
-                    Text("＋ 存成地點")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .foregroundStyle(GpsTheme.mint)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(GpsTheme.mint, lineWidth: 1.5))
+            } else {
+                HStack(spacing: 8) {
+                    Button {
+                        clearToast()
+                        // Exact point, no scatter.
+                        engine.send(to: c.coordinate, name: c.title)
+                    } label: {
+                        Text("📍 傳送到這裡")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .foregroundStyle(GpsTheme.background)
+                            .background(GpsTheme.mint, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(engine.isBusy)
+                    Button {
+                        newPlaceName = c.title
+                        showSaveName = true
+                    } label: {
+                        Text("＋ 存成地點")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .foregroundStyle(GpsTheme.mint)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(GpsTheme.mint, lineWidth: 1.5))
+                    }
                 }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(12)
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 14))
@@ -514,10 +783,10 @@ struct GpsSimHomeView: View {
         )
         store.upsert(place)
         candidate = nil
-        engine.toast = "已存成地點：\(place.name)"
+        showToast("已存成地點：\(place.name)", autoClear: true)
     }
 
-    // MARK: - Banners
+    // MARK: - Banners (errors only; "connecting" lives in the status pill)
 
     private var banners: [GpsBanner] {
         var list: [GpsBanner] = []
@@ -533,35 +802,41 @@ struct GpsSimHomeView: View {
             if tunnelGraceOver {
                 list.append(GpsBanner(
                     id: "tunnel", color: GpsTheme.orange,
-                    title: "連不到手機",
-                    detail: "請打開 LocalDevVPN 並連上 Wi-Fi，再按「重試連線」。",
-                    buttonTitle: "重試連線",
+                    title: "LocalDevVPN 沒開：到主畫面打開它 → 回來按重試",
+                    detail: "",
+                    buttonTitle: "重試",
                     action: { retryTunnel() }
                 ))
-            } else {
-                list.append(GpsBanner(id: "connecting", color: GpsTheme.sub, title: "正在連線手機…", detail: "", busy: true))
             }
-        } else if !mounting.coolisMounted {
-            if mounting.mountingThread != nil {
-                list.append(GpsBanner(id: "mounting", color: GpsTheme.sub, title: "正在掛載開發者磁碟映像（DDI）…", detail: "", busy: true))
-            } else {
-                list.append(GpsBanner(
-                    id: "ddi", color: GpsTheme.orange,
-                    title: "開發者磁碟映像（DDI）尚未掛載",
-                    detail: "模擬定位需要先掛載 DDI，按右邊按鈕（第一次會先下載，約數十 MB）。",
-                    buttonTitle: "掛載 DDI",
-                    action: { mountDDI() }
-                ))
-            }
+        } else if !mounting.coolisMounted, mounting.mountingThread == nil {
+            list.append(GpsBanner(
+                id: "ddi", color: GpsTheme.orange,
+                title: "開發者磁碟映像（DDI）尚未掛載",
+                detail: "模擬定位需要先掛載 DDI，按右邊按鈕（第一次會先下載，約數十 MB）。",
+                buttonTitle: "掛載 DDI",
+                action: { mountDDI() }
+            ))
         }
         if let issue = engine.issue {
-            list.append(GpsBanner(
+            var banner = GpsBanner(
                 id: "issue", color: GpsTheme.red,
                 title: "定位沒有送出",
                 detail: issue.message,
                 buttonTitle: "知道了",
                 action: { engine.issue = nil }
-            ))
+            )
+            // Error code 1 = target IP changed away from LocalDevVPN's default. DeviceConnectionContext
+            // has no reset function, so write the default back to the same UserDefaults key it reads.
+            if issue.message.hasPrefix("目標 IP") {
+                banner.secondaryTitle = "改回預設"
+                banner.secondaryAction = {
+                    UserDefaults.standard.set(DeviceConnectionContext.defaultTargetIPAddress,
+                                              forKey: UserDefaults.Keys.targetDeviceIP)
+                    engine.issue = nil
+                    retryTunnel()
+                }
+            }
+            list.append(banner)
         }
         if let err = store.lastLoadError {
             list.append(GpsBanner(
@@ -579,46 +854,84 @@ struct GpsSimHomeView: View {
         HStack(alignment: .center, spacing: 10) {
             RoundedRectangle(cornerRadius: 2).fill(b.color).frame(width: 4)
             VStack(alignment: .leading, spacing: 3) {
-                Text(b.title).font(.subheadline.weight(.bold)).foregroundStyle(.white)
+                Text(b.title).font(.subheadline.weight(.bold)).foregroundStyle(.white).lineLimit(nil)
                 if !b.detail.isEmpty {
                     Text(b.detail).font(.footnote).foregroundStyle(GpsTheme.sub)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 0)
-            if b.busy { ProgressView() }
-            if let title = b.buttonTitle, let action = b.action {
-                Button(action: action) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
-                        .background(b.color.opacity(0.22), in: RoundedRectangle(cornerRadius: 10))
-                        .foregroundStyle(.white)
+            VStack(spacing: 4) {
+                if let title = b.buttonTitle, let action = b.action {
+                    bannerButton(title, color: b.color, action: action)
                 }
-                .buttonStyle(.plain)
+                if let title = b.secondaryTitle, let action = b.secondaryAction {
+                    bannerButton(title, color: b.color, action: action)
+                }
             }
         }
         .padding(10)
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 12))
     }
 
+    private func bannerButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(color.opacity(0.22), in: RoundedRectangle(cornerRadius: 10))
+                .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Toast
+
+    private func showToast(_ text: String, actionTitle: String? = nil, action: (() -> Void)? = nil, autoClear: Bool) {
+        let new = GpsToast(text: text, actionTitle: actionTitle, action: action)
+        toast = new
+        AccessibilityAnnouncer.announce(text)
+        if autoClear {
+            // Compare ids so an older timer never wipes a newer toast.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                if toast?.id == new.id { toast = nil }
+            }
+        }
+    }
+
+    private func clearToast() {
+        toast = nil
+    }
 
     @ViewBuilder
     private var toastView: some View {
-        if let text = engine.toast {
-            Text(text)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(GpsTheme.card, in: Capsule())
-                .overlay(Capsule().stroke(GpsTheme.mint.opacity(0.6), lineWidth: 1))
-                .padding(.bottom, 24)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .accessibilityAddTraits(.updatesFrequently)
-                .onAppear { AccessibilityAnnouncer.announce(text) }
+        if let t = toast {
+            HStack(spacing: 12) {
+                Text(t.text)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(nil)
+                if let title = t.actionTitle, let action = t.action {
+                    Button {
+                        let id = t.id
+                        action()
+                        if toast?.id == id { toast = nil }
+                    } label: {
+                        Text(title)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(GpsTheme.mint)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .background(GpsTheme.card, in: Capsule())
+            .overlay(Capsule().stroke(GpsTheme.mint.opacity(0.6), lineWidth: 1))
+            .padding(.horizontal, 16)
+            .transition(.opacity)
         }
     }
 
@@ -672,7 +985,7 @@ struct GpsSimHomeView: View {
             guard let url = urls.first else { return }
             do {
                 let n = try store.importFile(url)
-                engine.toast = "已匯入 \(n) 個地點"
+                showToast("已匯入 \(n) 個地點", autoClear: true)
                 fitAllPlaces()
             } catch {
                 store.lastLoadError = "匯入失敗：\(error.localizedDescription)"
@@ -680,6 +993,16 @@ struct GpsSimHomeView: View {
         case .failure(let error):
             store.lastLoadError = "匯入失敗：\(error.localizedDescription)"
         }
+    }
+}
+
+private extension View {
+    /// Transparent, separator-free, tightly inset List row so rows look like the old card stack.
+    func listRowStyle() -> some View {
+        self
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
     }
 }
 
@@ -691,10 +1014,12 @@ struct GpsPlaceEditSheet: View {
     let onDelete: (GpsPlace) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    private let original: GpsPlace
     @State private var draft: GpsPlace
     @State private var useDefaultRadius: Bool
     @State private var radius: Double
-    @State private var confirmDelete = false
+    @State private var radiusTouched = false
+    @State private var showDeleteDialog = false
     @State private var movedNote = false
 
     init(place: GpsPlace, mapCenter: CLLocationCoordinate2D?,
@@ -702,9 +1027,11 @@ struct GpsPlaceEditSheet: View {
         self.mapCenter = mapCenter
         self.onSave = onSave
         self.onDelete = onDelete
+        original = place
         _draft = State(initialValue: place)
         _useDefaultRadius = State(initialValue: place.radius == nil)
-        _radius = State(initialValue: min(max(place.radius ?? GpsGeo.defaultRadius, 5), 1000))
+        // No clamping here: an existing 2000 m radius must survive opening and saving the sheet.
+        _radius = State(initialValue: max(place.radius ?? GpsGeo.defaultRadius, 5))
     }
 
     var body: some View {
@@ -714,15 +1041,24 @@ struct GpsPlaceEditSheet: View {
                     TextField("地點名稱", text: $draft.name)
                 }
                 Section {
-                    Toggle("使用預設半徑（\(Int(GpsGeo.defaultRadius)) 公尺）", isOn: $useDefaultRadius)
+                    Toggle("使用預設半徑（\(Int(GpsGeo.defaultRadius)) 公尺）", isOn: Binding(
+                        get: { useDefaultRadius },
+                        set: { useDefaultRadius = $0; radiusTouched = true }
+                    ))
                     if !useDefaultRadius {
+                        let radiusBinding = Binding<Double>(
+                            get: { radius },
+                            set: { radius = $0; radiusTouched = true }
+                        )
                         HStack {
-                            Text("半徑 \(Int(radius)) 公尺").monospacedDigit()
+                            Text("半徑 \(Int(radius)) 公尺").monospacedDigit().lineLimit(nil)
                             Spacer()
-                            Stepper("半徑", value: $radius, in: 5...1000, step: 5).labelsHidden()
+                            Stepper("半徑", value: radiusBinding, in: 5...max(5000, radius), step: 5).labelsHidden()
                         }
-                        Slider(value: $radius, in: 5...1000, step: 5)
-                            .accessibilityLabel("半徑")
+                        if radius <= 1000 {
+                            Slider(value: radiusBinding, in: 5...1000, step: 5)
+                                .accessibilityLabel("半徑")
+                        }
                     }
                 } header: {
                     Text("落點半徑")
@@ -748,21 +1084,17 @@ struct GpsPlaceEditSheet: View {
                     }
                 }
                 Section {
-                    if confirmDelete {
-                        Button(role: .destructive) {
-                            onDelete(draft)
+                    Button(role: .destructive) {
+                        showDeleteDialog = true
+                    } label: {
+                        Text("刪除地點").frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .confirmationDialog("刪除「\(draft.name)」？", isPresented: $showDeleteDialog, titleVisibility: .visible) {
+                        Button("刪除", role: .destructive) {
+                            onDelete(original)
                             dismiss()
-                        } label: {
-                            Text("確定刪除「\(draft.name)」")
-                                .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        Button("取消刪除") { confirmDelete = false }
-                    } else {
-                        Button(role: .destructive) {
-                            confirmDelete = true
-                        } label: {
-                            Text("刪除地點").frame(maxWidth: .infinity, minHeight: 44)
-                        }
+                        Button("取消", role: .cancel) {}
                     }
                 }
             }
@@ -777,8 +1109,14 @@ struct GpsPlaceEditSheet: View {
                         var saved = draft
                         let trimmed = saved.name.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty { saved.name = trimmed }
-                        // Only write a radius when the user chose one, so "預設" keeps following the setting.
-                        saved.radius = useDefaultRadius ? nil : radius
+                        // nil = follow the default setting; untouched = keep exactly what was stored.
+                        if useDefaultRadius {
+                            saved.radius = nil
+                        } else if radiusTouched {
+                            saved.radius = radius
+                        } else {
+                            saved.radius = original.radius
+                        }
                         onSave(saved)
                         dismiss()
                     }

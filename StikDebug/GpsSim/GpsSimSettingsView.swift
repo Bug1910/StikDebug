@@ -18,6 +18,8 @@ struct GpsSimSettingsView: View {
     @State private var showPairingImporter = false
     @State private var pairingMessage: String?
     @State private var showAdvanced = false
+    @State private var confirmPairingReplace = false
+    @ObservedObject private var store = GpsPlaceStore.shared
 
     private var versionText: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -43,14 +45,23 @@ struct GpsSimSettingsView: View {
                 }
 
                 Section {
-                    Toggle("原地微飄（每 4 秒在 4 公尺內晃動）", isOn: $driftEnabled)
+                    Toggle("原地微飄（像真手機晃幾公尺）", isOn: $driftEnabled)
+                        .frame(minHeight: 44)
                 } footer: {
                     Text("像真手機的 GPS 一樣在落點附近輕微飄動，不會離落點超過 4 公尺。")
                 }
 
                 Section {
-                    Button("匯入 places.json") { onImportPlaces() }
-                    Button("匯入配對檔") { showPairingImporter = true }
+                    Button("匯入地點檔（會取代目前 \(store.placeCount) 個地點）") { onImportPlaces() }
+                        .frame(minHeight: 44)
+                        .accessibilityHint("選一個 places.json 檔，取代現有地點")
+                    if store.hasImportBackup {
+                        Button("已匯入 \(store.placeCount) 個｜還原舊的") { store.restoreImportBackup() }
+                            .frame(minHeight: 44)
+                            .accessibilityLabel("還原匯入前的舊地點")
+                    }
+                    Button("匯入配對檔") { confirmPairingReplace = true }
+                        .frame(minHeight: 44)
                     if let pairingMessage {
                         Text(pairingMessage).font(.footnote).foregroundStyle(.secondary)
                     }
@@ -62,6 +73,7 @@ struct GpsSimSettingsView: View {
 
                 Section {
                     Button("進階 (StikDebug)") { showAdvanced = true }
+                        .frame(minHeight: 44)
                 } footer: {
                     Text("原本 StikDebug 的畫面（JIT、裝置資訊、Settings 等）。")
                 }
@@ -81,6 +93,12 @@ struct GpsSimSettingsView: View {
                     Button("完成") { dismiss() }
                 }
             }
+        }
+        .alert("覆蓋現有配對檔？", isPresented: $confirmPairingReplace) {
+            Button("選擇新的配對檔", role: .destructive) { showPairingImporter = true }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("新的配對檔會取代目前這份，匯入後需要重新連線。")
         }
         .fileImporter(
             isPresented: $showPairingImporter,

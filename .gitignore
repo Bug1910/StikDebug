@@ -95,3 +95,9 @@ iOSInjectionProject/
 .DS_Store
 .vscode/settings.json
 .vscode 
+
+# Private data: never commit
+places.json*
+*.mobileprovision
+rp_pairing_file.plist
+pairingFile.plist

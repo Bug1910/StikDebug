@@ -211,7 +211,8 @@ struct HomeView: View {
                 config.scriptName = scriptInfo.name
             }
             let action = HomeExternalAction.enableJIT(config)
-            if confirmExternalJITRequests {
+            // A URL carrying a script must never run unconfirmed, whatever the setting says.
+            if confirmExternalJITRequests || config.scriptData != nil || config.scriptName != nil {
                 pendingExternalURLAction = action
             } else {
                 performExternalURLAction(action)

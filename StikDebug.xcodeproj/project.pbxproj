@@ -460,9 +460,9 @@
 				INFOPLIST_FILE = StikDebug/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "StikDebug needs access to devices on your local network so it can connect to the targets you add to the Device Library.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "定位儀要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -522,9 +522,9 @@
 				INFOPLIST_FILE = StikDebug/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "StikDebug needs access to devices on your local network so it can connect to the targets you add to the Device Library.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "StikDebug uses location to stay running in the background and maintain your JIT connection.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "定位儀要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

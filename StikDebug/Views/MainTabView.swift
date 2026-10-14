@@ -211,62 +211,17 @@ struct MainTabView: View {
             return
         }
 
-        LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(
-                DeviceConnectionContext.targetIPAddress,
-                coordinate.latitude,
-                coordinate.longitude,
-                pairingFile.path
-            )
-
-            DispatchQueue.main.async {
-                if code == 0 {
-                    LocationSimulationSession.shared.clearRoute()
-                    LocationSimulationSession.shared.startResending(
-                        at: CLLocationCoordinate2D(
-                            latitude: coordinate.latitude,
-                            longitude: coordinate.longitude
-                        )
-                    ) {
-                        LocationSimulationCommandQueue.shared.async {
-                            _ = simulate_location(
-                                DeviceConnectionContext.targetIPAddress,
-                                coordinate.latitude,
-                                coordinate.longitude,
-                                pairingFile.path
-                            )
-                        }
-                    }
-                    LogManager.shared.addInfoLog(
-                        String(format: "Simulated location from URL: %.6f, %.6f", coordinate.latitude, coordinate.longitude)
-                    )
-                } else {
-                    showAlert(
-                        title: "Location Simulation Failed",
-                        message: "Could not simulate location from URL (error \(code)). Make sure the device is connected and the DDI is mounted.",
-                        showOk: true
-                    )
-                }
-            }
-        }
+        // Goes through GpsSimEngine so the URL send shares the stop button, status bar and
+        // the 4 s keep-alive with everything else; "exact point" = no random scatter.
+        GpsSimEngine.shared.send(to: CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: coordinate.longitude), name: "外部連結")
+        LogManager.shared.addInfoLog(
+            String(format: "Simulated location from URL: %.6f, %.6f", coordinate.latitude, coordinate.longitude)
+        )
     }
 
     private func clearSimulatedLocation() {
-        LocationSimulationCommandQueue.shared.async {
-            let code = clear_simulated_location()
-            DispatchQueue.main.async {
-                if code == 0 {
-                    LocationSimulationSession.shared.stop()
-                    LogManager.shared.addInfoLog("Cleared simulated location from URL")
-                } else {
-                    showAlert(
-                        title: "Clear Location Failed",
-                        message: "Could not clear simulated location from URL (error \(code)).",
-                        showOk: true
-                    )
-                }
-            }
-        }
+        GpsSimEngine.shared.stop()
+        LogManager.shared.addInfoLog("Cleared simulated location from URL")
     }
 
     private func coordinate(from url: URL) -> (latitude: Double, longitude: Double)? {

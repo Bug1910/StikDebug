@@ -35,16 +35,10 @@ struct GpsPlace: Identifiable, Equatable {
               (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else { return nil }
         self.lat = lat
         self.lon = lon
-        if let s = json["id"] as? String, !s.isEmpty {
-            id = s
-        } else if let n = GpsPlace.double(json["id"]) {
-            id = String(Int(n))
-        } else {
-            id = GpsPlace.newID()
-        }
+        id = GpsPlace.idKey(json["id"]) ?? GpsPlace.newID()
         let rawName = (json["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         name = rawName.isEmpty ? String(format: "%.5f, %.5f", lat, lon) : rawName
-        if let r = GpsPlace.double(json["radius"]), r > 0 { radius = r }
+        if let r = GpsPlace.double(json["radius"]), r.isFinite, r > 0 { radius = r }
         if let c = json["county"] as? String, !c.isEmpty { county = c }
         if let h = json["hidden"] as? Bool { hidden = h }
         if let o = GpsPlace.double(json["order"]) { order = Int(o) }
@@ -86,6 +80,13 @@ struct GpsPlace: Identifiable, Equatable {
 
     static func newID() -> String {
         "p" + String(Int(Date().timeIntervalSince1970 * 1000)) + String(Int.random(in: 100...999))
+    }
+
+    /// The web tool's ids may be strings or numbers; the string form is the one key we compare by.
+    static func idKey(_ value: Any?) -> String? {
+        if let s = value as? String, !s.isEmpty { return s }
+        if let n = double(value), n.isFinite, abs(n) < 1e15 { return String(Int(n)) }
+        return nil
     }
 
     private static func double(_ value: Any?) -> Double? {
@@ -170,8 +171,15 @@ enum GpsGeo {
         return offset(place.lat, place.lon, r)
     }
 
-    /// "lat, lon" (half- or full-width comma, or whitespace) → coordinate, else nil.
-    static func parseCoordinate(_ text: String) -> CLLocationCoordinate2D? {
+    enum CoordinateParse {
+        case ok(CLLocationCoordinate2D)
+        case notCoordinate
+        case outOfRange(String)
+    }
+
+    /// "lat, lon" (half- or full-width comma, or whitespace). If the first number can't be a
+    /// latitude but the second can (e.g. "120.97, 24.80" pasted lon-first), they are swapped.
+    static func parseCoordinateResult(_ text: String) -> CoordinateParse {
         let normalized = text
             .replacingOccurrences(of: "，", with: ",")
             .replacingOccurrences(of: "、", with: ",")
@@ -180,27 +188,54 @@ enum GpsGeo {
             .split(whereSeparator: { $0 == "," || $0 == " " })
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        guard parts.count == 2, let lat = Double(parts[0]), let lon = Double(parts[1]),
-              (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else { return nil }
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        guard parts.count == 2, var lat = Double(parts[0]), var lon = Double(parts[1]),
+              lat.isFinite, lon.isFinite else { return .notCoordinate }
+        if abs(lat) > 90 && abs(lon) <= 90 { swap(&lat, &lon) }
+        guard (-90.0...90.0).contains(lat) else { return .outOfRange("緯度必須在 -90 到 90 之間") }
+        guard (-180.0...180.0).contains(lon) else { return .outOfRange("經度必須在 -180 到 180 之間") }
+        return .ok(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+    }
+
+    static func parseCoordinate(_ text: String) -> CLLocationCoordinate2D? {
+        if case .ok(let c) = parseCoordinateResult(text) { return c }
+        return nil
     }
 }
 
 // MARK: - Store
 
+@MainActor
 final class GpsPlaceStore: ObservableObject {
     static let shared = GpsPlaceStore()
 
     @Published private(set) var places: [GpsPlace] = []
+    /// The most recent place removed by delete(id:), so the UI can offer "復原".
+    @Published private(set) var lastDeleted: GpsPlace?
     @Published var lastLoadError: String?
 
-    static var fileURL: URL {
+    nonisolated static var fileURL: URL {
         URL.documentsDirectory.appendingPathComponent("places.json")
+    }
+    nonisolated static var importBackupURL: URL {
+        URL.documentsDirectory.appendingPathComponent("places.json.bak")
+    }
+    nonisolated static var corruptCopyURL: URL {
+        URL.documentsDirectory.appendingPathComponent("places.json.corrupt")
     }
 
     private init() {
         migrateBookmarksIfNeeded()
         reload()
+        refreshImportBackupFlag()
+    }
+
+    var placeCount: Int { places.count }
+
+    /// Published (not computed) so views refresh after import / restore.
+    @Published private(set) var hasImportBackup = false
+
+    private func refreshImportBackupFlag() {
+        hasImportBackup = FileManager.default.fileExists(atPath: Self.importBackupURL.path)
     }
 
     /// Sorted for display: by `order`, then by position in the file (insertion order).
@@ -214,32 +249,79 @@ final class GpsPlaceStore: ObservableObject {
             .map { $0.element }
     }
 
-    func reload() {
-        let url = Self.fileURL
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            places = []
-            return
+    // MARK: Disk access
+    // The PC can push places.json through house_arrest at any time, so every read/write goes
+    // through NSFileCoordinator and every write is atomic (temp file + rename).
+
+    private enum DiskState {
+        case missing
+        case ok([String: Any])
+        case corrupt(String)
+    }
+
+    nonisolated private static func coordinatedRead(_ url: URL) throws -> Data {
+        var coordinationError: NSError?
+        var result: Result<Data, Error> = .failure(CocoaError(.fileReadUnknown))
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &coordinationError) { readURL in
+            result = Result { try Data(contentsOf: readURL) }
         }
+        if let coordinationError { throw coordinationError }
+        return try result.get()
+    }
+
+    nonisolated private static func coordinatedWrite(_ data: Data, to url: URL) throws {
+        var coordinationError: NSError?
+        var failure: Error?
+        NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forReplacing, error: &coordinationError) { writeURL in
+            do { try data.write(to: writeURL, options: .atomic) } catch { failure = error }
+        }
+        if let coordinationError { throw coordinationError }
+        if let failure { throw failure }
+    }
+
+    private func readDisk() -> DiskState {
+        let url = Self.fileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
         do {
-            let data = try Data(contentsOf: url)
-            places = try Self.parse(data)
-            lastLoadError = nil
+            let data = try Self.coordinatedRead(url)
+            let obj = try JSONSerialization.jsonObject(with: data)
+            if let root = obj as? [String: Any] { return .ok(root) }
+            if let arr = obj as? [Any] { return .ok(["favorites": arr]) }   // tolerate a bare array
+            return .corrupt("內容不是地點清單")
         } catch {
-            // Keep what we had; a half-written push from the PC shouldn't wipe the list.
-            lastLoadError = "places.json 讀不懂：\(error.localizedDescription)"
+            return .corrupt(error.localizedDescription)
         }
     }
 
-    static func parse(_ data: Data) throws -> [GpsPlace] {
-        let obj = try JSONSerialization.jsonObject(with: data)
-        let list: [Any]
-        if let root = obj as? [String: Any] {
-            list = (root["favorites"] as? [Any]) ?? []
-        } else if let arr = obj as? [Any] {
-            list = arr   // tolerate a bare array
-        } else {
-            list = []
+    /// Re-reads the file. Returns false (keeping the in-memory list) if the file is unreadable.
+    @discardableResult
+    func reload() -> Bool {
+        switch readDisk() {
+        case .missing:
+            places = []
+            return true
+        case .ok(let root):
+            places = Self.parseFavorites((root["favorites"] as? [Any]) ?? [])
+            lastLoadError = nil
+            return true
+        case .corrupt(let reason):
+            // Keep what we had; a half-written push from the PC shouldn't wipe the list.
+            lastLoadError = "places.json 讀不懂：\(reason)"
+            return false
         }
+    }
+
+    nonisolated static func parse(_ data: Data) throws -> [GpsPlace] {
+        let obj = try JSONSerialization.jsonObject(with: data)
+        if let root = obj as? [String: Any] {
+            return parseFavorites((root["favorites"] as? [Any]) ?? [])
+        } else if let arr = obj as? [Any] {
+            return parseFavorites(arr)
+        }
+        return []
+    }
+
+    nonisolated static func parseFavorites(_ list: [Any]) -> [GpsPlace] {
         var seen = Set<String>()
         var result: [GpsPlace] = []
         for item in list {
@@ -251,25 +333,46 @@ final class GpsPlaceStore: ObservableObject {
         return result
     }
 
+    // MARK: Edits (always: reload from disk, apply by id, save)
+
     func upsert(_ place: GpsPlace) {
-        if let i = places.firstIndex(where: { $0.id == place.id }) {
-            places[i] = place
+        guard reload() else { return }
+        var incoming = place
+        // Radius is only ever changed when the caller passes a valid new one. nil / invalid
+        // (<=0, NaN) means "untouched": keep what the existing place has.
+        if let r = incoming.radius, !(r.isFinite && r > 0) { incoming.radius = nil }
+        if let i = places.firstIndex(where: { $0.id == incoming.id }) {
+            if incoming.radius == nil { incoming.radius = places[i].radius }
+            places[i] = incoming
         } else {
-            places.append(place)
+            // Same as web index.html: a new place goes to the top (min order - 1).
+            if incoming.order == nil { incoming.order = nextOrder() }
+            places.append(incoming)
         }
         save()
     }
 
     func delete(id: String) {
+        guard reload() else { return }
+        guard let removed = places.first(where: { $0.id == id }) else { return }
         places.removeAll { $0.id == id }
+        lastDeleted = removed
         save()
     }
 
-    /// Next order value for a new place (only if the list already uses manual order).
-    func nextOrder() -> Int? {
-        let orders = places.compactMap { $0.order }
-        return orders.isEmpty ? nil : (orders.max() ?? 0) + 1
+    func undoDelete() {
+        guard let place = lastDeleted else { return }
+        upsert(place)
+        lastDeleted = nil
     }
+
+    /// Order for a new place: one before the current smallest (nil if nobody uses manual order yet).
+    func nextOrder() -> Int? {
+        guard let smallest = places.compactMap({ $0.order }).min() else { return nil }
+        return smallest - 1
+    }
+
+    // MARK: Import / restore
 
     /// Replace everything with an imported places.json (old file kept as places.json.bak).
     func importFile(_ url: URL) throws -> Int {
@@ -280,33 +383,62 @@ final class GpsPlaceStore: ObservableObject {
         let fm = FileManager.default
         let dest = Self.fileURL
         if fm.fileExists(atPath: dest.path) {
-            let bak = dest.deletingLastPathComponent().appendingPathComponent("places.json.bak")
+            let bak = Self.importBackupURL
             try? fm.removeItem(at: bak)
-            try? fm.copyItem(at: dest, to: bak)
+            try fm.copyItem(at: dest, to: bak)
         }
-        try data.write(to: dest, options: .atomic)
+        try Self.coordinatedWrite(data, to: dest)
         places = parsed
         lastLoadError = nil
+        refreshImportBackupFlag()
         return parsed.count
     }
 
-    /// Writes favorites back, keeping other top-level keys (recents, trash, ...) and
-    /// unknown per-place keys from the file as it is on disk right now.
+    /// Put back the file that importFile() replaced.
+    func restoreImportBackup() {
+        do {
+            let data = try Data(contentsOf: Self.importBackupURL)
+            _ = try Self.parse(data)
+            try Self.coordinatedWrite(data, to: Self.fileURL)
+            reload()
+            refreshImportBackupFlag()
+        } catch {
+            lastLoadError = "還原匯入前的檔案失敗：\(error.localizedDescription)"
+        }
+    }
+
+    /// Writes favorites back, keeping other top-level keys (recents, trash, ...), unknown
+    /// per-place keys, and favorites this app can't parse, all as on disk right now.
+    /// Refuses to overwrite a file it can't read (a PC push caught mid-write would be lost).
     func save() {
-        let url = Self.fileURL
         var root: [String: Any] = [:]
-        if let data = try? Data(contentsOf: url),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            root = obj
+        switch readDisk() {
+        case .missing:
+            break
+        case .corrupt(let reason):
+            let fm = FileManager.default
+            try? fm.removeItem(at: Self.corruptCopyURL)
+            try? fm.copyItem(at: Self.fileURL, to: Self.corruptCopyURL)
+            lastLoadError = "places.json 讀不懂，沒有覆蓋（原檔已複製成 places.json.corrupt）：\(reason)"
+            return
+        case .ok(let existing):
+            root = existing
         }
         var oldByID: [String: [String: Any]] = [:]
+        var unparseable: [Any] = []
         for item in (root["favorites"] as? [Any]) ?? [] {
-            if let d = item as? [String: Any], let id = d["id"] as? String { oldByID[id] = d }
+            if let dict = item as? [String: Any], GpsPlace(json: dict) != nil {
+                if let key = GpsPlace.idKey(dict["id"]), oldByID[key] == nil { oldByID[key] = dict }
+            } else {
+                unparseable.append(item)
+            }
         }
-        root["favorites"] = places.map { $0.json(mergingInto: oldByID[$0.id] ?? [:]) }
+        var favorites: [Any] = places.map { $0.json(mergingInto: oldByID[$0.id] ?? [:]) }
+        favorites.append(contentsOf: unparseable)
+        root["favorites"] = favorites
         do {
             let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-            try data.write(to: url, options: .atomic)
+            try Self.coordinatedWrite(data, to: Self.fileURL)
         } catch {
             lastLoadError = "存檔失敗：\(error.localizedDescription)"
         }
