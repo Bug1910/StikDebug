@@ -77,6 +77,16 @@ final class GpsSimEngine: ObservableObject {
 
     private init() {}
 
+    /// Screenshot-only: pretends a simulation is running (`-GpsSimDemo simulating`).
+    /// Sets published state only: no device, DVT or StikDebug calls, no timer.
+    func applyDemoSimulation(name: String, coordinate: CLLocationCoordinate2D) {
+        activeName = name
+        activePlaceID = nil
+        activeCenter = coordinate
+        landing = coordinate
+        current = coordinate
+    }
+
     static var pairingFilePath: String { PairingFileStore.prepareURL().path }
 
     static var pairingExists: Bool {
