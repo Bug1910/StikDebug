@@ -82,7 +82,7 @@ def distinct_sizes(family):
     rt = runtime()
     print("runtime:", rt["name"], flush=True)
     out = {}
-    for t in reversed(rt.get("supportedDeviceTypes", [])):  # newest model first
+    for t in rt.get("supportedDeviceTypes", []):  # runtime lists newest first (observed on CI): first per size wins
         if not t["name"].startswith(family):
             continue
         out.setdefault(size_of(t["name"]), t)  # keep the newest model per size

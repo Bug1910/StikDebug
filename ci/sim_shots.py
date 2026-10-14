@@ -22,6 +22,7 @@ def rotate_landscape():
     time.sleep(3)
 
 
+bad = []
 for i, (size, name, tid) in enumerate(sizes):
     if i % of != shard:
         continue
@@ -43,6 +44,9 @@ for i, (size, name, tid) in enumerate(sizes):
                     time.sleep(6)
                     p = "%s/%s_%s_%s%s.png" % (out, tag, state, mode, suffix)
                     sh("xcrun", "simctl", "io", udid, "screenshot", p, check=False, quiet=True)
+                    if not os.path.exists(p) or os.path.getsize(p) < 10240:
+                        bad.append(p)
+                        print("FAIL: screenshot missing or under 10 KB:", p, flush=True)
                     if orient == "landscape" and os.path.exists(p) and png_size(p)[0] < png_size(p)[1]:
                         os.remove(p)
                         landscape_ok = False
@@ -63,3 +67,5 @@ for i, (size, name, tid) in enumerate(sizes):
         if udid:
             sh("xcrun", "simctl", "shutdown", udid, check=False, quiet=True)
 print(sorted(os.listdir(out)))
+if bad:
+    sys.exit("bad screenshots: %s" % bad)

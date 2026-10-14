@@ -24,6 +24,9 @@
   "tap": "設定"
  },
  {
+  "wait": 2
+ },
+ {
   "wait": 1
  },
  {
@@ -50,10 +53,10 @@
   "wait": 1
  },
  {
-  "tap": "搜尋地點，或貼上「緯度, 經度」"
+  "tapId": "search.field"
  },
  {
-  "type": "台中火車站"
+  "type": "台中火車站\n"
  },
  {
   "wait": 3
@@ -65,10 +68,7 @@
   "tree": "search_results"
  },
  {
-  "tapXY": [
-   187,
-   200
-  ]
+  "tap": "台中火車站"
  },
  {
   "wait": 2
@@ -89,7 +89,7 @@
   "tree": "after_save"
  },
  {
-  "tap": "台中公園"
+  "tapId": "place.row.2"
  },
  {
   "wait": 2

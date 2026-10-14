@@ -9,7 +9,7 @@
   "shot": "start"
  },
  {
-  "tap": "台北101"
+  "tapId": "place.row.1"
  },
  {
   "wait": 1
@@ -18,7 +18,7 @@
   "shot": "tap_101"
  },
  {
-  "tap": "台中公園"
+  "tapId": "place.row.2"
  },
  {
   "wait": 1
@@ -30,6 +30,18 @@
   "tree": "after_two_taps"
  },
  {
+  "relaunch": [
+   "-GpsSimDemo",
+   "simulating"
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "simulating_first"
+ },
+ {
   "tap": "回上一個"
  },
  {
@@ -39,7 +51,7 @@
   "shot": "back_previous"
  },
  {
-  "tap": "⏹ 停止模擬"
+  "tap": "停止模擬"
  },
  {
   "wait": 1
@@ -72,7 +84,7 @@
   "shot": "sim_back_previous"
  },
  {
-  "tap": "⏹ 停止模擬"
+  "tap": "停止模擬"
  },
  {
   "wait": 1

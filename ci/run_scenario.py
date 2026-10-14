@@ -18,6 +18,29 @@ time.sleep(10)
 results = []
 
 
+def ui_ready(limit=20):
+    """Poll describe-ui until it returns a non-empty tree (sim accessibility is slow after boot/launch)."""
+    end = time.time() + limit
+    while time.time() < end:
+        r = sh("axe", "describe-ui", "--udid", udid, check=False, quiet=True)
+        if r.returncode == 0 and len(r.stdout.strip()) > 200:
+            return True
+        time.sleep(1)
+    print("WARNING: accessibility tree still empty after", limit, "s", flush=True)
+    return False
+
+
+def tap_retry(*args):
+    r = sh("axe", "tap", *args, "--wait-timeout", "3", "--udid", udid, check=False)
+    if r.returncode:
+        time.sleep(1.5)
+        r = sh("axe", "tap", *args, "--wait-timeout", "3", "--udid", udid, check=False)
+    return r
+
+
+ui_ready()
+
+
 def snap(path):
     return sh("xcrun", "simctl", "io", udid, "screenshot", path, check=False, quiet=True).returncode == 0
 
@@ -30,18 +53,28 @@ for n, step in enumerate(steps, 1):
     ok, detail = True, ""
     try:
         if kind == "tap":
-            r = sh("axe", "tap", "--label", val, "--wait-timeout", "3", "--udid", udid, check=False)
+            r = tap_retry("--label", val)
+            ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
+        elif kind == "tapId":
+            r = tap_retry("--id", val)
             ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
         elif kind == "tapXY":
             r = sh("axe", "tap", "-x", val[0], "-y", val[1], "--udid", udid, check=False)
+            if r.returncode:
+                time.sleep(1.5)
+                r = sh("axe", "tap", "-x", val[0], "-y", val[1], "--udid", udid, check=False)
             ok, detail = r.returncode == 0, r.stderr.strip()[:200]
         elif kind == "type":
+            enter = val.endswith(chr(10))
+            val = val.rstrip(chr(10))
             if val.isascii():
                 r = sh("axe", "type", val, "--udid", udid, check=False)
             else:  # HID typing is ASCII-only: put text on the pasteboard, then Cmd+V (modifier 227, key 25)
                 import subprocess
                 subprocess.run(["xcrun", "simctl", "pbcopy", udid], input=val.encode("utf-8"))
                 r = sh("axe", "key-combo", "--modifiers", "227", "--key", "25", "--udid", udid, check=False)
+            if enter and r.returncode == 0:  # Return key (HID usage 40) submits the search
+                r = sh("axe", "key", "40", "--udid", udid, check=False)
             ok, detail = r.returncode == 0, r.stderr.strip()[:200]
         elif kind == "swipe":
             r = sh("axe", "swipe", "--start-x", val[0], "--start-y", val[1], "--end-x", val[2], "--end-y", val[3],
@@ -57,7 +90,8 @@ for n, step in enumerate(steps, 1):
             ok = r.returncode == 0
         elif kind == "relaunch":
             launch(udid, bid, val)
-            time.sleep(8)
+            time.sleep(4)
+            ui_ready()
         else:
             ok, detail = False, "unknown step type"
     except Exception as e:
@@ -66,6 +100,8 @@ for n, step in enumerate(steps, 1):
     label = re.sub(r"\W+", "_", str(val))[:20] if kind in ("shot", "tree") else ""
     shot = "%02d_%s%s.png" % (n, kind, ("_" + label) if label else "")
     snap("%s/%s" % (out, shot))
+    if os.path.exists("%s/%s" % (out, shot)) and os.path.getsize("%s/%s" % (out, shot)) < 10240:
+        ok, detail = False, (detail + " screenshot under 10 KB (blank/failed)").strip()
     results.append({"n": n, "step": step, "ok": ok, "detail": detail, "screenshot": shot})
     print(n, kind, "OK" if ok else "FAIL " + detail, flush=True)
 

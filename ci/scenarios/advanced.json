@@ -9,7 +9,10 @@
   "shot": "start"
  },
  {
-  "tap": "編輯台北101"
+  "tapId": "place.edit.1"
+ },
+ {
+  "wait": 2
  },
  {
   "tree": "edit_101"
@@ -54,10 +57,10 @@
   "shot": "radius_saved"
  },
  {
-  "tap": "搜尋地點，或貼上「緯度, 經度」"
+  "tapId": "search.field"
  },
  {
-  "type": "25.0357, 121.5650"
+  "type": "25.0357, 121.5650\n"
  },
  {
   "wait": 2
@@ -70,6 +73,9 @@
  },
  {
   "tap": "設定"
+ },
+ {
+  "wait": 2
  },
  {
   "swipe": [

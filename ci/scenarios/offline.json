@@ -11,7 +11,7 @@
  {
   "relaunch": [
    "-GpsSimDemo",
-   "error"
+   "errorNoWifi"
   ]
  },
  {
@@ -24,6 +24,21 @@
   "tree": "error_state"
  },
  {
+  "relaunch": [
+   "-GpsSimDemo",
+   "errorVPN"
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "error_vpn"
+ },
+ {
+  "tree": "error_vpn"
+ },
+ {
   "tap": "重試"
  },
  {
@@ -33,7 +48,7 @@
   "shot": "retry"
  },
  {
-  "tap": "台北101"
+  "tapId": "place.row.1"
  },
  {
   "wait": 2
@@ -55,6 +70,9 @@
  },
  {
   "tap": "設定"
+ },
+ {
+  "wait": 2
  },
  {
   "wait": 1

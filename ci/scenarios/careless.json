@@ -24,19 +24,30 @@
   "shot": "edge_mistaps"
  },
  {
-  "tap": "高雄85大樓"
+  "tapId": "place.row.3"
  },
  {
-  "tap": "高雄85大樓"
+  "tapId": "place.row.3"
  },
  {
-  "tap": "編輯新竹火車站"
+  "tapId": "place.edit.4"
+ },
+ {
+  "wait": 2
  },
  {
   "tree": "edit_sheet"
  },
  {
-  "tap": "刪除"
+  "swipe": [
+   196,
+   700,
+   196,
+   250
+  ]
+ },
+ {
+  "tap": "刪除地點"
  },
  {
   "tree": "delete_confirm"
@@ -54,10 +65,10 @@
   "shot": "undo"
  },
  {
-  "tap": "搜尋地點，或貼上「緯度, 經度」"
+  "tapId": "search.field"
  },
  {
-  "type": "25.03,abc"
+  "type": "25.03,abc\n"
  },
  {
   "wait": 2
@@ -69,10 +80,10 @@
   "tap": "清除搜尋"
  },
  {
-  "tap": "搜尋地點，或貼上「緯度, 經度」"
+  "tapId": "search.field"
  },
  {
-  "type": "121.56, 25.03"
+  "type": "121.56, 25.03\n"
  },
  {
   "wait": 2
@@ -84,7 +95,10 @@
   "tap": "清除搜尋"
  },
  {
-  "tap": "編輯台南赤崁樓"
+  "tapId": "place.edit.5"
+ },
+ {
+  "wait": 2
  },
  {
   "tap": "地點名稱"
