@@ -209,7 +209,7 @@ struct PeekRealLocationIntent: AppIntent {
         }
         let back = (wasActive ?? stale?.name).map { resumed ? "，已定位回「\($0)」" : "，但沒能定位回「\($0)」，請再送一次" } ?? ""
         guard let fix else {
-            let why = GpsRealFix.authorized ? "\(seconds) 秒內抓不到 GPS（室內可能比較久）" : "定位儀沒有定位權限，請到「設定 › 定位儀 › 位置」打開"
+            let why = GpsRealFix.authorized ? "\(Int(gpsWait.rounded())) 秒內抓不到 GPS（室內可能比較久）" : "定位儀沒有定位權限，請到「設定 › 定位儀 › 位置」打開"
             return .result(value: nil, dialog: "\(why)\(back)")
         }
         let placemark = try? await CLGeocoder().reverseGeocodeLocation(fix).first
