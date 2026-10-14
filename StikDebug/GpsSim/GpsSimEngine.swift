@@ -288,16 +288,16 @@ final class GpsSimEngine: ObservableObject {
     }
 
     /// Go back to what was active before the last send: re-send it exactly, or stop if that was the real location.
-    func undoLastSend() {
-        guard !isBusy else { return }
+    func undoLastSend(completion: ((Int32) -> Void)? = nil) {
+        guard !isBusy else { completion?(Self.busyCode); return }
         guard let target = previous else {
-            stop()
+            stop(completion: completion)
             return
         }
         let center = target.placeID.flatMap { id in
             GpsPlaceStore.shared.places.first(where: { $0.id == id })?.coordinate
         }
-        send(to: target.coordinate, name: target.name, center: center, placeID: target.placeID)
+        send(to: target.coordinate, name: target.name, center: center, placeID: target.placeID, completion: completion)
     }
 
     /// Same 4 s keep-alive timer StikDebug uses (MapSelectionView.startResendLoop),

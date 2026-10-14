@@ -167,15 +167,24 @@ struct GpsSimHomeView: View {
     /// Demo states other than "error" pretend the phone chain is healthy.
     private var demoReady: Bool { Self.demoState != nil && !demoIsError }
 
-    private var isConnecting: Bool { !demoReady && pairingExists && !tunnel.isConnected && !tunnelGraceOver }
+    /// The location link (simulate_location's own "StikDebugLocation" tunnel) is separate from
+    /// TunnelManager's JIT tunnel, which can't come up on 4G. A send or resend accepted in the
+    /// last 15 s proves the link works, so the UI must not call it disconnected (seen 2026-10-15).
+    private var locationLinkAlive: Bool {
+        guard !engine.connectionLost, let t = engine.lastSendSucceeded, engine.activeName != nil else { return false }
+        return Date().timeIntervalSince(t) <= 15
+    }
+    private var linkUp: Bool { tunnel.isConnected || locationLinkAlive }
+
+    private var isConnecting: Bool { !demoReady && pairingExists && !linkUp && !tunnelGraceOver }
     private var isMountingNow: Bool {
         !demoReady && pairingExists && tunnel.isConnected && !mounting.coolisMounted && mounting.mountingThread != nil
     }
     /// Device chain not ready: rows show orange "先打開 LocalDevVPN" instead of the normal subtitle.
-    private var deviceNotReady: Bool { !demoReady && (!tunnel.isConnected || !mounting.coolisMounted) }
+    private var deviceNotReady: Bool { !demoReady && !locationLinkAlive && (!tunnel.isConnected || !mounting.coolisMounted) }
     private var deviceHint: String {
         if isConnecting { return "連線中…" }
-        if !tunnel.isConnected && engine.activeName != nil { return GpsSimNetwork.disconnectedHint }
+        if !linkUp && engine.activeName != nil { return GpsSimNetwork.disconnectedHint }
         return network.onWiFi ? network.deviceHint(tunnelConnected: tunnel.isConnected) : "先連上 Wi-Fi"
     }
     /// Any of the `simulating*` demo states.
@@ -267,6 +276,7 @@ struct GpsSimHomeView: View {
             if !simulating { AccessibilityAnnouncer.announce("已回到真實位置") }
         }
         .onChange(of: tunnel.isConnected) { _, connected in
+            guard connected || !locationLinkAlive else { return }
             AccessibilityAnnouncer.announce(connected ? "已連上手機" : "和手機的連線中斷")
         }
         .onChange(of: mapSelection) { _, id in
@@ -331,7 +341,7 @@ struct GpsSimHomeView: View {
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
-    /// Fresh = tunnel up AND the phone accepted a point within the last 15 s (heartbeat is every 4 s).
+    /// Fresh = the phone accepted a point within the last 15 s (heartbeat is every 4 s).
     /// Only then do the pulse and the mint stroke show, so the animation never claims more than we know.
     private func confirmation(at now: Date) -> (fresh: Bool, age: Int?) {
         guard engine.activeName != nil else { return (false, nil) }
@@ -339,7 +349,7 @@ struct GpsSimHomeView: View {
             if demo == "simulating" { return (true, 3) }
             if demo == "simulatingStale" { return (false, nil) }
         }
-        guard tunnel.isConnected, engine.statusNote == nil, let t = engine.lastSendSucceeded else { return (false, nil) }
+        guard engine.statusNote == nil, let t = engine.lastSendSucceeded else { return (false, nil) }
         let age = max(Int(now.timeIntervalSince(t)), 0)
         return (age <= 15, age)
     }
@@ -1091,7 +1101,7 @@ struct GpsSimHomeView: View {
                 buttonTitle: "去設定",
                 action: { showSettings = true }
             ))
-        } else if !demoReady && !tunnel.isConnected {
+        } else if !demoReady && !linkUp {
             if tunnelGraceOver {
                 list.append(GpsBanner(
                     id: "tunnel", color: GpsTheme.orange,
@@ -1256,7 +1266,8 @@ struct GpsSimHomeView: View {
         }
         store.reload()
         pairingExists = GpsSimEngine.pairingExists
-        if startTunnel, pairingExists, !tunnel.isConnected {
+        // A working location link needs no JIT tunnel; retrying it on 4G only spins.
+        if startTunnel, pairingExists, !linkUp {
             retryTunnel()
         }
         mounting.checkforMounted()

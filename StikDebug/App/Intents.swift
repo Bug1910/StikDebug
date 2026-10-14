@@ -305,6 +305,12 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             systemImageName: "location.fill"
         )
         AppShortcut(
+            intent: PeekRealLocationIntent(),
+            phrases: ["用\(.applicationName)看真實位置", "\(.applicationName)看真實位置"],
+            shortTitle: "看真實位置",
+            systemImageName: "location.magnifyingglass"
+        )
+        AppShortcut(
             intent: StopSimulationIntent(),
             phrases: ["\(.applicationName)停止定位", "用\(.applicationName)停止定位"],
             shortTitle: "停止定位",
