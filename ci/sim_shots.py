@@ -32,7 +32,7 @@ for i, (size, name, tid) in enumerate(sizes):
         print("==", tag, udid, flush=True)
         prepare(udid, app, bid)
         landscape_ok = True
-        for orient in ["portrait"]  # simctl cannot rotate; landscape verified impossible on CI runners:
+        for orient in ["portrait"]:  # simctl cannot rotate; landscape verified impossible on CI runners
             if orient == "landscape":
                 rotate_landscape()
             suffix = "_" + orient if family == "ipad" else ""
