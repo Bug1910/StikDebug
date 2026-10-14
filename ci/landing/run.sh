@@ -1,7 +1,7 @@
 #!/bin/bash
 # 10 separate launches per case; fail on any repeated first landing or a point outside the circle(s).
 set -e
-swiftc -O -o /tmp/landing StikDebug/GpsSim/GpsSimPlaces.swift ci/landing/main.swift
+swiftc -O -o /tmp/landing StikDebug/GpsSim/GpsSimPlaces.swift ci/landing/stubs.swift ci/landing/main.swift
 status=0
 for mode in single --overlap; do
   out=$(for i in $(seq 1 10); do /tmp/landing $mode; done)
