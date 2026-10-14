@@ -12,6 +12,7 @@ cp "$LIB" "$W/orig.a"
 cd "$W"
 mkdir objs && cd objs
 ar -t ../orig.a | sort | uniq -d | sed 's/^/WARNING duplicate member name: /' || true
+echo "members: $(ar -t ../orig.a | wc -l)"
 ar -x ../orig.a
 python3 "$REPO/ci/retag_objs.py" *.o
 rm -f ../new.a
