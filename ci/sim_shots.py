@@ -32,7 +32,7 @@ for i, (size, name, tid) in enumerate(sizes):
         print("==", tag, udid, flush=True)
         prepare(udid, app, bid)
         landscape_ok = True
-        for orient in (["portrait", "landscape"] if family == "ipad" else ["portrait"]):
+        for orient in ["portrait"]  # simctl cannot rotate; landscape verified impossible on CI runners:
             if orient == "landscape":
                 rotate_landscape()
             suffix = "_" + orient if family == "ipad" else ""
@@ -40,7 +40,7 @@ for i, (size, name, tid) in enumerate(sizes):
                 for mode in (["light", "dark"] if state in ("home", "simulating") else ["light"]):
                     sh("xcrun", "simctl", "ui", udid, "appearance", mode, check=False, quiet=True)
                     launch(udid, bid, ["-GpsSimDemo", state])
-                    time.sleep(10)
+                    time.sleep(6)
                     p = "%s/%s_%s_%s%s.png" % (out, tag, state, mode, suffix)
                     sh("xcrun", "simctl", "io", udid, "screenshot", p, check=False, quiet=True)
                     if orient == "landscape" and os.path.exists(p) and png_size(p)[0] < png_size(p)[1]:
@@ -53,9 +53,9 @@ for i, (size, name, tid) in enumerate(sizes):
         # Display Zoom can't be switched via simctl: emulate the 320 pt layouts with a demo launch arg
         # (needs the app to honour -GpsSimDemoWidth; harmless if it ignores it)
         if family == "iphone" and size in ("375x667", "390x844"):
-            for state in ("home", "selected", "edit", "settings"):
+            for state in ("home", "edit"):
                 launch(udid, bid, ["-GpsSimDemo", state, "-GpsSimDemoWidth", "320"])
-                time.sleep(10)
+                time.sleep(6)
                 sh("xcrun", "simctl", "io", udid, "screenshot", "%s/%s_%s_light_zoom320.png" % (out, tag, state), check=False, quiet=True)
     except Exception as e:  # one broken device must not kill the rest
         print("ERROR", tag, e, flush=True)

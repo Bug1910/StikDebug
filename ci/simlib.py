@@ -22,7 +22,7 @@ SIZES = [
     (r"iPhone (16|17) Pro$", "402x874"), (r"iPhone (16|17) Pro Max", "440x956"),
     (r"iPhone Air", "420x912"),
     (r"iPad mini \(A17|iPad mini \(6th", "744x1133"), (r"iPad mini", "768x1024"),
-    (r"iPad \((A16|10th)", "820x1180"), (r"iPad \(9th", "810x1080"),
+    (r"iPad \((A16|10th)", "820x1180"), (r"iPad \((8th|9th)", "810x1080"),
     (r"iPad Air 11-inch|iPad Air \(5th|iPad Air \(4th", "820x1180"),
     (r"iPad Air 13-inch", "1024x1366"),
     (r"iPad Pro 11-inch \(M[45]", "834x1210"),
@@ -82,10 +82,10 @@ def distinct_sizes(family):
     rt = runtime()
     print("runtime:", rt["name"], flush=True)
     out = {}
-    for t in rt.get("supportedDeviceTypes", []):
+    for t in reversed(rt.get("supportedDeviceTypes", [])):  # newest model first
         if not t["name"].startswith(family):
             continue
-        out[size_of(t["name"])] = t  # later (newer) models replace older ones with the same size
+        out.setdefault(size_of(t["name"]), t)  # keep the newest model per size
     res = [(sz, t["name"], t["identifier"]) for sz, t in out.items()]
     res.sort(key=lambda r: tuple(int(x) for x in re.findall(r"\d+", r[0])[:2]) or (9999,))
     return rt, res

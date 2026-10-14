@@ -71,9 +71,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { family: iphone, shard: 0, of: 2 }
-          - { family: iphone, shard: 1, of: 2 }
-          - { family: ipad, shard: 0, of: 1 }
+          - { family: iphone, shard: 0, of: 5 }
+          - { family: iphone, shard: 1, of: 5 }
+          - { family: iphone, shard: 2, of: 5 }
+          - { family: iphone, shard: 3, of: 5 }
+          - { family: iphone, shard: 4, of: 5 }
+          - { family: ipad, shard: 0, of: 3 }
+          - { family: ipad, shard: 1, of: 3 }
+          - { family: ipad, shard: 2, of: 3 }
     steps:
       - uses: actions/checkout@v6
       - uses: maxim-lobanov/setup-xcode@v1
