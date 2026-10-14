@@ -59,7 +59,12 @@ struct GpsPlace: Identifiable, Equatable {
     /// Writes our known fields over `base`, so keys we don't model (e.g. "used") survive a save.
     func json(mergingInto base: [String: Any]) -> [String: Any] {
         var d = base
-        d["id"] = id
+        // Keep a numeric id numeric (the web tool wrote it that way) when it is the same id.
+        if let baseID = base["id"] as? NSNumber, GpsPlace.idKey(baseID) == id {
+            d["id"] = baseID
+        } else {
+            d["id"] = id
+        }
         d["name"] = name
         d["lat"] = lat
         d["lon"] = lon
@@ -210,7 +215,13 @@ final class GpsPlaceStore: ObservableObject {
 
     @Published private(set) var places: [GpsPlace] = []
     /// The most recent place removed by delete(id:), so the UI can offer "復原".
-    @Published private(set) var lastDeleted: GpsPlace?
+    private struct DeletedEntry {
+        let place: GpsPlace
+        let index: Int
+        let raw: [String: Any]
+    }
+    private var deletedEntry: DeletedEntry? { didSet { objectWillChange.send() } }
+    var lastDeleted: GpsPlace? { deletedEntry?.place }
     @Published var lastLoadError: String?
 
     nonisolated static var fileURL: URL {
@@ -354,16 +365,27 @@ final class GpsPlaceStore: ObservableObject {
 
     func delete(id: String) {
         guard reload() else { return }
-        guard let removed = places.first(where: { $0.id == id }) else { return }
-        places.removeAll { $0.id == id }
-        lastDeleted = removed
+        guard let index = places.firstIndex(where: { $0.id == id }) else { return }
+        let removed = places[index]
+        var raw: [String: Any] = [:]
+        if case .ok(let root) = readDisk() {
+            for item in (root["favorites"] as? [Any]) ?? [] {
+                if let dict = item as? [String: Any], GpsPlace.idKey(dict["id"]) == id { raw = dict; break }
+            }
+        }
+        places.remove(at: index)
+        deletedEntry = DeletedEntry(place: removed, index: index, raw: raw)
         save()
     }
 
+    /// Puts the place back at its old position with its old order and extra keys.
     func undoDelete() {
-        guard let place = lastDeleted else { return }
-        upsert(place)
-        lastDeleted = nil
+        guard let entry = deletedEntry, reload() else { return }
+        if !places.contains(where: { $0.id == entry.place.id }) {
+            places.insert(entry.place, at: min(entry.index, places.count))
+            save(extraBases: [entry.place.id: entry.raw])
+        }
+        deletedEntry = nil
     }
 
     /// Order for a new place: one before the current smallest (nil if nobody uses manual order yet).
@@ -410,7 +432,7 @@ final class GpsPlaceStore: ObservableObject {
     /// Writes favorites back, keeping other top-level keys (recents, trash, ...), unknown
     /// per-place keys, and favorites this app can't parse, all as on disk right now.
     /// Refuses to overwrite a file it can't read (a PC push caught mid-write would be lost).
-    func save() {
+    func save(extraBases: [String: [String: Any]] = [:]) {
         var root: [String: Any] = [:]
         switch readDisk() {
         case .missing:
@@ -433,7 +455,7 @@ final class GpsPlaceStore: ObservableObject {
                 unparseable.append(item)
             }
         }
-        var favorites: [Any] = places.map { $0.json(mergingInto: oldByID[$0.id] ?? [:]) }
+        var favorites: [Any] = places.map { $0.json(mergingInto: extraBases[$0.id] ?? oldByID[$0.id] ?? [:]) }
         favorites.append(contentsOf: unparseable)
         root["favorites"] = favorites
         do {

@@ -118,6 +118,7 @@ struct GpsSimHomeView: View {
     @State private var didInitialFit = false
     @State private var toast: GpsToast?
     @State private var sendingPlaceID: String?
+    @State private var topHeight: CGFloat = 120
     @FocusState private var searchFocused: Bool
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
@@ -132,6 +133,9 @@ struct GpsSimHomeView: View {
     }
     /// Device chain not ready: rows show orange "先打開 LocalDevVPN" instead of the normal subtitle.
     private var deviceNotReady: Bool { !tunnel.isConnected || !mounting.coolisMounted }
+    private var deviceHint: String {
+        !tunnel.isConnected ? "先打開 LocalDevVPN" : "先掛載開發者映像（DDI）"
+    }
 
     var body: some View {
         // Why a fixed 55% panel instead of a bottom sheet with detents: the app already uses
@@ -139,13 +143,16 @@ struct GpsSimHomeView: View {
         // (only one sheet at a time). A plain split layout is simpler and cannot be dismissed.
         GeometryReader { geo in
             VStack(spacing: 0) {
-                topBar
-                searchBar
+                VStack(spacing: 0) {
+                    topBar
+                    searchBar
+                }
+                .background(GpsTopHeightReader())
                 map
                     .frame(minHeight: 200, maxHeight: .infinity)
                     .layoutPriority(1)
                 placesPanel
-                    .frame(height: max(220, geo.size.height * 0.55))
+                    .frame(height: max(120, min(geo.size.height * 0.55, geo.size.height - topHeight - 200)))
             }
         }
         .ignoresSafeArea(.keyboard)
@@ -154,6 +161,8 @@ struct GpsSimHomeView: View {
         .tint(GpsTheme.mint)
         .overlay(alignment: .bottom) { toastView.padding(.bottom, 12) }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+        .ignoresSafeArea(.keyboard)
+        .onPreferenceChange(GpsTopHeightKey.self) { topHeight = $0 }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshFromDisk(startTunnel: true) }
@@ -175,8 +184,12 @@ struct GpsSimHomeView: View {
         .onChange(of: engine.isBusy) { _, busy in
             if !busy { sendingPlaceID = nil }
         }
-        .onChange(of: statusText) { _, text in
-            AccessibilityAnnouncer.announce(text)
+        // Only state changes are announced; sends are announced by their toast.
+        .onChange(of: isSimulating) { _, simulating in
+            if !simulating { AccessibilityAnnouncer.announce("已回到真實位置") }
+        }
+        .onChange(of: tunnel.isConnected) { _, connected in
+            AccessibilityAnnouncer.announce(connected ? "已連上手機" : "和手機的連線中斷")
         }
         .onChange(of: mapSelection) { _, id in
             guard let id, let p = store.places.first(where: { $0.id == id }) else { return }
@@ -350,6 +363,7 @@ struct GpsSimHomeView: View {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = q
         request.region = GpsTheme.taiwanRegion
+        searchFocused = false
         isSearching = true
         Task {
             let items: [MKMapItem]
@@ -419,9 +433,9 @@ struct GpsSimHomeView: View {
                 guard let c = proxy.convert(location, from: .local) else { return }
                 clearToast()
                 searchFocused = false
-                mapSelection = nil
-                // Inside a saved circle -> that place (random landing); otherwise the exact point.
-                if let hit = placeContaining(c) {
+                // Near a place's centre/balloon or inside its circle -> that place (random landing);
+                // otherwise the exact point.
+                if let hit = placeHit(at: location, tapped: c, proxy: proxy) {
                     candidate = GpsCandidate(coordinate: hit.coordinate, title: hit.name, place: hit)
                 } else {
                     candidate = GpsCandidate(
@@ -441,13 +455,29 @@ struct GpsSimHomeView: View {
         }
     }
 
-    /// Nearest-centre place whose circle contains the point.
-    private func placeContaining(_ c: CLLocationCoordinate2D) -> GpsPlace? {
-        visiblePlaces
-            .map { (place: $0, dist: GpsGeo.meters($0.coordinate, c)) }
-            .filter { $0.dist <= GpsGeo.radius(of: $0.place) }
-            .min { $0.dist < $1.dist }?
-            .place
+    /// Screen-space hit test: the marker balloon (up to 44 pt above the centre), a 22 pt
+    /// touch radius around the centre, or the circle itself (radius converted to points).
+    private func placeHit(at location: CGPoint, tapped c: CLLocationCoordinate2D, proxy: MapProxy) -> GpsPlace? {
+        var best: (place: GpsPlace, dist: CGFloat)?
+        for p in visiblePlaces {
+            guard let center = proxy.convert(p.coordinate, to: .local) else { continue }
+            let r = GpsGeo.radius(of: p)
+            let edge = CLLocationCoordinate2D(
+                latitude: p.lat,
+                longitude: p.lon + r / (111_320 * max(cos(p.lat * Double.pi / 180), 0.01))
+            )
+            var radiusPoints: CGFloat = 0
+            if let e = proxy.convert(edge, to: .local) {
+                radiusPoints = hypot(e.x - center.x, e.y - center.y)
+            }
+            let dist = hypot(location.x - center.x, location.y - center.y)
+            let inBalloon = abs(location.x - center.x) <= 22 &&
+                location.y >= center.y - 44 && location.y <= center.y
+            if dist <= max(22, radiusPoints) || inBalloon {
+                if best == nil || dist < best!.dist { best = (p, dist) }
+            }
+        }
+        return best?.place
     }
 
     private func focus(on c: CLLocationCoordinate2D, radius: Double) {
@@ -549,6 +579,7 @@ struct GpsSimHomeView: View {
             }
         }
         .listStyle(.plain)
+        .contentMargins(.bottom, toast == nil ? 0 : 64, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(GpsTheme.background)
         .refreshable {
@@ -622,7 +653,7 @@ struct GpsSimHomeView: View {
                             .foregroundStyle(active ? GpsTheme.mint : .white)
                             .lineLimit(nil)
                         if deviceNotReady {
-                            Text("先打開 LocalDevVPN")
+                            Text(deviceHint)
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(GpsTheme.orange)
                                 .lineLimit(nil)
@@ -643,7 +674,7 @@ struct GpsSimHomeView: View {
             }
             .buttonStyle(.plain)
             .disabled(engine.isBusy)
-            .accessibilityLabel(deviceNotReady ? "\(p.name)，先打開 LocalDevVPN" : "\(p.name)，\(subtitle)")
+            .accessibilityLabel(deviceNotReady ? "\(p.name)，\(deviceHint)" : "\(p.name)，\(subtitle)")
             .accessibilityHint("點一下就把手機定位傳到這裡")
 
             Button {
@@ -778,8 +809,7 @@ struct GpsSimHomeView: View {
         let place = GpsPlace(
             name: name.isEmpty ? c.title : name,
             lat: c.coordinate.latitude,
-            lon: c.coordinate.longitude,
-            order: store.nextOrder()
+            lon: c.coordinate.longitude
         )
         store.upsert(place)
         candidate = nil
@@ -794,7 +824,7 @@ struct GpsSimHomeView: View {
             list.append(GpsBanner(
                 id: "pairing", color: GpsTheme.red,
                 title: "還沒有配對檔",
-                detail: "請在電腦上用 iloader 放配對檔，放好後按「重新檢查」。",
+                detail: "請在電腦上用 iloader（電腦上的簽名工具）放配對檔，放好後按「重新檢查」。",
                 buttonTitle: "重新檢查",
                 action: { refreshFromDisk(startTunnel: true) }
             ))
@@ -811,8 +841,8 @@ struct GpsSimHomeView: View {
         } else if !mounting.coolisMounted, mounting.mountingThread == nil {
             list.append(GpsBanner(
                 id: "ddi", color: GpsTheme.orange,
-                title: "開發者磁碟映像（DDI）尚未掛載",
-                detail: "模擬定位需要先掛載 DDI，按右邊按鈕（第一次會先下載，約數十 MB）。",
+                title: "DDI（開發者映像）尚未掛載",
+                detail: "模擬定位需要先掛載 DDI（開發者映像），按右邊按鈕（第一次會先下載，約數十 MB）。",
                 buttonTitle: "掛載 DDI",
                 action: { mountDDI() }
             ))
@@ -992,6 +1022,20 @@ struct GpsSimHomeView: View {
             }
         case .failure(let error):
             store.lastLoadError = "匯入失敗：\(error.localizedDescription)"
+        }
+    }
+}
+
+private struct GpsTopHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 120
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Reports the top bar + search bar height so the list panel can leave the map >= 200 pt.
+private struct GpsTopHeightReader: View {
+    var body: some View {
+        GeometryReader { g in
+            Color.clear.preference(key: GpsTopHeightKey.self, value: g.size.height)
         }
     }
 }
