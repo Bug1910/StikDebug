@@ -152,7 +152,7 @@ struct GpsSimHomeView: View {
                     .frame(minHeight: 200, maxHeight: .infinity)
                     .layoutPriority(1)
                 placesPanel
-                    .frame(height: max(120, min(geo.size.height * 0.55, geo.size.height - topHeight - 200)))
+                    .frame(height: max(120, min(geo.size.height * 0.40, geo.size.height - topHeight - 200)))
             }
         }
         .ignoresSafeArea(.keyboard)
@@ -239,9 +239,9 @@ struct GpsSimHomeView: View {
             }
             .accessibilityLabel("設定")
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
     }
 
     private var statusPill: some View {
@@ -250,7 +250,7 @@ struct GpsSimHomeView: View {
                 .fill(isSimulating ? GpsTheme.mint : Color.white.opacity(0.45))
                 .frame(width: 10, height: 10)
             Text(statusText)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
@@ -291,7 +291,7 @@ struct GpsSimHomeView: View {
                 } label: {
                     Text("⏹ 停止模擬")
                         .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 56)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .foregroundStyle(.white)
                         .background(GpsTheme.red, in: RoundedRectangle(cornerRadius: 14))
                 }
@@ -300,13 +300,14 @@ struct GpsSimHomeView: View {
             } else {
                 Text("真實位置")
                     .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .foregroundStyle(GpsTheme.sub)
                     .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 14))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .background(GpsTheme.background)
     }
 
@@ -336,10 +337,10 @@ struct GpsSimHomeView: View {
             }
         }
         .padding(.leading, 14)
-        .frame(minHeight: 48)
-        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .frame(minHeight: 44)
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
     }
 
     private func runSearch() {
@@ -579,6 +580,7 @@ struct GpsSimHomeView: View {
             }
         }
         .listStyle(.plain)
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .contentMargins(.bottom, toast == nil ? 0 : 64, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(GpsTheme.background)
@@ -647,29 +649,29 @@ struct GpsSimHomeView: View {
                 engine.send(place: p)
             } label: {
                 HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(p.name)
-                            .font(.headline)
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(active ? GpsTheme.mint : .white)
-                            .lineLimit(nil)
+                            .lineLimit(1)
                         if deviceNotReady {
                             Text(deviceHint)
-                                .font(.subheadline.weight(.semibold))
+                                .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(GpsTheme.orange)
-                                .lineLimit(nil)
+                                .lineLimit(1)
                         } else {
                             Text(subtitle)
-                                .font(.subheadline)
+                                .font(.system(size: 13))
                                 .foregroundStyle(GpsTheme.sub)
-                                .lineLimit(nil)
+                                .lineLimit(1)
                         }
                     }
                     Spacer(minLength: 0)
                     if sendingPlaceID == p.id && engine.isBusy { ProgressView() }
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .padding(.vertical, 10)
-                .padding(.leading, 14)
+                .padding(.vertical, 2)
+                .padding(.leading, 12)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1046,7 +1048,7 @@ private extension View {
         self
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
     }
 }
 
