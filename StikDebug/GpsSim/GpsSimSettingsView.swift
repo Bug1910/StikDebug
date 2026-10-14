@@ -2,7 +2,7 @@
 //  GpsSimSettingsView.swift
 //  StikDebug (GpsSim fork)
 //
-//  Settings sheet: connection help, drift, places import/export, pairing file, language,
+//  Settings sheet: connection help, drift, places import/export, pairing file,
 //  the only way into the original StikDebug screens ("進階 (StikDebug)"), and the version.
 //  Place sizes are 小/中/大 on each place now, so the old default-radius slider is gone
 //  (places without their own radius still use the stored default, unchanged).
@@ -92,21 +92,6 @@ struct GpsSimSettingsView: View {
                     }
                 } header: {
                     Text("配對檔")
-                }
-
-                Section {
-                    Button {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    } label: {
-                        Label("語言", systemImage: "globe")
-                            .frame(minHeight: 44)
-                    }
-                    .accessibilityHint("打開 iOS 設定裡本 App 的頁面")
-                    .accessibilityIdentifier("settings.language")
-                } footer: {
-                    Text("在 iOS 設定的「語言」選繁體中文或 English。")
                 }
 
                 Section {

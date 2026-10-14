@@ -24,7 +24,7 @@ jobs:
           xcode-version: '26.6'
 
       - name: Stamp build (short sha and date) shown in 設定 as 版本 v<x.y.z>（sha · date）
-        run: /usr/libexec/PlistBuddy -c "Add :GpsSimBuild string ${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
+        run: plutil -insert GpsSimBuild -string "${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
 
       - name: Retag prebuilt idevice lib for simulator (CI workspace copy only)
         run: bash ci/retag_idevice_sim.sh
