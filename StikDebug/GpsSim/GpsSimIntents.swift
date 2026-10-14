@@ -170,30 +170,44 @@ struct PeekRealLocationIntent: AppIntent {
     static var description = IntentDescription("暫停模擬幾秒，抓到真實位置後自動定位回原本的地點。")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "最多等幾秒抓 GPS", default: 10, inclusiveRange: (3, 30))
+    // Kept short on purpose: stop + GPS + resume must finish before Shortcuts gives up on the
+    // intent (~30 s), or the phone would be left on the real location (review 2026-10-15).
+    @Parameter(title: "最多等幾秒抓 GPS", default: 8, inclusiveRange: (3, 10))
     var seconds: Int
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<CLPlacemark?> & ProvidesDialog {
         let engine = GpsSimEngine.shared
+        let deadline = Date().addingTimeInterval(24)
         let wasActive = engine.activeName
-        if wasActive != nil {
-            let code = await GpsSimIntentRunner.retryingLink { done in engine.stop(completion: done) }
+        // A point sent in an earlier launch may still be on the phone (staleTarget): stop it too,
+        // or every fix would be the fake one and the message would wrongly blame GPS.
+        let stale = wasActive == nil ? engine.staleTarget : nil
+        if wasActive != nil || stale != nil {
+            let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in engine.stop(completion: done) }
             guard code == 0 else {
                 let reason = code == GpsSimEngine.busyCode ? "定位儀正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
                 return .result(value: nil, dialog: "沒辦法暫停模擬：\(reason)")
             }
         }
-        let fix = await GpsRealFix.read(timeout: TimeInterval(seconds))
+        // Leave at least 8 s of the budget for putting the fake location back.
+        let gpsWait = min(TimeInterval(seconds), max(deadline.timeIntervalSinceNow - 8, 2))
+        let fix = await GpsRealFix.read(timeout: gpsWait)
         var resumed = true
-        if let wasActive {
+        if wasActive != nil {
             // stop() saved the stopped target as `previous`; undo re-sends that exact point.
-            let code = await GpsSimIntentRunner.retryingLink { done in
+            // (Side effect: afterwards 回上一個 leads to the real location, not the place before.)
+            let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in
                 engine.undoLastSend(completion: done)
             }
             resumed = code == 0
+        } else if let stale {
+            let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in
+                engine.send(to: stale.coordinate, name: stale.name, placeID: stale.placeID, completion: done)
+            }
+            resumed = code == 0
         }
-        let back = wasActive.map { resumed ? "，已定位回「\($0)」" : "，但沒能定位回「\($0)」，請再送一次" } ?? ""
+        let back = (wasActive ?? stale?.name).map { resumed ? "，已定位回「\($0)」" : "，但沒能定位回「\($0)」，請再送一次" } ?? ""
         guard let fix else {
             let why = GpsRealFix.authorized ? "\(seconds) 秒內抓不到 GPS（室內可能比較久）" : "定位儀沒有定位權限，請到「設定 › 定位儀 › 位置」打開"
             return .result(value: nil, dialog: "\(why)\(back)")
@@ -213,6 +227,8 @@ final class GpsRealFix: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var best: CLLocation?
     private var finish: ((CLLocation?) -> Void)?
+    /// Fixes older than the read are CoreLocation's cache (e.g. home hours ago), not where he is now.
+    private let started = Date()
 
     static var authorized: Bool {
         let s = CLLocationManager().authorizationStatus
@@ -226,6 +242,8 @@ final class GpsRealFix: NSObject, CLLocationManagerDelegate {
             reader.finish = { continuation.resume(returning: $0) }
             reader.manager.delegate = reader
             reader.manager.desiredAccuracy = kCLLocationAccuracyBest
+            // The intent runs in the background (openAppWhenRun = false); UIBackgroundModes has location.
+            reader.manager.allowsBackgroundLocationUpdates = true
             reader.manager.startUpdatingLocation()
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { reader.done(reader.best) }
         }
@@ -240,7 +258,8 @@ final class GpsRealFix: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         Task { @MainActor in
-            for l in locations where l.horizontalAccuracy >= 0 && l.sourceInformation?.isSimulatedBySoftware != true {
+            for l in locations where l.horizontalAccuracy >= 0 && l.timestamp >= started
+                && l.sourceInformation?.isSimulatedBySoftware != true {
                 if best == nil || l.horizontalAccuracy < best!.horizontalAccuracy { best = l }
             }
             if let best, best.horizontalAccuracy <= 50 { done(best) }
