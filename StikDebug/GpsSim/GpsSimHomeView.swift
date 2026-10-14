@@ -777,11 +777,21 @@ struct GpsSimHomeView: View {
         return best?.place
     }
 
+    /// The open band of map sits between the top controls and the bottom card, a little above
+    /// the screen centre, so the camera aims south of the point by this share of the visible height.
+    private static let cameraLift = 0.12
+    /// Visible north-south extent for a region of `span` metres (the screen is taller than wide).
+    private static var screenAspect: Double {
+        let b = UIScreen.main.bounds
+        return max(Double(b.height / max(b.width, 1)), 1)
+    }
+
     private func focus(on c: CLLocationCoordinate2D, radius: Double) {
-        // Generous span: the floating card covers the lower part of the map.
         let span = max(radius * 2 + 300, 450)
+        let liftMeters = span * Self.screenAspect * Self.cameraLift
+        let center = CLLocationCoordinate2D(latitude: c.latitude - liftMeters / 111_320, longitude: c.longitude)
         withAnimation(.easeInOut(duration: 0.4)) {
-            position = .region(MKCoordinateRegion(center: c, latitudinalMeters: span, longitudinalMeters: span))
+            position = .region(MKCoordinateRegion(center: center, latitudinalMeters: span, longitudinalMeters: span))
         }
     }
 
@@ -792,8 +802,7 @@ struct GpsSimHomeView: View {
             focus(on: pts[0].coordinate, radius: GpsGeo.radius(of: pts[0]))
             return
         }
-        // Bounds include each place's circle (not just the pin), then 1.8x padding
-        // so pins at the edge are not hidden under the top controls / place card.
+        // Bounds include each place's circle (not just the pin).
         var minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0
         for p in pts {
             let r = GpsGeo.radius(of: p)
@@ -802,8 +811,11 @@ struct GpsSimHomeView: View {
             minLat = min(minLat, p.lat - dLat); maxLat = max(maxLat, p.lat + dLat)
             minLon = min(minLon, p.lon - dLon); maxLon = max(maxLon, p.lon + dLon)
         }
-        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2)
-        let span = MKCoordinateSpan(latitudeDelta: max((maxLat - minLat) * 1.8, 0.01),
+        // 2.4x: the places have to fit the open band (about the middle 45 % of the screen).
+        let latDelta = max((maxLat - minLat) * 2.4, 0.01)
+        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2 - latDelta * Self.cameraLift,
+                                            longitude: (minLon + maxLon) / 2)
+        let span = MKCoordinateSpan(latitudeDelta: latDelta,
                                     longitudeDelta: max((maxLon - minLon) * 1.8, 0.01))
         let region = MKCoordinateRegion(center: center, span: span)
         if animated {
@@ -1133,7 +1145,6 @@ struct GpsSimHomeView: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .layoutPriority(1)
                 .accessibilityIdentifier("draft.save")
             }
         }
@@ -1230,7 +1241,7 @@ struct GpsSimHomeView: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .frame(maxWidth: 130)
+                .frame(width: 112)
                 .disabled(engine.isBusy)
                 .accessibilityIdentifier("btn.back")
                 .accessibilityHint("回到上一個定位")
@@ -1251,7 +1262,6 @@ struct GpsSimHomeView: View {
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .layoutPriority(1)
             .disabled(engine.isBusy)
             .accessibilityLabel("停止模擬")
             .accessibilityHint("讓手機回到真實位置")

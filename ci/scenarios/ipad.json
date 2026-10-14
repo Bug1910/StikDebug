@@ -110,7 +110,7 @@
   "shot": "size_large"
  },
  {
-  "tapId": "edit.save"
+  "tap": "完成"
  },
  {
   "wait": 1

@@ -112,7 +112,7 @@
   "type": "赤崁樓改名中"
  },
  {
-  "tapId": "edit.cancel"
+  "tap": "取消"
  },
  {
   "tree": "after_cancel"

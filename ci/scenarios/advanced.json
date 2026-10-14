@@ -44,7 +44,7 @@
   "tapId": "size.m"
  },
  {
-  "tapId": "edit.save"
+  "tap": "完成"
  },
  {
   "wait": 1
