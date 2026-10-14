@@ -124,6 +124,8 @@ struct GpsSimHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(GpsGeo.defaultRadiusKey) private var defaultRadius: Double = 25
 
+    /// Satellite (hybrid: imagery + road names) by default; the owner asked for it 2026-10-15.
+    @AppStorage("gpsSim.mapSatellite") private var mapSatellite = true
     @State private var position: MapCameraPosition = .region(GpsTheme.taiwanRegion)
     @State private var mapSelection: String?
     @State private var mapCenter: CLLocationCoordinate2D?
@@ -590,8 +592,8 @@ struct GpsSimHomeView: View {
                     .annotationTitles(.hidden)
                 }
             }
-            // Muted base map keeps overlapping hued circles readable in dark mode.
-            .mapStyle(.standard(emphasis: .muted))
+            // Muted base map keeps overlapping hued circles readable in dark mode; hybrid keeps road names on the imagery.
+            .mapStyle(mapSatellite ? .hybrid(elevation: .flat) : .standard(emphasis: .muted))
             // Circles, pins and the blue dot are duplicates of the list for VoiceOver: places are read once there.
             .accessibilityHidden(true)
             .onMapCameraChange { context in
@@ -620,6 +622,25 @@ struct GpsSimHomeView: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                mapSatellite.toggle()
+            } label: {
+                Label(mapSatellite ? "地圖" : "衛星", systemImage: mapSatellite ? "map" : "globe.asia.australia.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(GpsTheme.card.opacity(0.92), in: Capsule())
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .padding(.top, 6)
+            .padding(.trailing, 10)
+            .dynamicTypeSize(...DynamicTypeSize.xLarge)
+            .accessibilityLabel(mapSatellite ? "切換成一般地圖" : "切換成衛星地圖")
+            .accessibilityIdentifier("btn.mapStyle")
         }
     }
 
