@@ -1,0 +1,103 @@
+[
+ {
+  "note": "novice, iPhone SE 375x667: first time ever. Explores gear, help text, search field, adds a place by search, tries to understand the 真實位置 pill."
+ },
+ {
+  "tree": "start"
+ },
+ {
+  "shot": "start"
+ },
+ {
+  "tap": "真實位置"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "pill_tapped"
+ },
+ {
+  "tree": "pill_tapped"
+ },
+ {
+  "tap": "設定"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "settings"
+ },
+ {
+  "tree": "settings"
+ },
+ {
+  "swipe": [
+   187,
+   550,
+   187,
+   150
+  ]
+ },
+ {
+  "shot": "settings_scrolled"
+ },
+ {
+  "tap": "完成"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tap": "搜尋地點，或貼上「緯度, 經度」"
+ },
+ {
+  "type": "台中火車站"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "search_results"
+ },
+ {
+  "tree": "search_results"
+ },
+ {
+  "tapXY": [
+   187,
+   200
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "search_pick"
+ },
+ {
+  "tap": "＋ 存成地點"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "saved"
+ },
+ {
+  "tree": "after_save"
+ },
+ {
+  "tap": "台中公園"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "tap_place_send_error"
+ },
+ {
+  "tree": "send_error"
+ }
+]

@@ -1,0 +1,103 @@
+[
+ {
+  "note": "offline, iPhone 13 Pro Max 428x926: airplane-mode-like. Starts in the error state, tries to send while not connected, reads error and help, opens settings to find how to fix (LocalDevVPN / 進階). Judge whether the error tells a non-programmer what to do."
+ },
+ {
+  "tree": "start"
+ },
+ {
+  "shot": "start"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "error"
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "error_state"
+ },
+ {
+  "tree": "error_state"
+ },
+ {
+  "tap": "重試"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "retry"
+ },
+ {
+  "tap": "台北101"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "send_offline"
+ },
+ {
+  "tree": "send_offline"
+ },
+ {
+  "tap": "真實位置"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "pill_offline"
+ },
+ {
+  "tap": "設定"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "settings"
+ },
+ {
+  "tree": "settings"
+ },
+ {
+  "swipe": [
+   214,
+   780,
+   214,
+   200
+  ]
+ },
+ {
+  "shot": "settings_bottom"
+ },
+ {
+  "tree": "settings_bottom"
+ },
+ {
+  "tap": "進階 (StikDebug)"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "advanced_stikdebug"
+ },
+ {
+  "tree": "advanced_stikdebug"
+ },
+ {
+  "tap": "回定位儀"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "back_home"
+ }
+]

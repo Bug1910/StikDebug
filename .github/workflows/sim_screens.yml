@@ -7,13 +7,14 @@ on:
     paths:
       - "StikDebug/GpsSim/**"
       - "StikDebug/Views/MainTabView.swift"
+      - "ci/**"
 
 permissions:
   contents: read
 
 jobs:
-  screens:
-    name: Render on 5 simulators
+  build:
+    name: Build simulator app
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -22,6 +23,9 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26.6'
+
+      - name: Retag prebuilt idevice lib for simulator (CI workspace copy only)
+        run: bash ci/retag_idevice_sim.sh
 
       - name: Build for iphonesimulator
         run: |
@@ -39,76 +43,50 @@ jobs:
             SWIFT_OPTIMIZATION_LEVEL="-Onone" \
             IPHONEOS_DEPLOYMENT_TARGET=17.4
           test -d build/Build/Products/Debug-iphonesimulator/StikDebug.app
-
-      - name: Zip simulator app
-        run: |
           cd build/Build/Products/Debug-iphonesimulator
-          zip -qr "$GITHUB_WORKSPACE/sim-app-${GITHUB_SHA::7}.zip" StikDebug.app
+          zip -qr "$GITHUB_WORKSPACE/sim-app.zip" StikDebug.app
 
-      - name: List simulators
-        run: xcrun simctl list devices available
-
-      - name: Screenshots
-        run: |
-          set -u
-          APP=build/Build/Products/Debug-iphonesimulator/StikDebug.app
-          OUT=shots; mkdir -p "$OUT"
-          cat > places.json <<'JSON'
-          {"favorites":[
-          {"id":1,"name":"台北101","lat":25.033964,"lon":121.564468,"radius":200},
-          {"id":2,"name":"台中公園","lat":24.144,"lon":120.6831,"radius":150},
-          {"id":3,"name":"高雄85大樓","lat":22.6118,"lon":120.3000,"radius":300},
-          {"id":4,"name":"新竹火車站","lat":24.8018,"lon":120.9714,"radius":100},
-          {"id":5,"name":"台南赤崁樓","lat":22.9972,"lon":120.2026,"radius":50}]}
-          JSON
-          sed -i '' 's/^          //' places.json
-
-          # name candidates (first available wins), one line per slot
-          pick() {
-            for n in "$@"; do
-              id=$(xcrun simctl list devices available | grep -F "    $n (" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
-              [ -n "$id" ] && { echo "$id"; return; }
-            done
-          }
-          i=0
-          for slot in \
-            "iPhone SE (3rd generation)|se3" \
-            "iPhone 16e;iPhone 13 mini|small" \
-            "iPhone 16|i16" \
-            "iPhone 16 Pro Max;iPhone 17 Pro Max|promax" \
-            "iPhone 13 Pro Max;iPhone 17 Pro Max;iPhone 16 Plus|old-max"; do
-            names="${slot%%|*}"; tag="${slot##*|}"
-            IFS=';' read -ra arr <<< "$names"
-            UDID=$(pick "${arr[@]}")
-            if [ -z "$UDID" ]; then echo "SKIP $tag: none of $names available"; continue; fi
-            echo "== $tag -> $UDID"
-            xcrun simctl boot "$UDID"
-            xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
-            xcrun simctl install "$UDID" "$APP"
-            DATA=$(xcrun simctl get_app_container "$UDID" com.stik.stikdebug data)
-            mkdir -p "$DATA/Documents"; cp places.json "$DATA/Documents/places.json"
-            # language/locale via app launch args (no global restart needed)
-            for mode in light dark; do
-              xcrun simctl ui "$UDID" appearance $mode
-              xcrun simctl terminate "$UDID" com.stik.stikdebug 2>/dev/null || true
-              xcrun simctl launch "$UDID" com.stik.stikdebug -AppleLanguages "(zh-Hant)" -AppleLocale zh_TW
-              sleep 8
-              xcrun simctl io "$UDID" screenshot "$OUT/${tag}-${mode}.png"
-            done
-            xcrun simctl shutdown "$UDID" || true
-          done
-          ls -l "$OUT"
-
-      - name: Upload screenshots
+      - name: Upload app for the matrix jobs
         uses: actions/upload-artifact@v7
         with:
-          name: sim-screens-${{ github.sha }}
-          path: shots/*.png
-          retention-days: 30
+          name: sim-app-zip-internal
+          path: sim-app.zip
+          retention-days: 1
 
-      - name: Upload simulator app
-        uses: actions/upload-artifact@v7
+      - name: Upload simulator app (for Appetize)
+        run: cp sim-app.zip "sim-app-${GITHUB_SHA::7}.zip"
+
+      - uses: actions/upload-artifact@v7
         with:
           path: sim-app-*.zip
           archive: false
+          retention-days: 30
+
+  shots:
+    name: Shots ${{ matrix.family }} ${{ matrix.shard }}
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { family: iphone, shard: 0, of: 2 }
+          - { family: iphone, shard: 1, of: 2 }
+          - { family: ipad, shard: 0, of: 1 }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - uses: actions/download-artifact@v7
+        with:
+          name: sim-app-zip-internal
+      - run: unzip -q sim-app.zip
+      - name: Screenshots (every distinct logical size x 8 demo states)
+        run: python3 ci/sim_shots.py ${{ matrix.family }} ${{ matrix.shard }} ${{ matrix.of }} StikDebug.app shots
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sim-screens-${{ github.sha }}-${{ matrix.family }}${{ matrix.shard }}
+          path: shots/*.png
           retention-days: 30

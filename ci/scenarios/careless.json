@@ -1,0 +1,101 @@
+[
+ {
+  "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place, deletes then undoes, types malformed coordinates (25.03,abc and reversed 121.56, 25.03), cancels the edit sheet halfway."
+ },
+ {
+  "tree": "start"
+ },
+ {
+  "shot": "start"
+ },
+ {
+  "tapXY": [
+   4,
+   430
+  ]
+ },
+ {
+  "tapXY": [
+   389,
+   60
+  ]
+ },
+ {
+  "shot": "edge_mistaps"
+ },
+ {
+  "tap": "高雄85大樓"
+ },
+ {
+  "tap": "高雄85大樓"
+ },
+ {
+  "tap": "編輯新竹火車站"
+ },
+ {
+  "tree": "edit_sheet"
+ },
+ {
+  "tap": "刪除"
+ },
+ {
+  "tree": "delete_confirm"
+ },
+ {
+  "tap": "刪除"
+ },
+ {
+  "shot": "deleted_toast"
+ },
+ {
+  "tap": "復原"
+ },
+ {
+  "shot": "undo"
+ },
+ {
+  "tap": "搜尋地點，或貼上「緯度, 經度」"
+ },
+ {
+  "type": "25.03,abc"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tree": "malformed_coord"
+ },
+ {
+  "tap": "清除搜尋"
+ },
+ {
+  "tap": "搜尋地點，或貼上「緯度, 經度」"
+ },
+ {
+  "type": "121.56, 25.03"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "reversed_coord"
+ },
+ {
+  "tap": "清除搜尋"
+ },
+ {
+  "tap": "編輯台南赤崁樓"
+ },
+ {
+  "tap": "地點名稱"
+ },
+ {
+  "type": "赤崁樓改名中"
+ },
+ {
+  "tap": "取消"
+ },
+ {
+  "tree": "after_cancel"
+ }
+]

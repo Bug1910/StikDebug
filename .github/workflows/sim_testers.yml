@@ -1,0 +1,87 @@
+name: Simulator Testers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "ci/**"
+      - "StikDebug/GpsSim/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build simulator app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Retag prebuilt idevice lib for simulator (CI workspace copy only)
+        run: bash ci/retag_idevice_sim.sh
+
+      - name: Build for iphonesimulator
+        run: |
+          xcodebuild build \
+            -project StikDebug.xcodeproj \
+            -scheme "StikDebug" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_OPTIMIZATION_LEVEL="-Onone" \
+            IPHONEOS_DEPLOYMENT_TARGET=17.4
+          test -d build/Build/Products/Debug-iphonesimulator/StikDebug.app
+          cd build/Build/Products/Debug-iphonesimulator
+          zip -qr "$GITHUB_WORKSPACE/sim-app.zip" StikDebug.app
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sim-app-zip-internal
+          path: sim-app.zip
+          retention-days: 1
+
+  tester:
+    name: Tester ${{ matrix.tester }}
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tester: novice, scenario: novice, devices: "iPhone SE (3rd generation)" }
+          - { tester: rushed, scenario: rushed, devices: "iPhone 16e;iPhone 13 mini" }
+          - { tester: careless, scenario: careless, devices: "iPhone 16" }
+          - { tester: offline, scenario: offline, devices: "iPhone 13 Pro Max;iPhone 17 Pro Max" }
+          - { tester: advanced, scenario: advanced, devices: "iPhone 16 Pro Max" }
+          - { tester: advanced-ipad, scenario: advanced, devices: "iPad Pro 13-inch (M5);iPad Pro 13-inch (M4);iPad Pro 13-inch (M3)" }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - uses: actions/download-artifact@v7
+        with:
+          name: sim-app-zip-internal
+      - run: unzip -q sim-app.zip
+      - name: Install AXe (tap/type/swipe by accessibility label; https://github.com/cameroncooke/AXe)
+        run: brew install cameroncooke/axe/axe
+      - name: Play scenario
+        run: python3 ci/run_scenario.py ${{ matrix.scenario }} "${{ matrix.devices }}" StikDebug.app out
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tester-${{ matrix.tester }}-${{ github.sha }}
+          path: out/
+          retention-days: 30

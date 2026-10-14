@@ -1,0 +1,101 @@
+[
+ {
+  "note": "rushed, iPhone 16e 390x844: one-handed, in a hurry. Taps a place immediately, then another, then 回上一個, then stop. Thumb reach zone (bottom half) matters; note anything only reachable at the top."
+ },
+ {
+  "tree": "start"
+ },
+ {
+  "shot": "start"
+ },
+ {
+  "tap": "台北101"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "tap_101"
+ },
+ {
+  "tap": "台中公園"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "tap_taichung"
+ },
+ {
+  "tree": "after_two_taps"
+ },
+ {
+  "tap": "回上一個"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "back_previous"
+ },
+ {
+  "tap": "⏹ 停止模擬"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "stop"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "simulating"
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tree": "simulating"
+ },
+ {
+  "shot": "simulating"
+ },
+ {
+  "tap": "回上一個"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "sim_back_previous"
+ },
+ {
+  "tap": "⏹ 停止模擬"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "sim_stop"
+ },
+ {
+  "tree": "sim_after_stop"
+ },
+ {
+  "tapXY": [
+   60,
+   800
+  ]
+ },
+ {
+  "tapXY": [
+   330,
+   800
+  ]
+ },
+ {
+  "shot": "thumb_zone_corners"
+ }
+]
