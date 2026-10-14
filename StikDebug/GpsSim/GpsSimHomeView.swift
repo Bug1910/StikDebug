@@ -237,6 +237,8 @@ struct GpsSimHomeView: View {
         return CGFloat(v)
     }
 
+    private var searchOpen: Bool { !searchResults.isEmpty || searchMessage != nil }
+
     /// Floating controls never stretch wider than this (iPad keeps the map full width).
     private static let controlWidth: CGFloat = 520
 
@@ -268,14 +270,21 @@ struct GpsSimHomeView: View {
                 }
                 VStack(spacing: 8) {
                     topControls
-                    HStack {
-                        Spacer()
-                        mapTools
-                    }
-                    .frame(maxWidth: Self.controlWidth)
-                    Spacer(minLength: 0)
-                    mapMessages
+                        .layoutPriority(1)
+                    // While search results or a search message are open they get the room
+                    // (on an iPhone SE the map area is short; the list was squeezed to nothing).
+                    if !searchOpen {
+                        HStack {
+                            Spacer()
+                            mapTools
+                        }
                         .frame(maxWidth: Self.controlWidth)
+                    }
+                    Spacer(minLength: 0)
+                    if !searchOpen {
+                        mapMessages
+                            .frame(maxWidth: Self.controlWidth)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
