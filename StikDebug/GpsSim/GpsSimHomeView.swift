@@ -254,7 +254,9 @@ struct GpsSimHomeView: View {
     }
 
     private var mainContent: some View {
-        ZStack {
+        // Read `now` here so the 15 s freshness expiry always re-renders the whole screen.
+        let _ = now
+        return ZStack {
             // The map ignores every safe area (incl. the keyboard); the floating controls respect
             // them, so the new-place card rises above the keyboard while the name is typed.
             map.ignoresSafeArea()
@@ -314,9 +316,9 @@ struct GpsSimHomeView: View {
         .onChange(of: isSimulating) { _, simulating in
             if !simulating { AccessibilityAnnouncer.announce("已回到真實位置") }
         }
-        .onChange(of: tunnel.isConnected) { _, connected in
-            guard connected || !locationLinkAlive else { return }
-            AccessibilityAnnouncer.announce(connected ? "已連上手機" : "和手機的連線中斷")
+        // linkUp, not tunnel.isConnected: on 4G the JIT tunnel never changes, the location link does.
+        .onChange(of: linkUp) { _, up in
+            AccessibilityAnnouncer.announce(up ? "已連上手機" : "和手機的連線中斷")
         }
         .sheet(item: $editing) { place in
             GpsPlaceEditSheet(
@@ -1277,7 +1279,8 @@ struct GpsSimHomeView: View {
                     action: { retryTunnel() }
                 ))
             }
-        } else if !demoReady, !mounting.coolisMounted, mounting.mountingThread == nil {
+        } else if !demoReady, tunnel.isConnected, !mounting.coolisMounted, mounting.mountingThread == nil {
+            // Needs the JIT tunnel: on 4G only the location link is up and mounting cannot work.
             list.append(GpsBanner(
                 id: "ddi", color: GpsTheme.orange,
                 title: "DDI（開發者映像）還沒掛載",
@@ -1438,8 +1441,9 @@ struct GpsSimHomeView: View {
         }
         store.reload()
         pairingExists = GpsSimEngine.pairingExists
-        // A working location link needs no JIT tunnel; retrying it on 4G only spins.
-        if startTunnel, pairingExists, !linkUp {
+        // Retry the JIT tunnel only where it can come up (Wi-Fi); on 4G it only spins,
+        // and the location link works without it.
+        if startTunnel, pairingExists, !tunnel.isConnected, network.onWiFi {
             retryTunnel()
         }
         mounting.checkforMounted()
