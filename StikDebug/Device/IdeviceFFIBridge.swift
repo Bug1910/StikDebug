@@ -754,6 +754,8 @@ private enum LocationSimulationState {
     static var handshake: OpaquePointer?
     static var remoteServer: OpaquePointer?
     static var locationSimulation: OpaquePointer?
+    /// IP + pairing file identity the adapter was built for.
+    static var connectionKey: String?
 
     /// Frees only the location-simulation handle (and the remote server it owns), leaving the
     /// RSD adapter + handshake, i.e. the live connection to the phone, open for the next send.
@@ -805,6 +807,13 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     // After a clear we keep the adapter/handshake (the tunnel to the phone). Reuse it so a send
     // after 停止 needs no new connection (on cellular a new one only works via the airplane trick).
     // If the reused connection is dead, drop everything and fall through to a fresh connect.
+    // A changed IP or a replaced pairing file must not reuse the old adapter.
+    let pairingStamp = (try? FileManager.default.attributesOfItem(atPath: pairingFile)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+    let connectionKey = "\(deviceIP)|\(pairingFile)|\(pairingStamp)"
+    if LocationSimulationState.connectionKey != connectionKey {
+        LocationSimulationState.cleanup()
+        LocationSimulationState.connectionKey = connectionKey
+    }
     if LocationSimulationState.adapter != nil, LocationSimulationState.handshake != nil {
         if let reusedStatus = openSimulation(latitude, longitude) {
             if reusedStatus == LocationSimulationStatus.ok { return reusedStatus }

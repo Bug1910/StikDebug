@@ -170,7 +170,7 @@ final class GpsSimEngine: ObservableObject {
     }
 
     /// UI hook: text for the status pill when it is not the plain 「模擬中」 / 「真實位置」, else nil.
-    ///  - connection dropped while active: 「已定位：<name>（連線已中斷，定位仍保留）」
+    ///  - connection dropped while active: 「已定位：<name>（連線中斷，定位應該還在；要換地點請重新連線）」
     ///  - nothing active but a persisted target: 「上次定位：<name>（可能仍在作用中）」
     var statusNote: String? {
         if let name = activeName, connectionLost { return "已定位：\(name)（連線已中斷，定位仍保留）" }
@@ -347,7 +347,7 @@ final class GpsSimEngine: ObservableObject {
         isBusy = true
         LocationSimulationSession.shared.pauseResending()
         LocationSimulationSession.shared.clearRoute()
-        let reopenPoint = current ?? landing
+        let reopenPoint = current ?? landing ?? staleTarget?.coordinate
         let path = sessionPairingPath ?? Self.pairingFilePath
         let ip = sessionIP ?? DeviceConnectionContext.targetIPAddress
         LocationSimulationCommandQueue.shared.async {
@@ -373,7 +373,8 @@ final class GpsSimEngine: ObservableObject {
                 self.clearLastTarget()
                 self.connectionLost = false
                 self.issue = nil
-                self.toast = "已回到真實位置"
+                // 12 with nothing to reopen means no clear actually ran: don't claim 真實位置.
+                self.toast = finalCode == 0 ? "已回到真實位置" : "目前沒有可停止的定位"
                 self.previous = self.activeTarget
                 self.activeName = nil
                 self.activePlaceID = nil

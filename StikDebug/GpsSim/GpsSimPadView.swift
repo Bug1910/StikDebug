@@ -10,28 +10,20 @@
 
 import SwiftUI
 
-/// iPad: constrain the phone UI to a readable column. Phone (compact): untouched.
+/// One GpsSimHomeView at a fixed spot in the tree: size-class changes only alter the frame,
+/// so open sheets, search and candidate survive (if/else branches would rebuild it).
+/// The engine and store are singletons (`.shared`), so they are never recreated either.
 struct GpsSimRootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
-    var body: some View {
-        if sizeClass == .regular {
-            GpsSimPadView()
-        } else {
-            GpsSimHomeView()
-        }
-    }
-}
-
-struct GpsSimPadView: View {
     /// 560 keeps the candidate card under its 480 pt cap plus margins and the list readable.
-    private static let columnWidth: CGFloat = 560
+    private static let padColumnWidth: CGFloat = 560
 
     var body: some View {
         ZStack {
             Color(.systemBackground).ignoresSafeArea()
             GpsSimHomeView()
-                .frame(maxWidth: Self.columnWidth)
+                .frame(maxWidth: sizeClass == .regular ? Self.padColumnWidth : .infinity)
                 .frame(maxWidth: .infinity)
         }
     }
