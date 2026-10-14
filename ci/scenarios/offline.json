@@ -1,5 +1,7 @@
 [
  {
+  "persona": "跟主人一樣只有 4G、身邊沒 Wi-Fi 的人",
+  "situation": "在外面沒 Wi-Fi：照「開 VPN→飛航→開 Wi-Fi→送定位→關飛航」走一遍；先看到沒連線的錯誤，判斷錯誤訊息和說明能不能讓不懂程式的人知道下一步，關飛航後 4G 回來時畫面要誠實寫「未確認」",
   "note": "offline, iPhone 13 Pro Max 428x926: airplane-mode-like. Starts in the error state, tries to send while not connected, reads error and help, opens settings to find how to fix (LocalDevVPN / 進階). Judge whether the error tells a non-programmer what to do."
  },
  {
@@ -117,5 +119,41 @@
  },
  {
   "shot": "back_home"
+ },
+ {
+  "note": "Wi-Fi on (no network): sent, simulation running"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "simulating"
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "wifi_on_simulating"
+ },
+ {
+  "tree": "wifi_on_simulating"
+ },
+ {
+  "note": "airplane off, 4G back: connection lost, location kept but unconfirmed"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "simulatingStale"
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "4g_back_unconfirmed"
+ },
+ {
+  "tree": "4g_back_unconfirmed"
  }
 ]

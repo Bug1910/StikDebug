@@ -1,0 +1,123 @@
+[
+ {
+  "persona": "在家用 iPad 的人（13 吋大螢幕、橫放在桌上）",
+  "situation": "週末在家排下週行程：搜兩個景點存成地點、改其中一個的半徑、捲動整理地點清單、看設定，最後確認大螢幕排版沒有浪費或擠在一邊",
+  "note": "ipad, iPad Pro 13-inch 1032x1376: planning at home. Search and save two places, edit one radius, scroll the list, open settings. Judge whether the big screen is used well."
+ },
+ {
+  "tree": "start"
+ },
+ {
+  "shot": "start"
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "type": "日月潭\n"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "search_sunmoon"
+ },
+ {
+  "tree": "search_sunmoon"
+ },
+ {
+  "tap": "＋ 存成地點"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "saved_1"
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "type": "23.4697, 120.9570\n"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tap": "＋ 存成地點"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "saved_2"
+ },
+ {
+  "tree": "after_two_saves"
+ },
+ {
+  "tapId": "place.edit.1"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tree": "edit_sheet"
+ },
+ {
+  "tap": "半徑"
+ },
+ {
+  "type": "300"
+ },
+ {
+  "shot": "radius_300"
+ },
+ {
+  "tap": "儲存"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "radius_saved"
+ },
+ {
+  "swipe": [
+   516,
+   1150,
+   516,
+   400
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "list_scrolled"
+ },
+ {
+  "tree": "list_scrolled"
+ },
+ {
+  "tap": "設定"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "settings"
+ },
+ {
+  "tree": "settings"
+ },
+ {
+  "tap": "完成"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "back_home"
+ }
+]

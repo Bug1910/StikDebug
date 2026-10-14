@@ -16,6 +16,8 @@ sh("xcrun", "simctl", "ui", udid, "appearance", "light", check=False, quiet=True
 launch(udid, bid)
 time.sleep(10)
 results = []
+META = ("note", "persona", "situation")  # who the tester is and when they use the app; not steps
+persona = {k: steps[0][k] for k in ("persona", "situation") if steps and k in steps[0]}
 
 
 def ui_ready(limit=20):
@@ -46,7 +48,7 @@ def snap(path):
 
 
 for n, step in enumerate(steps, 1):
-    kind = next((k for k in step if k != "note"), None)
+    kind = next((k for k in step if k not in META), None)
     if kind is None:
         continue
     val = step[kind]
@@ -105,6 +107,6 @@ for n, step in enumerate(steps, 1):
     results.append({"n": n, "step": step, "ok": ok, "detail": detail, "screenshot": shot})
     print(n, kind, "OK" if ok else "FAIL " + detail, flush=True)
 
-json.dump({"tester": tester, "device": name, "results": results, "failed": sum(not r["ok"] for r in results)},
+json.dump({"tester": tester, **persona, "device": name, "results": results, "failed": sum(not r["ok"] for r in results)},
           open(out + "/results.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 sh("xcrun", "simctl", "shutdown", udid, check=False, quiet=True)

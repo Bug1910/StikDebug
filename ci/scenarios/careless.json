@@ -1,5 +1,7 @@
 [
  {
+  "persona": "粗心的人（邊走邊滑、常按錯）",
+  "situation": "出去玩邊走邊用：按到邊緣、連點兩下、刪錯又復原、座標打錯或前後顛倒、改名改到一半取消",
   "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place, deletes then undoes, types malformed coordinates (25.03,abc and reversed 121.56, 25.03), cancels the edit sheet halfway."
  },
  {
