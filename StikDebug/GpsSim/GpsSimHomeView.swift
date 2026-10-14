@@ -1305,7 +1305,11 @@ struct GpsSimHomeView: View {
                 action: { mountDDI() }
             ))
         }
-        if let issue = engine.issue, engine.activeName == nil {
+        // One banner per cause: a send error that only repeats the device banner above
+        // (no Wi-Fi / VPN, no pairing file, DDI) is not shown a second time.
+        let deviceBannerShown = !list.isEmpty
+        if let issue = engine.issue, engine.activeName == nil,
+           !(deviceBannerShown && [.tunnel, .pairing, .ddi].contains(issue.kind)) {
             var banner = GpsBanner(
                 id: "issue", color: GpsTheme.red,
                 title: "定位沒有送出",
@@ -1634,8 +1638,8 @@ private struct GpsPulseRing: View {
 private struct GpsBannerRow: View {
     let banner: GpsBanner
     @State private var expanded = false
-    /// Error causes are shown inline; only device-setup banners use the chevron.
-    private var showsDetailInline: Bool { banner.id == "issue" || banner.id == "file" || banner.id == "pairing" }
+    /// The cause and next step are always shown in full (never truncated, no chevron).
+    private var showsDetailInline: Bool { true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -1644,8 +1648,8 @@ private struct GpsBannerRow: View {
                 Text(banner.title)
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if !banner.detail.isEmpty && !showsDetailInline {
                     Button {
@@ -1670,7 +1674,7 @@ private struct GpsBannerRow: View {
                 Text(banner.detail)
                     .font(.footnote)
                     .foregroundStyle(GpsTheme.sub)
-                    .lineLimit(showsDetailInline ? 3 : nil)
+                    .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 10)
                     .padding(.bottom, 4)
@@ -1705,7 +1709,8 @@ private extension View {
         if regular {
             self.gpsSimPadSheetSizing()
         } else {
-            self.presentationDetents([.medium, .large])
+            // Large only: at the medium detent 刪除地點 sat under the bottom edge.
+            self.presentationDetents([.large])
         }
     }
 }
