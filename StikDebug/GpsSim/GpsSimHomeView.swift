@@ -527,7 +527,7 @@ struct GpsSimHomeView: View {
     private var placesPanel: some View {
         List {
             // At most 2 banners so they can never push every place row off a small screen.
-            ForEach(Array(banners.prefix(2))) { b in
+            ForEach(orderedBanners) { b in
                 GpsBannerRow(banner: b).listRowStyle()
             }
             if let msg = searchMessage {
@@ -835,6 +835,14 @@ struct GpsSimHomeView: View {
 
     // MARK: - Banners (errors only; "connecting" lives in the status pill)
 
+    /// Errors (file, issue) always show first; only the device banners are capped.
+    private var orderedBanners: [GpsBanner] {
+        let all = banners
+        let errors = all.filter { $0.id == "file" } + all.filter { $0.id == "issue" }
+        let device = all.filter { $0.id != "file" && $0.id != "issue" }
+        return errors + Array(device.prefix(2))
+    }
+
     private var banners: [GpsBanner] {
         var list: [GpsBanner] = []
         if !pairingExists {
@@ -1070,6 +1078,8 @@ private struct GpsTopHeightReader: View {
 private struct GpsBannerRow: View {
     let banner: GpsBanner
     @State private var expanded = false
+    /// Error causes are shown inline; only device-setup banners use the chevron.
+    private var showsDetailInline: Bool { banner.id == "issue" || banner.id == "file" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -1081,7 +1091,7 @@ private struct GpsBannerRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
-                if !banner.detail.isEmpty {
+                if !banner.detail.isEmpty && !showsDetailInline {
                     Button {
                         withAnimation { expanded.toggle() }
                     } label: {
@@ -1100,10 +1110,11 @@ private struct GpsBannerRow: View {
                     chip(title, action: action)
                 }
             }
-            if expanded {
+            if expanded || (showsDetailInline && !banner.detail.isEmpty) {
                 Text(banner.detail)
                     .font(.footnote)
                     .foregroundStyle(GpsTheme.sub)
+                    .lineLimit(showsDetailInline ? 2 : nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 10)
                     .padding(.bottom, 4)
@@ -1112,6 +1123,7 @@ private struct GpsBannerRow: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityValue(banner.detail)
     }
 
     private func chip(_ title: String, action: @escaping () -> Void) -> some View {
@@ -1136,7 +1148,9 @@ private extension View {
     @ViewBuilder
     func gpsChrome<S: Shape>(_ shape: S, stroke: Color) -> some View {
         if #available(iOS 26, *) {
-            self.glassEffect(.regular, in: shape)
+            self
+                .glassEffect(.regular, in: shape)
+                .overlay(shape.stroke(stroke, lineWidth: 1))
         } else {
             self
                 .background(GpsTheme.card, in: shape)
