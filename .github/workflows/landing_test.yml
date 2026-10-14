@@ -1,0 +1,12 @@
+name: Landing Randomness Test
+on:
+  push:
+    paths: ["StikDebug/GpsSim/GpsSimPlaces.swift", "ci/landing/**", ".github/workflows/landing_test.yml"]
+  workflow_dispatch:
+jobs:
+  landing:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - run: bash ci/landing/run.sh
