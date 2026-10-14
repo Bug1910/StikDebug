@@ -60,13 +60,10 @@ struct MainTabView: View {
         ZStack {
             Color.clear.ignoresSafeArea()
 
-            TabView(selection: $selection) {
-                ForEach(AppFeature.mainTabs) { feature in
-                    feature.destination
-                        .tabItem { Label(feature.title, systemImage: feature.systemImage) }
-                        .tag(feature.id)
-                }
-            }
+            // GpsSim fork: the app opens straight into the GpsSim screen. The stock tab bar
+            // lives on as GpsSimAdvancedView (設定 → 進階 (StikDebug)); the stikdebug:// location
+            // handlers below stay attached here so external links keep working.
+            GpsSimHomeView()
             .onAppear {
                 ensureSelectionIsValid()
                 if !didSetInitialHome {

@@ -1,3 +1,7 @@
+> **定位儀（GpsSim fork）**：這個分支把 App 改成「定位儀」——打開就是 GpsSim 的中文定位畫面（地圖、地點圓圈、搜尋、點一下地點就在圈內隨機落點並每 4 秒在 4 公尺內微飄、⏹ 停止模擬）。
+> 地點存在 App「文件」資料夾的 `places.json`（與電腦版 GpsSim 同格式 `{"favorites":[...]}`），電腦可直接推檔，回到 App 或下拉即重新讀取。
+> 連線手機、掛載 DDI、送出定位全部沿用 StikDebug 原本的程式；原本的 StikDebug 畫面在「設定 → 進階 (StikDebug)」。授權沿用 AGPL-3.0。
+
 <div align="center">
    <img width="217" height="217" src="/assets/StikDebug.png" alt="Logo">
 </div>
