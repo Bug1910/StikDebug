@@ -13,6 +13,77 @@
 import Foundation
 import CoreLocation
 import UIKit
+import Network
+
+/// Watches whether the phone is on Wi-Fi. StikDebug's heartbeat needs LocalDevVPN ON *and* Wi-Fi
+/// connected, so on 4G only the VPN being on is not enough (error 3).
+@MainActor
+final class GpsSimNetwork: ObservableObject {
+    static let shared = GpsSimNetwork()
+
+    nonisolated static let noWifiTitle = "沒有連上 Wi-Fi"
+    nonisolated static let noWifiMessage = "沒有連上 Wi-Fi：定位儀要連 Wi-Fi 才能改定位（LocalDevVPN 開著也一樣）"
+    nonisolated static let checkVPNMessage = "請確認 LocalDevVPN 已連線"
+
+    @Published private(set) var onWiFi = true
+    /// A utun interface holding a 10.7.0.x address was seen (LocalDevVPN's range). Used only as a
+    /// positive signal; "not seen" is never reported as "VPN is off" because this is unverified on device.
+    @Published private(set) var vpnSeen = false
+    /// Screenshot-only override from `-GpsSimDemo errorNoWifi` / `errorVPN`.
+    private var demoOnWiFi: Bool?
+
+    /// Mirror for non-main readers (GpsSimIssue.from); written only on the main actor.
+    nonisolated(unsafe) static var onWiFiNow = true
+
+    private let monitor = NWPathMonitor()
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            let wifi = path.usesInterfaceType(.wifi)
+            let vpn = Self.detectVPNUp()
+            Task { @MainActor in self?.apply(wifi: wifi, vpn: vpn) }
+        }
+        monitor.start(queue: DispatchQueue(label: "gpssim.netmonitor"))
+    }
+
+    private func apply(wifi: Bool, vpn: Bool) {
+        guard demoOnWiFi == nil else { return }
+        onWiFi = wifi
+        vpnSeen = vpn
+        Self.onWiFiNow = wifi
+    }
+
+    func applyDemo(onWiFi wifi: Bool) {
+        demoOnWiFi = wifi
+        onWiFi = wifi
+        Self.onWiFiNow = wifi
+    }
+
+    /// Row hint when the device chain is not ready. `tunnelConnected` is StikDebug's own tunnel flag.
+    func deviceHint(tunnelConnected: Bool) -> String {
+        if !onWiFi { return Self.noWifiMessage }
+        return tunnelConnected ? "先掛載開發者映像（DDI）" : Self.checkVPNMessage
+    }
+
+    nonisolated private static func detectVPNUp() -> Bool {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return false }
+        defer { freeifaddrs(head) }
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let entry = cursor {
+            let ifa = entry.pointee
+            if String(cString: ifa.ifa_name).hasPrefix("utun"),
+               let addr = ifa.ifa_addr, addr.pointee.sa_family == sa_family_t(AF_INET) {
+                let octets = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+                    withUnsafeBytes(of: $0.pointee.sin_addr.s_addr) { Array($0) }
+                }
+                if octets.count == 4, octets[0] == 10, octets[1] == 7, octets[2] == 0 { return true }
+            }
+            cursor = ifa.ifa_next
+        }
+        return false
+    }
+}
 
 /// A failure translated into Traditional Chinese with the next step to take.
 struct GpsSimIssue: Equatable {
@@ -29,7 +100,10 @@ struct GpsSimIssue: Equatable {
         case 2:
             return GpsSimIssue(kind: .pairing, message: "配對檔讀不到或已失效。請在電腦上用 iloader 重新放配對檔。")
         case 3, 9:
-            return GpsSimIssue(kind: .tunnel, message: "連不到手機的定位服務。請打開 LocalDevVPN 並連上 Wi-Fi，再按一次。（錯誤 \(code)）")
+            if !GpsSimNetwork.onWiFiNow {
+                return GpsSimIssue(kind: .tunnel, message: "\(GpsSimNetwork.noWifiMessage)。（錯誤 \(code)）")
+            }
+            return GpsSimIssue(kind: .tunnel, message: "連不到手機的定位服務。請先確認手機已連上 Wi-Fi，再確認 LocalDevVPN 已連線，然後再按一次。（錯誤 \(code)）")
         case 10:
             return GpsSimIssue(kind: .ddi, message: "定位服務打不開，多半是開發者磁碟映像（DDI）還沒掛載。請按上方「掛載 DDI」後再試。（錯誤 10）")
         case 11:
@@ -75,7 +149,13 @@ final class GpsSimEngine: ObservableObject {
     private var sessionPairingPath: String?
     private var sessionIP: String?
 
-    private init() {}
+    private init() { _ = GpsSimNetwork.shared }
+
+    /// Screenshot-only: `-GpsSimDemo errorNoWifi` / `errorVPN` — sets the matching error without touching the device.
+    func applyDemoIssue(noWifi: Bool) {
+        GpsSimNetwork.shared.applyDemo(onWiFi: !noWifi)
+        issue = GpsSimIssue.from(code: 3)
+    }
 
     /// Screenshot-only: pretends a simulation is running (`-GpsSimDemo simulating`).
     /// Sets published state only: no device, DVT or StikDebug calls, no timer.

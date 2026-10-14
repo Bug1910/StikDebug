@@ -96,6 +96,7 @@ struct GpsSimHomeView: View {
     @ObservedObject private var session = LocationSimulationSession.shared
     @ObservedObject private var tunnel = TunnelManager.shared
     @ObservedObject private var mounting = MountingProgress.shared
+    @ObservedObject private var network = GpsSimNetwork.shared
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(GpsGeo.defaultRadiusKey) private var defaultRadius: Double = 25
 
@@ -134,7 +135,7 @@ struct GpsSimHomeView: View {
         return args[i + 1]
     }()
     /// Demo states other than "error" pretend the phone chain is healthy.
-    private var demoReady: Bool { Self.demoState != nil && Self.demoState != "error" }
+    private var demoReady: Bool { Self.demoState != nil && !demoIsError }
 
     private var isConnecting: Bool { !demoReady && pairingExists && !tunnel.isConnected && !tunnelGraceOver }
     private var isMountingNow: Bool {
@@ -143,10 +144,36 @@ struct GpsSimHomeView: View {
     /// Device chain not ready: rows show orange "先打開 LocalDevVPN" instead of the normal subtitle.
     private var deviceNotReady: Bool { !demoReady && (!tunnel.isConnected || !mounting.coolisMounted) }
     private var deviceHint: String {
-        !tunnel.isConnected ? "先打開 LocalDevVPN" : "先掛載開發者映像（DDI）"
+        network.onWiFi ? network.deviceHint(tunnelConnected: tunnel.isConnected) : "先連上 Wi-Fi"
+    }
+    private var demoIsError: Bool {
+        ["error", "errorNoWifi", "errorVPN"].contains(Self.demoState ?? "")
+    }
+
+    /// Screenshot-only: `-GpsSimDemoWidth <pt>` (and optional `-GpsSimDemoHeight <pt>`), honoured only
+    /// together with `-GpsSimDemo`. Squeezes the screen to that size so CI can show Display Zoom widths.
+    private static func demoSize(_ key: String) -> CGFloat? {
+        guard demoState != nil else { return nil }
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: key), i + 1 < args.count, let v = Double(args[i + 1]), v > 0 else { return nil }
+        return CGFloat(v)
     }
 
     var body: some View {
+        if let width = Self.demoSize("-GpsSimDemoWidth") {
+            let height = Self.demoSize("-GpsSimDemoHeight")
+            ZStack {
+                Color(white: 0.5).ignoresSafeArea()
+                mainContent
+                    .frame(width: width, height: height)
+                    .clipped()
+            }
+        } else {
+            mainContent
+        }
+    }
+
+    private var mainContent: some View {
         // Why a fixed 55% panel instead of a bottom sheet with detents: the app already uses
         // sheets (edit, settings, importer), and a persistent sheet would fight them
         // (only one sheet at a time). A plain split layout is simpler and cannot be dismissed.
@@ -857,8 +884,8 @@ struct GpsSimHomeView: View {
             if tunnelGraceOver {
                 list.append(GpsBanner(
                     id: "tunnel", color: GpsTheme.orange,
-                    title: "LocalDevVPN 沒開",
-                    detail: "到主畫面打開它 → 回來按重試。",
+                    title: network.onWiFi ? "連不到手機" : GpsSimNetwork.noWifiTitle,
+                    detail: network.onWiFi ? GpsSimNetwork.checkVPNMessage : GpsSimNetwork.noWifiMessage,
                     buttonTitle: "重試",
                     action: { retryTunnel() }
                 ))
@@ -973,7 +1000,7 @@ struct GpsSimHomeView: View {
     private func runDemo(_ state: String) {
         store.reload()
         pairingExists = true
-        tunnelGraceOver = (state == "error")
+        tunnelGraceOver = ["error", "errorNoWifi", "errorVPN"].contains(state)
         didInitialFit = true
         fitAllPlaces()
         let first = visiblePlaces.first
@@ -999,6 +1026,10 @@ struct GpsSimHomeView: View {
                 runSearch()
             case "undoToast":
                 showToast("已刪除「\(first?.name ?? "台北101")」", actionTitle: "復原", action: {}, autoClear: false)
+            case "errorNoWifi":
+                engine.applyDemoIssue(noWifi: true)
+            case "errorVPN":
+                engine.applyDemoIssue(noWifi: false)
             default:
                 break   // "home" and "error" need no extra action
             }
