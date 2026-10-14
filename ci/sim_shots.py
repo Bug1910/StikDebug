@@ -9,6 +9,8 @@ os.makedirs(out, exist_ok=True)
 STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error".split()
 bid = bundle_id(app)
 rt, sizes = distinct_sizes("iPad" if family == "ipad" else "iPhone")
+if os.environ.get("SHOTS_QUICK") == "1":  # everyday push: smallest + largest iPhone, largest iPad
+    sizes = [sizes[-1]] if family == "ipad" else [sizes[0], sizes[-1]]
 print("sizes:", [(s, n) for s, n, _ in sizes], flush=True)
 print("SKIPPED (no simulator type on this runtime):", [z for z in OFFICIAL["iPad" if family == "ipad" else "iPhone"] if z not in [s for s, _, _ in sizes]], flush=True)
 sh("xcrun", "simctl", "list", "devices", "available")
