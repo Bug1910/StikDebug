@@ -159,7 +159,7 @@ struct GpsSimHomeView: View {
     private var deviceHint: String {
         if isConnecting { return "連線中…" }
         if !tunnel.isConnected && engine.activeName != nil { return GpsSimNetwork.disconnectedHint }
-        network.onWiFi ? network.deviceHint(tunnelConnected: tunnel.isConnected) : "先連上 Wi-Fi"
+        return network.onWiFi ? network.deviceHint(tunnelConnected: tunnel.isConnected) : "先連上 Wi-Fi"
     }
     private var demoIsError: Bool {
         ["error", "errorNoWifi", "errorVPN"].contains(Self.demoState ?? "")
