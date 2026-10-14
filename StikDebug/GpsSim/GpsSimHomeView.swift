@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import Combine
 import MapKit
 import CoreLocation
 import UniformTypeIdentifiers
@@ -145,6 +146,8 @@ struct GpsSimHomeView: View {
     @State private var toast: GpsToast?
     @State private var sendingPlaceID: String?
     @State private var topHeight: CGFloat = 120
+    /// Ticks every second so cards and map re-evaluate freshness together with the pill.
+    @State private var now = Date()
     @FocusState private var searchFocused: Bool
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
@@ -227,6 +230,7 @@ struct GpsSimHomeView: View {
         .tint(GpsTheme.mint)
         .overlay(alignment: .bottom) { toastView.padding(.bottom, 66) }
         .onPreferenceChange(GpsTopHeightKey.self) { topHeight = $0 }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { d in if isSimulating { now = d } }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { refreshFromDisk(startTunnel: true) }
@@ -553,7 +557,7 @@ struct GpsSimHomeView: View {
         MapReader { proxy in
             Map(position: $position, selection: $mapSelection) {
                 ForEach(visiblePlaces) { p in
-                    let hue = isActivePlace(p) ? GpsTheme.mint : GpsTheme.hue(for: p.id)
+                    let hue = markColor(p)
                     let r = GpsGeo.radius(of: p)
                     MapCircle(center: p.coordinate, radius: r)
                         .foregroundStyle(hue.opacity(0.14))
@@ -565,7 +569,7 @@ struct GpsSimHomeView: View {
                 }
                 ForEach(visiblePlaces) { p in
                     Annotation(p.name, coordinate: p.coordinate, anchor: .bottom) {
-                        GpsPinView(color: isActivePlace(p) ? GpsTheme.mint : GpsTheme.hue(for: p.id))
+                        GpsPinView(color: markColor(p))
                     }
                     .annotationTitles(.hidden)
                     .tag(p.id)
@@ -802,13 +806,23 @@ struct GpsSimHomeView: View {
     }
 
     /// The place being simulated right now (the demo has no place id, so it fakes the first card).
+    /// Map color: mint only while confirmed, grey when active but unconfirmed, else the place hue.
+    private func markColor(_ p: GpsPlace) -> Color {
+        guard isActivePlace(p) else { return GpsTheme.hue(for: p.id) }
+        return isFresh ? GpsTheme.mint : GpsTheme.sub
+    }
+
+    private var isFresh: Bool { confirmation(at: now).fresh }
+
     private func isActivePlace(_ p: GpsPlace) -> Bool {
         (engine.activePlaceID == p.id && isSimulating)
             || (demoSimulating && p.id == visiblePlaces.first?.id)
     }
 
     private func placeCard(_ p: GpsPlace) -> some View {
-        let active = isActivePlace(p)
+        let placeActive = isActivePlace(p)
+        let active = placeActive && isFresh          // mint / glow / 「模擬中」
+        let unconfirmed = placeActive && !isFresh    // grey outline / 「未確認」
         let hue = GpsTheme.hue(for: p.id)
         let radiusM = Int(GpsGeo.radius(of: p).rounded())
         let county = p.county ?? ""
@@ -817,6 +831,7 @@ struct GpsSimHomeView: View {
         if !county.isEmpty { label += "，\(county)" }
         label += "，半徑 \(radiusM) 公尺"
         if active { label += "，模擬中" }
+        if unconfirmed { label += "，已定位未確認" }
         if deviceNotReady { label += "，\(deviceHint)" }
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         return ZStack(alignment: .topTrailing) {
@@ -846,6 +861,13 @@ struct GpsSimHomeView: View {
                         // Badge slot: spinner while sending, 「模擬中」 capsule when active.
                         if sending {
                             ProgressView()
+                        } else if unconfirmed {
+                            Text("未確認")
+                                .font(.caption2.bold())
+                                .foregroundStyle(GpsTheme.background)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(GpsTheme.sub, in: Capsule())
                         } else if active {
                             Text("模擬中")
                                 .font(.caption2.bold())
@@ -876,7 +898,7 @@ struct GpsSimHomeView: View {
                                                   startPoint: .topLeading, endPoint: .center))
                     }
                 )
-                .overlay(shape.stroke(active ? GpsTheme.mint : Color.white.opacity(0.06), lineWidth: active ? 1.5 : 1))
+                .overlay(shape.stroke(active ? GpsTheme.mint : (unconfirmed ? GpsTheme.sub : Color.white.opacity(0.06)), lineWidth: (active || unconfirmed) ? 1.5 : 1))
                 .shadow(color: active ? GpsTheme.mint.opacity(0.35) : .clear, radius: 12)
                 .contentShape(shape)
             }
