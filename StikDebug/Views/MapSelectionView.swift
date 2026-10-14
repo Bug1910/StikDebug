@@ -685,9 +685,57 @@ struct LocationBookmark: Identifiable, Codable {
     var name: String
     var latitude: Double
     var longitude: Double
+    // GpsSim fork: landing radius in metres (nil = 25 m). Optional so bookmarks saved by stock StikDebug still decode.
+    var radius: Double? = nil
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+// GpsSim fork: same landing rule as the GpsSim web tool (offsetR / sampleLanding).
+// A uniform random point inside the bookmark's circle; if other bookmarks' circles overlap it,
+// the point may land anywhere in the union (area-weighted pick + 1/k rejection keeps it uniform).
+enum GpsSimLanding {
+    static let defaultRadius = 25.0
+
+    static func radius(_ b: LocationBookmark) -> Double { max(b.radius ?? defaultRadius, 0) }
+
+    static func offset(_ lat: Double, _ lon: Double, _ r: Double) -> CLLocationCoordinate2D {
+        guard r > 0 else { return CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+        let ang = Double.random(in: 0..<(2 * .pi))
+        let d = (Double.random(in: 0..<1)).squareRoot() * r
+        return CLLocationCoordinate2D(latitude: lat + d * sin(ang) / 111_320,
+                                      longitude: lon + d * cos(ang) / (111_320 * cos(lat * .pi / 180)))
+    }
+
+    static func meters(_ aLat: Double, _ aLon: Double, _ bLat: Double, _ bLon: Double) -> Double {
+        let dLat = (bLat - aLat) * 111_320
+        let dLon = (bLon - aLon) * 111_320 * cos((aLat + bLat) / 2 * .pi / 180)
+        return (dLat * dLat + dLon * dLon).squareRoot()
+    }
+
+    static func sample(_ place: LocationBookmark, among all: [LocationBookmark]) -> CLLocationCoordinate2D {
+        let r = radius(place)
+        var circles: [(Double, Double, Double)] = [(place.latitude, place.longitude, r)]
+        for q in all where q.id != place.id {
+            let rq = radius(q)
+            if meters(place.latitude, place.longitude, q.latitude, q.longitude) < r + rq {
+                circles.append((q.latitude, q.longitude, rq))
+            }
+        }
+        if circles.count == 1 { return offset(place.latitude, place.longitude, r) }
+        let areas = circles.map { $0.2 * $0.2 }
+        let total = areas.reduce(0, +)
+        for _ in 0..<24 {
+            var x = Double.random(in: 0..<max(total, 1e-9)), idx = 0
+            while idx < areas.count - 1 && x > areas[idx] { x -= areas[idx]; idx += 1 }
+            let c = circles[idx]
+            let pt = offset(c.0, c.1, c.2)
+            let k = circles.filter { meters(pt.latitude, pt.longitude, $0.0, $0.1) <= $0.2 }.count
+            if k <= 1 || Double.random(in: 0..<1) < 1 / Double(k) { return pt }
+        }
+        return offset(place.latitude, place.longitude, r)
     }
 }
 
@@ -1007,8 +1055,10 @@ struct LocationSimulationView: View {
         }
         .sheet(isPresented: $showBookmarks) {
             BookmarksView(bookmarks: $bookmarks) { bookmark in
-                applySelection(bookmark.coordinate)
+                // GpsSim fork: one tap = fresh random point inside the circle, then simulate right away
+                applySelection(GpsSimLanding.sample(bookmark, among: bookmarks))
                 showBookmarks = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { simulate() }
             } onDelete: { offsets in
                 bookmarks.remove(atOffsets: offsets)
                 saveBookmarks()
