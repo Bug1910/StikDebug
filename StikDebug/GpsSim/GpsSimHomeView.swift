@@ -237,7 +237,8 @@ struct GpsSimHomeView: View {
         return CGFloat(v)
     }
 
-    private var searchOpen: Bool { !searchResults.isEmpty || searchMessage != nil }
+    /// Only the results list needs the room; a one-line search message leaves the map tools in place.
+    private var searchOpen: Bool { !searchResults.isEmpty }
 
     /// Floating controls never stretch wider than this (iPad keeps the map full width).
     private static let controlWidth: CGFloat = 520
@@ -526,7 +527,8 @@ struct GpsSimHomeView: View {
                 ForEach(Array(searchResults.enumerated()), id: \.offset) { i, item in
                     Button {
                         let c = coordinate(of: item)
-                        searchResults = []
+                        // The pick moves into the new-place card; an empty field is ready for the next search.
+                        clearSearch()
                         searchFocused = false
                         startDraft(at: c, name: item.name ?? String(format: "%.5f, %.5f", c.latitude, c.longitude))
                     } label: {
@@ -574,7 +576,7 @@ struct GpsSimHomeView: View {
         swappedSuggestion = nil
         switch GpsCoordinateInput.parse(q) {
         case .valid(let c):
-            searchResults = []
+            clearSearch()
             searchFocused = false
             startDraft(at: c, name: String(format: "%.5f, %.5f", c.latitude, c.longitude))
             return
