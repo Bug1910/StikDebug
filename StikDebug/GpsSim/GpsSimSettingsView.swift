@@ -2,8 +2,10 @@
 //  GpsSimSettingsView.swift
 //  StikDebug (GpsSim fork)
 //
-//  Settings sheet: default radius, drift, pairing/places import, and the only
-//  way into the original StikDebug screens ("進階 (StikDebug)").
+//  Settings sheet: connection help, drift, places import/export, pairing file, language,
+//  the only way into the original StikDebug screens ("進階 (StikDebug)"), and the version.
+//  Place sizes are 小/中/大 on each place now, so the old default-radius slider is gone
+//  (places without their own radius still use the stored default, unchanged).
 //
 
 import SwiftUI
@@ -13,7 +15,6 @@ struct GpsSimSettingsView: View {
     let onImportPlaces: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(GpsGeo.defaultRadiusKey) private var defaultRadius: Double = 25
     @AppStorage(GpsGeo.driftKey) private var driftEnabled = true
     @State private var showPairingImporter = false
     @State private var pairingMessage: String?
@@ -21,22 +22,18 @@ struct GpsSimSettingsView: View {
     @State private var confirmPairingReplace = false
     @ObservedObject private var store = GpsPlaceStore.shared
 
+    /// 「版本 v1.0.0（dcd13a2 · 2026-10-15）」. CI stamps GpsSimBuild (short sha · build date)
+    /// into Info.plist; a local Xcode build without it shows the version only.
     private var versionText: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "GpsSim fork · 以 StikDebug \(v)（\(b)）為基底"
+        if let build = Bundle.main.infoDictionary?["GpsSimBuild"] as? String, !build.isEmpty {
+            return String(localized: "版本 v\(v)（\(build)）")
+        }
+        return String(localized: "版本 v\(v)")
     }
 
-    /// 0...1 slider position <-> radius metres, snapped to 5 m.
-    private var radiusSliderPosition: Binding<Double> {
-        let range = GpsGeo.radiusRange
-        return Binding(
-            get: { ((defaultRadius - range.lowerBound) / (range.upperBound - range.lowerBound)).squareRoot() },
-            set: { position in
-                let metres = range.lowerBound + position * position * (range.upperBound - range.lowerBound)
-                defaultRadius = min(range.upperBound, max(range.lowerBound, (metres / 5).rounded() * 5))
-            }
-        )
+    private var placesFileExists: Bool {
+        FileManager.default.fileExists(atPath: GpsPlaceStore.fileURL.path)
     }
 
     var body: some View {
@@ -54,19 +51,30 @@ struct GpsSimSettingsView: View {
                 }
 
                 Section {
-                    HStack {
-                        Text("預設半徑 \(Int(defaultRadius)) 公尺").monospacedDigit()
-                        Spacer()
-                        Stepper("預設半徑", value: $defaultRadius, in: GpsGeo.radiusRange, step: 5).labelsHidden()
+                    if placesFileExists, store.placeCount > 0 {
+                        ShareLink(item: GpsPlaceStore.fileURL) {
+                            Label("匯出地點（\(store.placeCount) 個）", systemImage: "square.and.arrow.up")
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("settings.exportPlaces")
                     }
-                    // Square-root scale: fine control near 25 m, still reaches 5000 m.
-                    Slider(value: radiusSliderPosition, in: 0...1)
-                        .accessibilityLabel("預設半徑")
-                        .accessibilityValue("\(Int(defaultRadius)) 公尺")
+                    Button {
+                        onImportPlaces()
+                    } label: {
+                        Label("匯入地點檔（取代目前 \(store.placeCount) 個）", systemImage: "square.and.arrow.down")
+                            .frame(minHeight: 44)
+                    }
+                    .accessibilityHint("選一個 places.json 檔，取代現有地點")
+                    .accessibilityIdentifier("settings.importPlaces")
+                    if store.hasImportBackup {
+                        Button("已匯入 \(store.placeCount) 個｜還原舊的") { store.restoreImportBackup() }
+                            .frame(minHeight: 44)
+                            .accessibilityLabel("還原匯入前的舊地點")
+                    }
                 } header: {
-                    Text("落點")
+                    Text("地點")
                 } footer: {
-                    Text("沒有自訂半徑的地點都用這個值。")
+                    Text("地點存在本機的 places.json，更新 App 不會清掉。匯出可存到「檔案」或傳到電腦備份。")
                 }
 
                 Section {
@@ -77,23 +85,28 @@ struct GpsSimSettingsView: View {
                 }
 
                 Section {
-                    Button("匯入地點檔（會取代目前 \(store.placeCount) 個地點）") { onImportPlaces() }
-                        .frame(minHeight: 44)
-                        .accessibilityHint("選一個 places.json 檔，取代現有地點")
-                    if store.hasImportBackup {
-                        Button("已匯入 \(store.placeCount) 個｜還原舊的") { store.restoreImportBackup() }
-                            .frame(minHeight: 44)
-                            .accessibilityLabel("還原匯入前的舊地點")
-                    }
                     Button("匯入配對檔") { confirmPairingReplace = true }
                         .frame(minHeight: 44)
                     if let pairingMessage {
                         Text(pairingMessage).font(.footnote).foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("檔案")
+                    Text("配對檔")
+                }
+
+                Section {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label("語言", systemImage: "globe")
+                            .frame(minHeight: 44)
+                    }
+                    .accessibilityHint("打開 iOS 設定裡本 App 的頁面")
+                    .accessibilityIdentifier("settings.language")
                 } footer: {
-                    Text("電腦也可以直接把 places.json 放進本 App 的「文件」資料夾，回到 App 或下拉清單就會重新讀取。")
+                    Text("在 iOS 設定的「語言」選繁體中文或 English。")
                 }
 
                 Section {
@@ -109,6 +122,7 @@ struct GpsSimSettingsView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .listRowBackground(Color.clear)
+                        .accessibilityIdentifier("settings.version")
                 }
             }
             .navigationTitle("設定")
@@ -138,12 +152,12 @@ struct GpsSimSettingsView: View {
                     markTunnelDisconnected()
                     startTunnelInBackground(showErrorUI: false)
                     NotificationCenter.default.post(name: .pairingFileImported, object: nil)
-                    pairingMessage = "配對檔已匯入。"
+                    pairingMessage = String(localized: "配對檔已匯入。")
                 } catch {
-                    pairingMessage = "匯入失敗：\(error.localizedDescription)"
+                    pairingMessage = String(localized: "匯入失敗：\(error.localizedDescription)")
                 }
             case .failure(let error):
-                pairingMessage = "匯入失敗：\(error.localizedDescription)"
+                pairingMessage = String(localized: "匯入失敗：\(error.localizedDescription)")
             }
         }
         .fullScreenCover(isPresented: $showAdvanced) {

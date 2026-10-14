@@ -24,6 +24,9 @@ jobs:
       - name: 1. Fetch Source Code
         uses: actions/checkout@v6
 
+      - name: Stamp build (short sha and date) shown in 設定 as 版本 v<x.y.z>（sha · date）
+        run: /usr/libexec/PlistBuddy -c "Add :GpsSimBuild string ${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
+
       - name: 2. Configure Xcode Environment
         uses: maxim-lobanov/setup-xcode@v1
         with:
