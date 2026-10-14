@@ -181,6 +181,7 @@ struct GpsSimHomeView: View {
                 showToast("已傳到 \(name)", autoClear: true)
             }
         }
+        .onChange(of: store.places.count) { _, _ in fitAllPlaces() }
         .onChange(of: engine.isBusy) { _, busy in
             if !busy { sendingPlaceID = nil }
         }
@@ -298,11 +299,12 @@ struct GpsSimHomeView: View {
                 .disabled(engine.isBusy)
                 .accessibilityHint("讓手機回到真實位置")
             } else {
-                Text("真實位置")
-                    .font(.headline)
+                // Plain status line (no card) so it doesn't look like a disabled button;
+                // same 44 pt height as the stop button so nothing jumps.
+                Text("目前是真實位置")
+                    .font(.system(size: 13))
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .foregroundStyle(GpsTheme.sub)
-                    .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 14))
             }
         }
         .padding(.horizontal, 12)
@@ -495,12 +497,19 @@ struct GpsSimHomeView: View {
             focus(on: pts[0].coordinate, radius: GpsGeo.radius(of: pts[0]))
             return
         }
-        let lats = pts.map { $0.lat }, lons = pts.map { $0.lon }
-        guard let minLat = lats.min(), let maxLat = lats.max(),
-              let minLon = lons.min(), let maxLon = lons.max() else { return }
+        // Bounds include each place's radius circle (not just the pin), then 1.6x padding
+        // so pins at the edge are not clipped by the top bar / candidate card.
+        var minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0
+        for p in pts {
+            let r = GpsGeo.radius(of: p)
+            let dLat = r / 111_320
+            let dLon = r / (111_320 * max(cos(p.lat * Double.pi / 180), 0.01))
+            minLat = min(minLat, p.lat - dLat); maxLat = max(maxLat, p.lat + dLat)
+            minLon = min(minLon, p.lon - dLon); maxLon = max(maxLon, p.lon + dLon)
+        }
         let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2)
-        let span = MKCoordinateSpan(latitudeDelta: max((maxLat - minLat) * 1.4, 0.01),
-                                    longitudeDelta: max((maxLon - minLon) * 1.4, 0.01))
+        let span = MKCoordinateSpan(latitudeDelta: max((maxLat - minLat) * 1.6, 0.01),
+                                    longitudeDelta: max((maxLon - minLon) * 1.6, 0.01))
         position = .region(MKCoordinateRegion(center: center, span: span))
     }
 
