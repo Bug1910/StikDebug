@@ -257,28 +257,38 @@ struct GpsSimHomeView: View {
     private var mainContent: some View {
         // Read `now` here so the 15 s freshness expiry always re-renders the whole screen.
         let _ = now
-        return ZStack {
-            // The map ignores every safe area (incl. the keyboard); the floating controls respect
-            // them, so the new-place card rises above the keyboard while the name is typed.
-            map.ignoresSafeArea()
-            if draft?.followsCenter == true {
-                GpsCrosshair().ignoresSafeArea().allowsHitTesting(false)
-            }
-            VStack(spacing: 8) {
-                topControls
-                HStack {
-                    Spacer()
-                    mapTools
+        // Map above, fixed solid panel below (owner: 「下面不用縮回去可以讓我直接點擊」).
+        // The panel is not floated over the map, so pins, map text and the Apple Maps legal
+        // label are never covered, and the keyboard pushes the panel up instead of hiding it.
+        return VStack(spacing: 0) {
+            ZStack {
+                map.ignoresSafeArea(edges: [.top, .horizontal])
+                if draft?.followsCenter == true {
+                    GpsCrosshair().ignoresSafeArea(edges: [.top, .horizontal]).allowsHitTesting(false)
                 }
-                .frame(maxWidth: Self.controlWidth)
-                Spacer(minLength: 0)
-                bottomStack
+                VStack(spacing: 8) {
+                    topControls
+                    HStack {
+                        Spacer()
+                        mapTools
+                    }
                     .frame(maxWidth: Self.controlWidth)
+                    Spacer(minLength: 0)
+                    mapMessages
+                        .frame(maxWidth: Self.controlWidth)
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
-            .dynamicTypeSize(...DynamicTypeSize.xLarge)
+            bottomPanel
+                .frame(maxWidth: Self.controlWidth)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity)
+                .background(GpsTheme.background.ignoresSafeArea(edges: .bottom))
         }
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .background(GpsTheme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(GpsTheme.mint)
@@ -432,10 +442,10 @@ struct GpsSimHomeView: View {
     /// One short line, always text (never only colour or animation).
     private func statusLine(fresh: Bool) -> String {
         if let name = engine.activeName {
-            return fresh ? "在 \(name)" : "\(name)（未確認）"
+            return fresh ? "在 \(name)" : "\(name)・連線中斷（定位仍保留）"
         }
         if session.isActive { return "在外部連結的位置" }
-        if let stale = engine.staleTarget { return "上次在 \(stale.name)（未確認）" }
+        if let stale = engine.staleTarget { return "上次在 \(stale.name)（定位可能仍保留）" }
         if isConnecting { return "連線中…" }
         if isMountingNow { return "準備中…" }
         return "真實位置"
@@ -629,7 +639,7 @@ struct GpsSimHomeView: View {
                     draft = nil
                     fitAllPlaces(animated: true)
                 } label: {
-                    Image(systemName: "mappin.and.ellipse")
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.body)
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
@@ -777,9 +787,9 @@ struct GpsSimHomeView: View {
         return best?.place
     }
 
-    /// The open band of map sits between the top controls and the bottom card, a little above
-    /// the screen centre, so the camera aims south of the point by this share of the visible height.
-    private static let cameraLift = 0.12
+    /// The top controls cover the upper part of the map, so the camera aims a little north
+    /// (negative lift) and the point sits slightly below the middle of the visible map.
+    private static let cameraLift = -0.05
     /// Visible north-south extent for a region of `span` metres (the screen is taller than wide).
     private static var screenAspect: Double {
         let b = UIScreen.main.bounds
@@ -811,8 +821,8 @@ struct GpsSimHomeView: View {
             minLat = min(minLat, p.lat - dLat); maxLat = max(maxLat, p.lat + dLat)
             minLon = min(minLon, p.lon - dLon); maxLon = max(maxLon, p.lon + dLon)
         }
-        // 2.4x: the places have to fit the open band (about the middle 45 % of the screen).
-        let latDelta = max((maxLat - minLat) * 2.4, 0.01)
+        // 2.0x: room for the top controls and the pin heads.
+        let latDelta = max((maxLat - minLat) * 2.0, 0.01)
         let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2 - latDelta * Self.cameraLift,
                                             longitude: (minLon + maxLon) / 2)
         let span = MKCoordinateSpan(latitudeDelta: latDelta,
@@ -849,12 +859,19 @@ struct GpsSimHomeView: View {
 
     // MARK: - Bottom: toast, banners, then the place card / new-place card / stop bar
 
-    private var bottomStack: some View {
+    /// Toast and banners float at the bottom of the map. While a card is open (new place /
+    /// manage) a banner shrinks to one line so only one card is ever large on screen.
+    private var mapMessages: some View {
         VStack(spacing: 8) {
             toastView
             ForEach(orderedBanners) { b in
-                GpsBannerRow(banner: b)
+                GpsBannerRow(banner: b, compact: draft != nil || managing)
             }
+        }
+    }
+
+    private var bottomPanel: some View {
+        VStack(spacing: 10) {
             if let d = draft {
                 draftCard(d)
             } else if managing {
@@ -894,7 +911,7 @@ struct GpsSimHomeView: View {
             }
         }
         .frame(height: placesCardHeight)
-        .background(GpsTheme.card.opacity(0.96), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GpsTheme.line, lineWidth: 1))
     }
 
@@ -932,7 +949,7 @@ struct GpsSimHomeView: View {
         let fresh = active && confirmation(at: now)
         let sending = sendingPlaceID == p.id && engine.isBusy
         var label = p.name
-        if fresh { label += "，現在在這裡" } else if active { label += "，已定位未確認" }
+        if fresh { label += "，現在在這裡" } else if active { label += "，連線中斷，定位仍保留" }
         return Button {
             fly(p)
         } label: {
@@ -1035,7 +1052,7 @@ struct GpsSimHomeView: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.bottom, 6)
-        .background(GpsTheme.card.opacity(0.97), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GpsTheme.line, lineWidth: 1))
     }
 
@@ -1069,7 +1086,7 @@ struct GpsSimHomeView: View {
             .buttonStyle(.plain)
         }
         .padding(14)
-        .background(GpsTheme.card.opacity(0.97), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     // MARK: - New place card
@@ -1149,7 +1166,7 @@ struct GpsSimHomeView: View {
             }
         }
         .padding(12)
-        .background(GpsTheme.card.opacity(0.97), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GpsTheme.mint.opacity(0.45), lineWidth: 1))
     }
 
@@ -1219,33 +1236,10 @@ struct GpsSimHomeView: View {
         engine.send(to: GpsGeo.sampleLanding(temp, among: []), name: temp.name, center: point)
     }
 
-    // MARK: - Stop bar (always one tap while simulating)
-
-    private var showsBackButton: Bool { engine.previous != nil || demoSimulating }
+    // MARK: - Stop bar (always one tap while simulating; 復原 in the toast undoes a switch or stop)
 
     private var stopBar: some View {
         HStack(spacing: 8) {
-            if showsBackButton {
-                Button {
-                    clearToast()
-                    engine.undoLastSend()
-                } label: {
-                    Text("回上一個")
-                        .font(.body.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .foregroundStyle(.white)
-                        .background(GpsTheme.card.opacity(0.96), in: Capsule())
-                        .overlay(Capsule().stroke(GpsTheme.line, lineWidth: 1))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .frame(width: 112)
-                .disabled(engine.isBusy)
-                .accessibilityIdentifier("btn.back")
-                .accessibilityHint("回到上一個定位")
-            }
             // Single tap, no hold, no confirm: the undo toast afterwards is the safety net.
             Button {
                 clearToast()
@@ -1647,6 +1641,8 @@ private struct GpsPulseRing: View {
 /// One-line banner; the explanation hides behind a chevron so banners stay short.
 private struct GpsBannerRow: View {
     let banner: GpsBanner
+    /// One line (title + button) while another card is open.
+    var compact = false
     @State private var expanded = false
     /// The cause and next step are always shown in full (never truncated, no chevron).
     private var showsDetailInline: Bool { true }
@@ -1680,7 +1676,7 @@ private struct GpsBannerRow: View {
                     chip(title, action: action)
                 }
             }
-            if expanded || (showsDetailInline && !banner.detail.isEmpty) {
+            if !compact && (expanded || (showsDetailInline && !banner.detail.isEmpty)) {
                 Text(banner.detail)
                     .font(.footnote)
                     .foregroundStyle(GpsTheme.sub)
@@ -1692,7 +1688,7 @@ private struct GpsBannerRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(GpsTheme.card.opacity(0.97), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityValue(banner.detail)
     }
 
@@ -1766,10 +1762,9 @@ struct GpsPlaceEditSheet: View {
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                 } header: {
                     Text("範圍")
-                } footer: {
-                    Text("每次點這個地點，都會在圈內挑一個不同的點。")
                 }
                 Section {
+                    DisclosureGroup("更多") {
                     Toggle("在地圖上隱藏", isOn: Binding(
                         get: { draft.isHidden },
                         set: { draft.hidden = $0 ? true : nil }
@@ -1785,6 +1780,7 @@ struct GpsPlaceEditSheet: View {
                         Text("已移到地圖中心（按「完成」才會存）")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    }
                     }
                 }
                 Section {
@@ -1803,7 +1799,6 @@ struct GpsPlaceEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
-                        .accessibilityIdentifier("edit.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
@@ -1820,7 +1815,6 @@ struct GpsPlaceEditSheet: View {
                         dismiss()
                     }
                     .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("edit.save")
                 }
             }
         }

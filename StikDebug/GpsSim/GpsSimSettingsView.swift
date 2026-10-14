@@ -41,9 +41,10 @@ struct GpsSimSettingsView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("1. 手機連上 Wi-Fi（沒有 Wi-Fi 可試飛航模式，未確認）")
-                        Text("2. 打開 LocalDevVPN")
-                        Text("3. 回定位儀按「重試」")
+                        Text("有 Wi-Fi 時：打開 LocalDevVPN，回定位儀按「重試」。")
+                        Text("只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回定位儀點地點 → 關飛航（假定位會保留）。")
+                        Text("也可以用捷徑一鍵完成。")
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
                 } header: {

@@ -22,8 +22,10 @@ final class GpsSimNetwork: ObservableObject {
     static let shared = GpsSimNetwork()
 
     nonisolated static let noWifiTitle = "沒有連上 Wi-Fi"
-    nonisolated static let noWifiMessage = "目前沒有 Wi-Fi，定位儀改不了定位（LocalDevVPN 開著也一樣）。可以試試：先開 LocalDevVPN，再開飛航模式；這招還沒確認有效，沒用就要找 Wi-Fi。"
-    nonisolated static let disconnectedHint = "連線中斷了：用「定位儀連線」捷徑（或 開飛航→開 Wi-Fi→重試→關飛航）重新連上"
+    /// The 4G route the owner confirmed on his phone 2026-10-15 (the fake point stays after airplane mode is off).
+    nonisolated static let fourGSteps = "只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回定位儀點地點 → 關飛航（假定位會保留）。或用捷徑一鍵完成。"
+    nonisolated static let noWifiMessage = fourGSteps
+    nonisolated static let disconnectedHint = "連線中斷，定位仍保留。要換地點：" + fourGSteps
     nonisolated static let checkVPNMessage = "LocalDevVPN 開著還是連不到：請把它關掉再打開，然後按「重試」。"
 
     @Published private(set) var onWiFi = true
@@ -102,7 +104,7 @@ struct GpsSimIssue: Equatable {
             return GpsSimIssue(kind: .pairing, message: "配對檔讀不到或已失效。請在電腦上用 iloader 重新放配對檔。")
         case 3, 9:
             if !GpsSimNetwork.onWiFiNow {
-                return GpsSimIssue(kind: .tunnel, message: "\(GpsSimNetwork.noWifiMessage)。（錯誤 \(code)）")
+                return GpsSimIssue(kind: .tunnel, message: "\(GpsSimNetwork.noWifiMessage)（錯誤 \(code)）")
             }
             return GpsSimIssue(kind: .tunnel, message: "連不到手機的定位服務。請先確認手機已連上 Wi-Fi，再確認 LocalDevVPN 已連線，然後再按一次。（錯誤 \(code)）")
         case 10:
