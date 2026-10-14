@@ -9,8 +9,8 @@
 #     `python -m pymobiledevice3 apps query com.stik.stikdebug.CJA56ZFU6T` shows the new CFBundleDisplayName (U+5B9A U+4F4D U+5100)
 param([Parameter(Mandatory)][string]$IpaName)
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dismiss = "$([char]0x5FFD)$([char]0x7565)"              # 忽略 (dismiss old result dialog)
-$import  = "$([char]0x532F)$([char]0x5165) IPA"          # 匯入 IPA
+$dismiss = "$([char]0x5FFD)$([char]0x7565)"  # "dismiss" button label
+$import  = "$([char]0x532F)$([char]0x5165) IPA"  # "Import IPA" button label
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 & "$here\uia.ps1" -Click $dismiss | Out-Null
 $ilPids = (Get-Process iloader).Id
