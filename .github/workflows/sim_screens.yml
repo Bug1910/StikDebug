@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A newer push makes the older run's screenshots/testers stale; free accounts get only 5 macOS jobs at once.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build simulator app
