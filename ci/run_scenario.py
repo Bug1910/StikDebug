@@ -73,12 +73,11 @@ for n, step in enumerate(steps, 1):
         elif kind == "type":
             enter = val.endswith(chr(10))
             val = val.rstrip(chr(10))
-            if val.isascii():
-                r = sh("axe", "type", val, "--udid", udid, check=False)
-            else:  # HID typing is ASCII-only: put text on the pasteboard, then Cmd+V (modifier 227, key 25)
-                import subprocess
-                subprocess.run(["xcrun", "simctl", "pbcopy", udid], input=val.encode("utf-8"))
-                r = sh("axe", "key-combo", "--modifiers", "227", "--key", "25", "--udid", udid, check=False)
+            # Always paste (pasteboard + Cmd+V, modifier 227 key 25): with the zh-Hant locale the
+            # simulator keyboard is Zhuyin, and HID-typed ASCII turned into bopomofo (seen 2026-10-15).
+            import subprocess
+            subprocess.run(["xcrun", "simctl", "pbcopy", udid], input=val.encode("utf-8"))
+            r = sh("axe", "key-combo", "--modifiers", "227", "--key", "25", "--udid", udid, check=False)
             if enter and r.returncode == 0:  # Return key (HID usage 40) submits the search
                 r = sh("axe", "key", "40", "--udid", udid, check=False)
             ok, detail = r.returncode == 0, r.stderr.strip()[:200]
