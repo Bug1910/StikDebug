@@ -319,7 +319,16 @@ struct GpsSimHomeView: View {
         }
         // linkUp, not tunnel.isConnected: on 4G the JIT tunnel never changes, the location link does.
         .onChange(of: linkUp) { _, up in
-            AccessibilityAnnouncer.announce(up ? "已連上手機" : "和手機的連線中斷")
+            // "Down" only matters while simulating; after 停止 the link simply ages out.
+            if up {
+                AccessibilityAnnouncer.announce("已連上手機")
+            } else if engine.activeName != nil {
+                AccessibilityAnnouncer.announce("和手機的連線中斷")
+            }
+        }
+        // Wi-Fi came back (e.g. the 4G airplane + Wi-Fi trick): the JIT tunnel can come up now.
+        .onChange(of: network.onWiFi) { _, onWiFi in
+            if onWiFi, Self.demoState == nil, pairingExists, !tunnel.isConnected { retryTunnel() }
         }
         .sheet(item: $editing) { place in
             GpsPlaceEditSheet(
@@ -1450,8 +1459,13 @@ struct GpsSimHomeView: View {
         pairingExists = GpsSimEngine.pairingExists
         // Retry the JIT tunnel only where it can come up (Wi-Fi); on 4G it only spins,
         // and the location link works without it.
-        if startTunnel, pairingExists, !tunnel.isConnected, network.onWiFi {
-            retryTunnel()
+        if startTunnel, pairingExists, !tunnel.isConnected {
+            if network.onWiFi {
+                retryTunnel()
+            } else {
+                // No retry on 4G, so end the 「連線中…」 grace now (only retryTunnel's timer would).
+                tunnelGraceOver = true
+            }
         }
         mounting.checkforMounted()
     }
