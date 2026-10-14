@@ -2,7 +2,7 @@
  {
   "persona": "在家用 iPad 的人（13 吋大螢幕、橫放在桌上）",
   "situation": "週末在家排下週行程：搜兩個景點存成地點、改其中一個的半徑、捲動整理地點清單、看設定，最後確認大螢幕排版沒有浪費或擠在一邊",
-  "note": "ipad, iPad Pro 13-inch 1032x1376: planning at home. Search and save two places, edit one radius, scroll the list, open settings. Judge whether the big screen is used well."
+  "note": "ipad, iPad Pro 13-inch 1032x1376: planning at home on a full-width map. Saves a search result and a pasted coordinate, long-presses the map to add a third (size 中), changes one place to 大 via 管理地點, opens settings. Judge whether the big screen is used well."
  },
  {
   "tree": "start"
@@ -26,7 +26,16 @@
   "tree": "search_sunmoon"
  },
  {
-  "tap": "＋ 存成地點"
+  "tapId": "search.result.0"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "draft_sunmoon"
+ },
+ {
+  "tapId": "draft.save"
  },
  {
   "wait": 1
@@ -44,7 +53,7 @@
   "wait": 2
  },
  {
-  "tap": "＋ 存成地點"
+  "tapId": "draft.save"
  },
  {
   "wait": 1
@@ -56,6 +65,36 @@
   "tree": "after_two_saves"
  },
  {
+  "longPress": [
+   700,
+   600
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "long_press_draft"
+ },
+ {
+  "tapId": "size.m"
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "saved_3"
+ },
+ {
+  "tapId": "btn.editPlaces"
+ },
+ {
+  "wait": 1
+ },
+ {
   "tapId": "place.edit.1"
  },
  {
@@ -65,42 +104,25 @@
   "tree": "edit_sheet"
  },
  {
-  "tap": "半徑"
+  "tapId": "size.l"
  },
  {
-  "type": "300"
+  "shot": "size_large"
  },
  {
-  "shot": "radius_300"
- },
- {
-  "tap": "儲存"
+  "tapId": "edit.save"
  },
  {
   "wait": 1
  },
  {
-  "shot": "radius_saved"
+  "tapId": "btn.editDone"
  },
  {
-  "swipe": [
-   516,
-   1150,
-   516,
-   400
-  ]
+  "shot": "size_saved"
  },
  {
-  "wait": 1
- },
- {
-  "shot": "list_scrolled"
- },
- {
-  "tree": "list_scrolled"
- },
- {
-  "tap": "設定"
+  "tapId": "btn.settings"
  },
  {
   "wait": 2

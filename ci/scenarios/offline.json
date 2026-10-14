@@ -62,7 +62,7 @@
   "tree": "send_offline"
  },
  {
-  "tap": "真實位置"
+  "tapId": "status.pill"
  },
  {
   "wait": 1
@@ -71,7 +71,7 @@
   "shot": "pill_offline"
  },
  {
-  "tap": "設定"
+  "tapId": "btn.settings"
  },
  {
   "wait": 2

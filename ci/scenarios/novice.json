@@ -2,7 +2,7 @@
  {
   "persona": "第一次用的大學生（iPhone SE 小螢幕，沒用過改定位的 App）",
   "situation": "朋友推薦後剛裝好、第一次打開：想先搞懂畫面上每個東西是什麼，再搜「台中火車站」存成地點、點它送定位",
-  "note": "novice, iPhone SE 375x667: first time ever. Explores gear, help text, search field, adds a place by search, tries to understand the 真實位置 pill."
+  "note": "novice, iPhone SE 375x667: first time ever. Explores gear and the status line, long-presses the map to see the new-place card (size 中, then cancel), adds a place by search (result then ＋ 存成地點), taps it to fly."
  },
  {
   "tree": "start"
@@ -11,7 +11,7 @@
   "shot": "start"
  },
  {
-  "tap": "真實位置"
+  "tapId": "status.pill"
  },
  {
   "wait": 1
@@ -23,7 +23,7 @@
   "tree": "pill_tapped"
  },
  {
-  "tap": "設定"
+  "tapId": "btn.settings"
  },
  {
   "wait": 2
@@ -55,6 +55,33 @@
   "wait": 1
  },
  {
+  "longPress": [
+   187,
+   330
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "long_press_new_place"
+ },
+ {
+  "tree": "long_press_new_place"
+ },
+ {
+  "tapId": "size.m"
+ },
+ {
+  "shot": "size_medium"
+ },
+ {
+  "tapId": "draft.cancel"
+ },
+ {
+  "wait": 1
+ },
+ {
   "tapId": "search.field"
  },
  {
@@ -70,7 +97,7 @@
   "tree": "search_results"
  },
  {
-  "tap": "台中火車站"
+  "tapId": "search.result.0"
  },
  {
   "wait": 2
@@ -79,7 +106,7 @@
   "shot": "search_pick"
  },
  {
-  "tap": "＋ 存成地點"
+  "tapId": "draft.save"
  },
  {
   "wait": 1

@@ -2,30 +2,17 @@
 //  GpsSimPadView.swift
 //  StikDebug (GpsSim fork)
 //
-//  The iPad wrapper around the phone screen. On a regular-width screen the phone layout used to
-//  stretch to ~1000 pt (pencils at the far edge, a giant card button). This keeps the same screen
-//  but holds it in a centred column so every control stays within thumb/eye reach. Real split view
-//  (sidebar + full-height map) needs access changes inside GpsSimHomeView; see the hand-off notes.
+//  Root wrapper (iPhone and iPad) plus the iPad sheet sizing helper.
 //
 
 import SwiftUI
 
-/// One GpsSimHomeView at a fixed spot in the tree: size-class changes only alter the frame,
-/// so open sheets, search and candidate survive (if/else branches would rebuild it).
-/// The engine and store are singletons (`.shared`), so they are never recreated either.
+/// One GpsSimHomeView at a fixed spot in the tree. Since the map-first redesign (2026-10-15)
+/// the map fills the whole iPad screen and the home view caps its own floating controls at 520 pt,
+/// so this wrapper no longer narrows anything. The engine and store are singletons (`.shared`).
 struct GpsSimRootView: View {
-    @Environment(\.horizontalSizeClass) private var sizeClass
-
-    /// 560 keeps the candidate card under its 480 pt cap plus margins and the list readable.
-    private static let padColumnWidth: CGFloat = 560
-
     var body: some View {
-        ZStack {
-            Color(.systemBackground).ignoresSafeArea()
-            GpsSimHomeView()
-                .frame(maxWidth: sizeClass == .regular ? Self.padColumnWidth : .infinity)
-                .frame(maxWidth: .infinity)
-        }
+        GpsSimHomeView()
     }
 }
 

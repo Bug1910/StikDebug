@@ -1,4 +1,4 @@
-"""Screenshot every distinct iPhone/iPad logical size x 8 demo states.
+"""Screenshot every distinct iPhone/iPad logical size x 10 demo states.
 usage: sim_shots.py <iphone|ipad> <shard> <of> <app> <outdir>"""
 import os, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -6,7 +6,7 @@ from simlib import *
 
 family, shard, of, app, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]
 os.makedirs(out, exist_ok=True)
-STATES = "home selected simulating simulatingStale edit settings search undoToast error".split()
+STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error".split()
 bid = bundle_id(app)
 rt, sizes = distinct_sizes("iPad" if family == "ipad" else "iPhone")
 print("sizes:", [(s, n) for s, n, _ in sizes], flush=True)

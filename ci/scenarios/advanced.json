@@ -2,13 +2,22 @@
  {
   "persona": "規劃旅行的進階玩家（大螢幕 iPhone，晚上習慣深色模式）",
   "situation": "出發前一次建好幾個地點：改半徑、做兩個重疊的圈、看設定的進階區、切深色模式檢查",
-  "note": "advanced, iPhone 16 Pro Max 440x956: edits radius (5, 25, 300, 5000), creates overlapping circles (台北101 plus a new place about 200 m away at 25.0357,121.5650), import/export if reachable, dark mode (relaunch with -AppleInterfaceStyle Dark), settings 進階 section."
+  "note": "advanced, iPhone 16 Pro Max 440x956: changes a place's size via 管理地點 (小/大/中), creates overlapping circles (台北101 plus a pasted coordinate about 200 m away, size 大), toggles 衛星/地圖, settings import/export and 進階, dark mode settings."
  },
  {
   "tree": "start"
  },
  {
   "shot": "start"
+ },
+ {
+  "tapId": "btn.editPlaces"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "manage"
  },
  {
   "tapId": "place.edit.1"
@@ -20,43 +29,31 @@
   "tree": "edit_101"
  },
  {
-  "tap": "使用預設半徑（25 公尺）"
+  "tapId": "size.s"
  },
  {
-  "tap": "半徑"
+  "shot": "size_small"
  },
  {
-  "type": "5"
+  "tapId": "size.l"
  },
  {
-  "shot": "radius_5"
+  "shot": "size_large"
  },
  {
-  "tap": "半徑"
+  "tapId": "size.m"
  },
  {
-  "type": "300"
+  "tapId": "edit.save"
  },
  {
-  "tap": "半徑"
+  "wait": 1
  },
  {
-  "type": "5000"
+  "shot": "size_saved"
  },
  {
-  "shot": "radius_5000"
- },
- {
-  "tap": "半徑"
- },
- {
-  "type": "25"
- },
- {
-  "tap": "儲存"
- },
- {
-  "shot": "radius_saved"
+  "tapId": "btn.editDone"
  },
  {
   "tapId": "search.field"
@@ -68,13 +65,37 @@
   "wait": 2
  },
  {
-  "tap": "＋ 存成地點"
+  "shot": "coord_draft"
+ },
+ {
+  "tapId": "size.l"
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 1
  },
  {
   "tree": "overlap_circles"
  },
  {
-  "tap": "設定"
+  "shot": "overlap_circles"
+ },
+ {
+  "tapId": "btn.mapStyle"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "standard_map"
+ },
+ {
+  "tapId": "btn.mapStyle"
+ },
+ {
+  "tapId": "btn.settings"
  },
  {
   "wait": 2

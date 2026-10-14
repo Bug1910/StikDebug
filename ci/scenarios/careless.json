@@ -2,7 +2,7 @@
  {
   "persona": "粗心的人（邊走邊滑、常按錯）",
   "situation": "出去玩邊走邊用：按到邊緣、連點兩下、刪錯又復原、座標打錯或前後顛倒、改名改到一半取消",
-  "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place, deletes then undoes, types malformed coordinates (25.03,abc and reversed 121.56, 25.03), cancels the edit sheet halfway."
+  "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place (must send once), opens 管理地點 and deletes one (no confirm, 復原 in the toast), types malformed coordinates (25.03,abc and reversed 121.56, 25.03), cancels the edit sheet halfway."
  },
  {
   "tree": "start"
@@ -32,6 +32,12 @@
   "tapId": "place.row.3"
  },
  {
+  "tapId": "btn.editPlaces"
+ },
+ {
+  "wait": 1
+ },
+ {
   "tapId": "place.edit.4"
  },
  {
@@ -49,19 +55,16 @@
   ]
  },
  {
-  "tap": "刪除地點"
+  "tapId": "edit.delete"
  },
  {
-  "tree": "delete_confirm"
- },
- {
-  "tap": "刪除"
+  "tree": "after_delete"
  },
  {
   "shot": "deleted_toast"
  },
  {
-  "tap": "復原"
+  "tapId": "toast.action"
  },
  {
   "shot": "undo"
@@ -79,7 +82,7 @@
   "tree": "malformed_coord"
  },
  {
-  "tap": "清除搜尋"
+  "tapId": "search.clear"
  },
  {
   "tapId": "search.field"
@@ -94,7 +97,7 @@
   "shot": "reversed_coord"
  },
  {
-  "tap": "清除搜尋"
+  "tapId": "search.clear"
  },
  {
   "tapId": "place.edit.5"
@@ -103,13 +106,13 @@
   "wait": 2
  },
  {
-  "tap": "地點名稱"
+  "tapId": "edit.name"
  },
  {
   "type": "赤崁樓改名中"
  },
  {
-  "tap": "取消"
+  "tapId": "edit.cancel"
  },
  {
   "tree": "after_cancel"
