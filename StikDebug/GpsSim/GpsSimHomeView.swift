@@ -211,8 +211,9 @@ struct GpsSimHomeView: View {
     /// The location link (simulate_location's own "StikDebugLocation" tunnel) is separate from
     /// TunnelManager's JIT tunnel, which can't come up on 4G. A send or resend accepted in the
     /// last 15 s proves the link works, so the UI must not call it disconnected (seen 2026-10-15).
+    /// lastLinkOK also counts a successful stop, so 停止 on 4G does not raise a false banner.
     private var locationLinkAlive: Bool {
-        guard !engine.connectionLost, let t = engine.lastSendSucceeded, engine.activeName != nil else { return false }
+        guard !engine.connectionLost, let t = engine.lastLinkOK else { return false }
         return Date().timeIntervalSince(t) <= 15
     }
     private var linkUp: Bool { tunnel.isConnected || locationLinkAlive }
@@ -813,7 +814,10 @@ struct GpsSimHomeView: View {
     /// One tap on a saved place: random point inside its circle (GpsGeo.sampleLanding via the engine).
     private func fly(_ p: GpsPlace) {
         if let last = lastFly, last.id == p.id, Date().timeIntervalSince(last.at) < 0.8 { return }
-        guard !engine.isBusy else { return }
+        guard !engine.isBusy else {
+            showToast("正在送出，請稍候", autoClear: true, duration: 2)
+            return
+        }
         lastFly = (p.id, Date())
         clearToast()
         searchFocused = false
@@ -1105,7 +1109,6 @@ struct GpsSimHomeView: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .disabled(engine.isBusy)
                 .accessibilityHint("不存，飛到這個圈內")
                 .accessibilityIdentifier("draft.flyOnly")
                 Button {
@@ -1181,7 +1184,11 @@ struct GpsSimHomeView: View {
 
     /// Fly without saving: still a fresh random point inside the chosen circle.
     private func flyDraftOnly() {
-        guard let d = draft, !engine.isBusy else { return }
+        guard let d = draft else { return }
+        guard !engine.isBusy else {
+            showToast("正在送出，請稍候", autoClear: true, duration: 2)
+            return
+        }
         draftNameFocused = false
         let point = draftPoint ?? d.coordinate
         let trimmed = d.name.trimmingCharacters(in: .whitespacesAndNewlines)

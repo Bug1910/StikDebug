@@ -141,6 +141,10 @@ final class GpsSimEngine: ObservableObject {
     @Published private(set) var previous: GpsSendTarget?
     /// Last time the device accepted a point (first send or a 4 s resend).
     @Published var lastSendSucceeded: Date?
+    /// Last time the phone accepted any location command (send, resend tick or stop).
+    /// Unlike lastSendSucceeded it survives a stop, so the UI does not call the link down
+    /// right after 停止 on 4G, where the JIT tunnel never comes up.
+    @Published var lastLinkOK: Date?
     /// The tunnel/connection dropped after a successful send (e.g. airplane mode). The phone is
     /// still simulated, so this is NOT an error and not "真實位置".
     @Published private(set) var connectionLost = false
@@ -278,6 +282,7 @@ final class GpsSimEngine: ObservableObject {
                 self.landing = coordinate
                 self.current = coordinate
                 self.lastSendSucceeded = Date()
+                self.lastLinkOK = Date()
                 self.beginBackgroundTask()
                 LocationSimulationSession.shared.clearRoute()
                 self.startTimer(at: coordinate)
@@ -322,6 +327,7 @@ final class GpsSimEngine: ObservableObject {
                     self.failStreak = 0
                     self.connectionLost = false
                     self.lastSendSucceeded = Date()
+                    self.lastLinkOK = Date()
                     return
                 }
                 // Like the web tool: after 3 failures in a row, say so instead of
@@ -372,6 +378,7 @@ final class GpsSimEngine: ObservableObject {
                 }
                 self.clearLastTarget()
                 self.connectionLost = false
+                if finalCode == 0 { self.lastLinkOK = Date() }
                 self.issue = nil
                 // 12 with nothing to reopen means no clear actually ran: don't claim 真實位置.
                 self.toast = finalCode == 0 ? "已回到真實位置" : "目前沒有可停止的定位"
