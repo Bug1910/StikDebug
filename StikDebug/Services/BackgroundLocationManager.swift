@@ -13,6 +13,7 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
     private var isRunning = false
     private var activityCount = 0
     private var isRequestingAuthorization = false
+    private var isShowingPrimer = false
 
     private override init() {
         super.init()
@@ -42,8 +43,7 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
         case .authorizedAlways, .authorizedWhenInUse:
             return
         case .notDetermined:
-            isRequestingAuthorization = true
-            locationManager.requestAlwaysAuthorization()
+            requestAuthorizationWithPrimer()
         case .denied, .restricted:
             restoreAudioFallback()
         @unknown default:
@@ -67,11 +67,32 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
         case .authorizedWhenInUse:
             locationManager.requestAlwaysAuthorization()
         case .notDetermined:
-            locationManager.requestAlwaysAuthorization()
+            requestAuthorizationWithPrimer()
         case .denied, .restricted:
             restoreAudioFallback()
         @unknown default:
             restoreAudioFallback()
+        }
+    }
+
+    /// First-time only (status .notDetermined): one line on why, then the system prompt.
+    /// 「暫時不要」 asks nothing; the next simulation start shows this again.
+    private func requestAuthorizationWithPrimer() {
+        guard !isShowingPrimer else { return }
+        isShowingPrimer = true
+        showAlert(
+            title: "為了在鎖螢幕或切到別的 App 時讓定位模擬不中斷，下一步系統會詢問定位權限。",
+            message: "",
+            showOk: false,
+            showTryAgain: true,
+            primaryButtonText: "繼續",
+            secondaryButtonText: "暫時不要"
+        ) { [weak self] proceed in
+            guard let self else { return }
+            self.isShowingPrimer = false
+            guard proceed, self.locationManager.authorizationStatus == .notDetermined else { return }
+            self.isRequestingAuthorization = true
+            self.locationManager.requestAlwaysAuthorization()
         }
     }
 

@@ -461,8 +461,8 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "定位儀要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -482,7 +482,7 @@
 					"$(PROJECT_DIR)/StikDebug/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -523,8 +523,8 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "定位儀要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀需要定位權限，才能在背景持續模擬位置（鎖螢幕或切到別的 App 時不會中斷）。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -544,7 +544,7 @@
 					"$(PROJECT_DIR)/StikDebug/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.1;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.stik.stikdebug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

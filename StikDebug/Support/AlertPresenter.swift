@@ -12,6 +12,7 @@ enum AlertPresenter {
         showOk: Bool,
         showTryAgain: Bool = false,
         primaryButtonText: String? = nil,
+        secondaryButtonText: String? = nil,
         completion: ((Bool) -> Void)? = nil
     ) {
         DispatchQueue.main.async {
@@ -25,7 +26,9 @@ enum AlertPresenter {
                 alert.addAction(UIAlertAction(title: primaryButtonText ?? "Try Again", style: .default) { _ in
                     completion?(true)
                 })
-                alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                // A named secondary button gets the same plain style as the primary (equal weight).
+                alert.addAction(UIAlertAction(title: secondaryButtonText ?? "Cancel",
+                                              style: secondaryButtonText == nil ? .cancel : .default) { _ in
                     completion?(false)
                 })
             } else if showOk {
@@ -60,6 +63,7 @@ public func showAlert(
     showOk: Bool,
     showTryAgain: Bool = false,
     primaryButtonText: String? = nil,
+    secondaryButtonText: String? = nil,
     completion: ((Bool) -> Void)? = nil
 ) {
     AlertPresenter.show(
@@ -68,6 +72,7 @@ public func showAlert(
         showOk: showOk,
         showTryAgain: showTryAgain,
         primaryButtonText: primaryButtonText,
+        secondaryButtonText: secondaryButtonText,
         completion: completion
     )
 }
