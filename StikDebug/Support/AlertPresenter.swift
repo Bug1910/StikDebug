@@ -23,6 +23,11 @@ enum AlertPresenter {
                 completion?(false)
                 return
             }
+            // A sheet that is still opening or closing refuses a new presentation silently.
+            guard !presenter.isBeingDismissed, !presenter.isBeingPresented else {
+                completion?(false)
+                return
+            }
 
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
 
@@ -46,6 +51,11 @@ enum AlertPresenter {
             }
 
             presenter.present(alert, animated: true)
+            // present() sets presentingViewController right away; still nil means UIKit refused it
+            // and no button will ever answer.
+            if alert.presentingViewController == nil {
+                completion?(false)
+            }
         }
     }
 
