@@ -211,7 +211,6 @@ struct GpsSimHomeView: View {
     @State private var mapFrame: CGRect = .zero
     @State private var topBarFrame: CGRect = .zero
     @State private var toolsFrame: CGRect = .zero
-    @State private var messagesFrame: CGRect = .zero
     /// What the camera last framed on its own; re-applied when the overlays change size,
     /// unless the person has moved the map since.
     @State private var lastFraming: GpsFraming?
@@ -339,7 +338,7 @@ struct GpsSimHomeView: View {
                     }
                     Spacer(minLength: 0)
                     if !searchOpen {
-                        mapMessages
+                        toastView
                             .frame(maxWidth: Self.controlWidth)
                             // Apple Maps logo and Legal link sit in the bottom ~26 pt; they must stay visible.
                             .padding(.bottom, Self.legalClearance)
@@ -347,6 +346,18 @@ struct GpsSimHomeView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+                // Never taller than the map: on an iPhone SE the floating controls used to make
+                // this stack taller than the screen, pushing the status line under the system bar.
+                .frame(maxHeight: .infinity, alignment: .top)
+            }
+            .frame(minHeight: 0, maxHeight: .infinity)
+            if !searchOpen && !orderedBanners.isEmpty {
+                bannerStack
+                    .frame(maxWidth: Self.controlWidth)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(GpsTheme.background)
             }
             bottomPanel
                 .frame(maxWidth: Self.controlWidth)
@@ -383,6 +394,9 @@ struct GpsSimHomeView: View {
         // avoids re-toasting every 4 s heartbeat.
         .onChange(of: engine.landing.map { "\($0.latitude),\($0.longitude)" }) { _, key in
             guard key != nil else { return }
+            // Any successful send (undo, shortcut, link, search) clears the failed mark; the 4 s
+            // heartbeat does not change `landing`, so it cannot clear a newer failure.
+            failedPlaceID = nil
             let name = engine.activeName ?? "新位置"
             if engine.previous != nil {
                 showToast("已換到 \(name)", actionTitle: "復原", action: { engine.undoLastSend() }, autoClear: true, duration: 10)
@@ -889,9 +903,9 @@ struct GpsSimHomeView: View {
     private var mapInsets: EdgeInsets {
         guard mapFrame.width > 1 else { return EdgeInsets(top: 120, leading: 8, bottom: 40, trailing: 64) }
         let top = max(0, topBarFrame.maxY - mapFrame.minY)
-        let banners = messagesFrame == .zero ? Self.legalClearance + 8 : max(0, mapFrame.maxY - messagesFrame.minY)
-        // Fixed room for a toast (44 pt + spacing) above the banners, shown or not.
-        let bottom = banners + Self.toastReserve
+        // Banners are outside the map now; only the toast floats over it: fixed room for it
+        // (44 pt + spacing) above the Apple Maps logo, shown or not, so the map never jumps.
+        let bottom = Self.legalClearance + 8 + Self.toastReserve
         let trailing = toolsFrame == .zero ? 64 : max(0, mapFrame.maxX - toolsFrame.minX)
         return EdgeInsets(top: top.rounded(), leading: 8, bottom: bottom.rounded(), trailing: trailing.rounded())
     }
@@ -992,8 +1006,14 @@ struct GpsSimHomeView: View {
             failedPlaceID = nil
             return
         }
-        failedPlaceID = placeID
-        showToast("沒送出：\(shortReason(code))", autoClear: true, duration: 5)
+        // A failed new-place send (no id) must not wipe an earlier failed place's mark.
+        if let placeID { failedPlaceID = placeID }
+        // The red banner already explains a failure while nothing is simulating; a toast on top
+        // repeated it. Only when no banner speaks for it (e.g. switching places) does a toast show.
+        let explained = orderedBanners.contains { ["issue", "pairing", "tunnel", "ddi"].contains($0.id) }
+        if !explained {
+            showToast("沒送出：\(shortReason(code))", autoClear: true, duration: 8)
+        }
     }
 
     private func shortReason(_ code: Int32) -> String {
@@ -1010,19 +1030,15 @@ struct GpsSimHomeView: View {
 
     // MARK: - Bottom: toast, banners, then the place card / new-place card / stop bar
 
-    /// Toast and banners float at the bottom of the map. While a card is open (new place /
-    /// manage) a banner shrinks to one line so only one card is ever large on screen.
-    private var mapMessages: some View {
+    /// Banners sit under the map (not over it). While a card is open (new place / manage) a
+    /// banner shrinks to one line so only one card is ever large on screen. On short screens and
+    /// at large text the 4G steps fold behind 「看步驟」 so the place card stays reachable.
+    private var bannerStack: some View {
         VStack(spacing: 8) {
-            toastView
-            // Only the lasting banners are measured for the camera; a toast comes and goes on
-            // every tap, so it gets a fixed reserve instead (the map must not jump with it).
-            VStack(spacing: 8) {
-                ForEach(orderedBanners) { b in
-                    GpsBannerRow(banner: b, compact: draft != nil || managing)
-                }
+            ForEach(orderedBanners) { b in
+                GpsBannerRow(banner: b, compact: draft != nil || managing,
+                             foldSteps: UIScreen.main.bounds.height < 700 || largeText)
             }
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { messagesFrame = $0 }
         }
     }
 
@@ -1154,6 +1170,10 @@ struct GpsSimHomeView: View {
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(active && !fresh ? GpsTheme.orange : Color.clear, lineWidth: 2))
+            // Last send to this place did not go out: grey dashed edge until a send succeeds.
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(failedPlaceID == p.id && !active ? GpsTheme.sub : Color.clear,
+                        style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -1869,6 +1889,8 @@ private struct GpsBannerRow: View {
     let banner: GpsBanner
     /// One line (title + button) while another card is open.
     var compact = false
+    /// Steps start folded behind 「看步驟」 (short screens, large text).
+    var foldSteps = false
     @State private var expanded = false
     /// The cause and next step are always shown in full (never truncated, no chevron).
     private var showsDetailInline: Bool { true }
@@ -1902,8 +1924,23 @@ private struct GpsBannerRow: View {
                     chip(title, action: action)
                 }
             }
-            if !compact && !banner.steps.isEmpty {
-                stepsView
+            if !compact && !banner.steps.isEmpty && foldSteps {
+                // Folded: the one-tap shortcut stays visible, the five steps open on demand.
+                Button {
+                    withAnimation { expanded.toggle() }
+                } label: {
+                    Label(expanded ? "收起步驟" : "看步驟", systemImage: expanded ? "chevron.up" : "chevron.down")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 10)
+                .accessibilityIdentifier("banner.steps")
+                stepsView(showSteps: expanded)
+            } else if !compact && !banner.steps.isEmpty {
+                stepsView(showSteps: true)
             } else if !compact && (expanded || (showsDetailInline && !banner.detail.isEmpty)) {
                 Text(banner.detail)
                     .font(.footnote)
@@ -1921,10 +1958,11 @@ private struct GpsBannerRow: View {
     }
 
     /// ①…⑤ in reading order, one per line.
-    private var stepsView: some View {
+    private func stepsView(showSteps: Bool) -> some View {
         let marks = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"]
         return VStack(alignment: .leading, spacing: 6) {
             // One column, read top to bottom (two columns read as ①② / ③④ and confused reviewers).
+            if showSteps {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(banner.steps.enumerated()), id: \.offset) { i, step in
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -1937,6 +1975,7 @@ private struct GpsBannerRow: View {
                     .font(.subheadline)
                     .accessibilityElement(children: .combine)
                 }
+            }
             }
             if let title = banner.linkTitle, let url = banner.linkURL {
                 Button {
