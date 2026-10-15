@@ -204,6 +204,8 @@ struct GpsSimHomeView: View {
     /// Clock for the signing reminder: ticks every minute and on return to the app, so the days
     /// left stay current while the app stays open.
     @State private var signNow = Date()
+    /// The place whose last send failed: drawn grey and dashed until a send succeeds.
+    @State private var failedPlaceID: String?
     /// Screen frames of the map and of what floats over it, so the camera frames places in the
     /// open part of the map (pins were hidden under the search bar, the right buttons and banners).
     @State private var mapFrame: CGRect = .zero
@@ -223,6 +225,10 @@ struct GpsSimHomeView: View {
     @FocusState private var draftNameFocused: Bool
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
+
+    /// Created once: a publisher built inside `body` was rebuilt on every redraw (every second while simulating).
+    private static let secondTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private static let minuteTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     /// Text follows the system size up to accessibility2; beyond that the map would vanish.
     static let maxTypeSize = DynamicTypeSize.accessibility2
@@ -306,6 +312,15 @@ struct GpsSimHomeView: View {
             ZStack {
                 map.ignoresSafeArea(edges: [.top, .horizontal])
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapFrame = $0 }
+                // Apple Maps logo and Legal are white; on bright satellite imagery (zoomed into a
+                // city while simulating) they vanished. A soft dark strip keeps them readable.
+                VStack {
+                    Spacer()
+                    LinearGradient(colors: [.black.opacity(0), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 40)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
                 if draft?.followsCenter == true {
                     GpsCrosshair().ignoresSafeArea(edges: [.top, .horizontal]).allowsHitTesting(false)
                 }
@@ -345,8 +360,8 @@ struct GpsSimHomeView: View {
         .background(GpsTheme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(GpsTheme.mint)
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { d in if isSimulating { now = d } }
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { signNow = $0 }
+        .onReceive(Self.secondTick) { d in if isSimulating { now = d } }
+        .onReceive(Self.minuteTick) { signNow = $0 }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -433,13 +448,13 @@ struct GpsSimHomeView: View {
 
     private var topControls: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 statusPill
                 Button {
                     showSettings = true
                 } label: {
                     Image(systemName: "gearshape.fill")
-                        .font(.body)
+                        .font(Self.roundIconFont)
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
                         .background(GpsTheme.card.opacity(0.94), in: Circle())
@@ -447,6 +462,7 @@ struct GpsSimHomeView: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .fixedSize()
                 .accessibilityLabel("設定")
                 .accessibilityIdentifier("btn.settings")
             }
@@ -687,13 +703,18 @@ struct GpsSimHomeView: View {
 
     // MARK: - Map tools (right edge, Apple Maps style)
 
+    /// Round 44 pt buttons keep a fixed icon size: scaled with text they outgrew their circles.
+    private static let roundIconFont = Font.system(size: 17, weight: .regular)
+
     private var mapTools: some View {
-        VStack(spacing: 8) {
+        // Large text leaves little map height: the three buttons go in one row under the search bar.
+        let layout = largeText ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
+        return layout {
             Button {
                 mapSatellite.toggle()
             } label: {
                 Image(systemName: mapSatellite ? "map" : "globe.asia.australia.fill")
-                    .font(.body)
+                    .font(Self.roundIconFont)
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
                     .background(GpsTheme.card.opacity(0.94), in: Circle())
@@ -710,7 +731,7 @@ struct GpsSimHomeView: View {
                     fitAllPlaces(animated: true)
                 } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.body)
+                        .font(Self.roundIconFont)
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
                         .background(GpsTheme.card.opacity(0.94), in: Circle())
@@ -726,7 +747,7 @@ struct GpsSimHomeView: View {
                     managing.toggle()
                 } label: {
                     Image(systemName: "list.bullet")
-                        .font(.body)
+                        .font(Self.roundIconFont)
                         .foregroundStyle(managing ? GpsTheme.background : .white)
                         .frame(width: 44, height: 44)
                         .background(managing ? GpsTheme.mint : GpsTheme.card.opacity(0.94), in: Circle())
@@ -739,13 +760,14 @@ struct GpsSimHomeView: View {
                 .accessibilityIdentifier("btn.editPlaces")
             }
         }
+        .fixedSize()
     }
 
     // MARK: - Map
 
     /// Pins: white normally, mint while confirmed there, amber while kept but unconfirmed (offline).
     private func pinColor(_ p: GpsPlace) -> Color {
-        guard isActivePlace(p) else { return .white }
+        guard isActivePlace(p) else { return failedPlaceID == p.id ? GpsTheme.sub : .white }
         return confirmation(at: now) ? GpsTheme.mint : GpsTheme.orange
     }
 
@@ -759,9 +781,10 @@ struct GpsSimHomeView: View {
             Map(position: $position) {
                 ForEach(visiblePlaces) { p in
                     let c = pinColor(p)
+                    let failed = failedPlaceID == p.id && !isActivePlace(p)
                     MapCircle(center: p.coordinate, radius: GpsGeo.radius(of: p))
-                        .foregroundStyle(c.opacity(isActivePlace(p) ? 0.18 : 0.10))
-                        .stroke(c.opacity(0.85), lineWidth: 1.5)
+                        .foregroundStyle(c.opacity(isActivePlace(p) ? 0.18 : (failed ? 0.04 : 0.10)))
+                        .stroke(c.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, dash: failed ? [6, 4] : []))
                 }
                 ForEach(visiblePlaces) { p in
                     Annotation(p.name, coordinate: p.coordinate, anchor: .bottom) {
@@ -959,8 +982,31 @@ struct GpsSimHomeView: View {
         searchFocused = false
         sendingPlaceID = p.id
         focus(on: p.coordinate, radius: GpsGeo.radius(of: p))
-        engine.send(place: p)
+        engine.send(place: p) { code in sendFinished(code, placeID: p.id) }
     }
+
+    /// A send that did not reach the phone must not look like one that did.
+    private func sendFinished(_ code: Int32, placeID: String?) {
+        guard code != GpsSimEngine.busyCode else { return }
+        if code == 0 {
+            failedPlaceID = nil
+            return
+        }
+        failedPlaceID = placeID
+        showToast("沒送出：\(shortReason(code))", autoClear: true, duration: 5)
+    }
+
+    private func shortReason(_ code: Int32) -> String {
+        switch GpsSimIssue.from(code: code).kind {
+        case .pairing: return "沒有配對檔"
+        case .tunnel: return network.onWiFi ? "連不到手機" : "只有 4G，照提示的 5 步"
+        case .ddi: return "DDI 還沒掛載"
+        case .other: return "錯誤 \(code)"
+        }
+    }
+
+    /// Sending can work now (otherwise the save toast does not offer 飛過去).
+    private var canSend: Bool { demoReady || (pairingExists && linkUp) }
 
     // MARK: - Bottom: toast, banners, then the place card / new-place card / stop bar
 
@@ -1014,6 +1060,8 @@ struct GpsSimHomeView: View {
                     .padding(10)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.visible)
+                .scrollIndicatorsFlash(onAppear: true)
                 .onChange(of: engine.activePlaceID) { _, id in
                     guard let id else { return }
                     withAnimation { reader.scrollTo(id) }
@@ -1021,20 +1069,39 @@ struct GpsSimHomeView: View {
             }
         }
         .frame(height: placesCardHeight)
+        .overlay(alignment: .bottom) {
+            // More places below: fade the cut-off row and show a chevron so it reads as scrollable.
+            if placesOverflow {
+                ZStack(alignment: .bottom) {
+                    LinearGradient(colors: [GpsTheme.card.opacity(0), GpsTheme.card], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 30)
+                    Image(systemName: "chevron.compact.down")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(GpsTheme.sub)
+                        .padding(.bottom, 2)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GpsTheme.line, lineWidth: 1))
     }
 
     /// Up to three rows of 48 pt cells plus padding; fewer places = shorter card, more map.
-    private var placesCardHeight: CGFloat {
-        let cells = visiblePlaces.count + 1
+    private var placesRows: (all: Int, max: Int) {
         let perRow = largeText ? 1 : 2
-        let allRows = (cells + perRow - 1) / perRow
+        let all = (visiblePlaces.count + 1 + perRow - 1) / perRow
         // Large text: two tall rows still leave the map in view on an iPhone SE.
-        let maxRows = largeText ? 2 : 3
-        let rows = min(maxRows, allRows)
-        // A peek of the next row tells the list scrolls when there are more.
-        let peek: CGFloat = allRows > maxRows ? 22 : 0
+        return (all, largeText ? 2 : 3)
+    }
+    private var placesOverflow: Bool { placesRows.all > placesRows.max }
+
+    private var placesCardHeight: CGFloat {
+        let rows = min(placesRows.max, placesRows.all)
+        // A peek of the next row (40 % of it) tells the list scrolls when there are more.
+        let peek: CGFloat = placesOverflow ? max(22, placeCellHeight * 0.4) : 0
         return CGFloat(rows) * placeCellHeight + CGFloat(max(rows - 1, 0)) * 8 + 20 + peek
     }
 
@@ -1329,6 +1396,10 @@ struct GpsSimHomeView: View {
                              lat: point.latitude, lon: point.longitude, radius: d.size.meters)
         store.upsert(place)
         draft = nil
+        guard canSend else {
+            showToast("已存「\(place.name)」", autoClear: true)
+            return
+        }
         showToast("已存「\(place.name)」", actionTitle: "飛過去", action: {
             fly(store.places.first(where: { $0.id == place.id }) ?? place)
         }, autoClear: true, duration: 6)
@@ -1348,7 +1419,9 @@ struct GpsSimHomeView: View {
                             lat: point.latitude, lon: point.longitude, radius: d.size.meters)
         draft = nil
         clearToast()
-        engine.send(to: GpsGeo.sampleLanding(temp, among: []), name: temp.name, center: point)
+        engine.send(to: GpsGeo.sampleLanding(temp, among: []), name: temp.name, center: point) { code in
+            sendFinished(code, placeID: nil)
+        }
     }
 
     // MARK: - Stop bar (always one tap while simulating; 復原 in the toast undoes a switch or stop)
@@ -1797,7 +1870,6 @@ private struct GpsBannerRow: View {
     /// One line (title + button) while another card is open.
     var compact = false
     @State private var expanded = false
-    @Environment(\.dynamicTypeSize) private var typeSize
     /// The cause and next step are always shown in full (never truncated, no chevron).
     private var showsDetailInline: Bool { true }
 
@@ -1848,13 +1920,12 @@ private struct GpsBannerRow: View {
         .accessibilityValue(banner.detail)
     }
 
-    /// ①…⑤ in reading order; two columns keep the card short on an iPhone SE, one at large text.
+    /// ①…⑤ in reading order, one per line.
     private var stepsView: some View {
         let marks = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"]
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .leading),
-                            count: typeSize.isAccessibilitySize ? 1 : 2)
         return VStack(alignment: .leading, spacing: 6) {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+            // One column, read top to bottom (two columns read as ①② / ③④ and confused reviewers).
+            VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(banner.steps.enumerated()), id: \.offset) { i, step in
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(i < marks.count ? marks[i] : "\(i + 1).")
@@ -1988,11 +2059,17 @@ struct GpsPlaceEditSheet: View {
                         onDelete(original)
                         dismiss()
                     } label: {
-                        Text("刪除地點").frame(maxWidth: .infinity, minHeight: 44)
+                        Text("刪除地點")
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .accessibilityIdentifier("edit.delete")
                 }
+                .listSectionSpacing(28)
             }
+            // Room under the last row so 刪除地點 scrolls fully clear of the bottom edge.
+            .contentMargins(.bottom, 40, for: .scrollContent)
             .navigationTitle("編輯地點")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2018,5 +2095,6 @@ struct GpsPlaceEditSheet: View {
             }
         }
         .editSheetSizing(regular: sizeClass == .regular)
+        .dynamicTypeSize(...GpsSimHomeView.maxTypeSize)
     }
 }

@@ -246,9 +246,9 @@ final class GpsSimEngine: ObservableObject {
     }
 
     /// One tap on a place: random landing inside its circle (union with overlapping circles).
-    func send(place: GpsPlace) {
+    func send(place: GpsPlace, completion: ((Int32) -> Void)? = nil) {
         let point = GpsGeo.sampleLanding(place, among: GpsPlaceStore.shared.places)
-        send(to: point, name: place.name, center: place.coordinate, placeID: place.id)
+        send(to: point, name: place.name, center: place.coordinate, placeID: place.id, completion: completion)
     }
 
     /// Send an exact coordinate (map tap / search result / external link / place landing).

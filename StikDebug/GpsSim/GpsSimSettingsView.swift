@@ -20,6 +20,7 @@ struct GpsSimSettingsView: View {
     @State private var pairingMessage: String?
     @State private var showAdvanced = false
     @State private var confirmPairingReplace = false
+    @State private var shortcutMessage: String?
     @ObservedObject private var store = GpsPlaceStore.shared
 
     /// 「版本 v1.0.0（dcd13a2 · 2026-10-15）」. CI stamps GpsSimBuild (short sha · build date)
@@ -62,6 +63,21 @@ struct GpsSimSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
+                    if let url = GpsSimNetwork.shortcutURL {
+                        Button {
+                            UIApplication.shared.open(url) { opened in
+                                if !opened { shortcutMessage = "找不到捷徑「\(GpsSimNetwork.shortcutName)」" }
+                            }
+                        } label: {
+                            Label("用捷徑「\(GpsSimNetwork.shortcutName)」一鍵完成", systemImage: "bolt.fill")
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityHint("打開「捷徑」App 執行")
+                        .accessibilityIdentifier("settings.shortcut")
+                    }
+                    if let shortcutMessage {
+                        Text(shortcutMessage).font(.footnote).foregroundStyle(.secondary)
+                    }
                 } header: {
                     Text("連不上？")
                 }
