@@ -349,6 +349,9 @@ struct GpsSimHomeView: View {
                 // Never taller than the map: on an iPhone SE the floating controls used to make
                 // this stack taller than the screen, pushing the status line under the system bar.
                 .frame(maxHeight: .infinity, alignment: .top)
+                // Overflow (SE at the largest text) is cut at the map's bottom edge, so the toast
+                // can never spill over the banners or the place card below.
+                .clipped()
             }
             .frame(minHeight: 0, maxHeight: .infinity)
             if !searchOpen && !orderedBanners.isEmpty {
@@ -1010,7 +1013,15 @@ struct GpsSimHomeView: View {
         if let placeID { failedPlaceID = placeID }
         // The red banner already explains a failure while nothing is simulating; a toast on top
         // repeated it. Only when no banner speaks for it (e.g. switching places) does a toast show.
-        let explained = orderedBanners.contains { ["issue", "pairing", "tunnel", "ddi"].contains($0.id) }
+        // Explained = a visible banner describes this very failure: the issue banner itself, or a
+        // device banner of the same kind (on 4G the tunnel banner is always up, so a switch that
+        // fails for another reason still needs its own toast).
+        let kind = GpsSimIssue.from(code: code).kind
+        let shownIDs = Set(orderedBanners.map(\.id))
+        let explained = shownIDs.contains("issue")
+            || (kind == .tunnel && shownIDs.contains("tunnel"))
+            || (kind == .pairing && shownIDs.contains("pairing"))
+            || (kind == .ddi && shownIDs.contains("ddi"))
         if !explained {
             showToast("沒送出：\(shortReason(code))", autoClear: true, duration: 8)
         }
