@@ -101,3 +101,5 @@ places.json*
 *.mobileprovision
 rp_pairing_file.plist
 pairingFile.plist
+
+logs/
