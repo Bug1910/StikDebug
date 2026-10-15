@@ -123,6 +123,8 @@ private struct GpsBanner: Identifiable {
     /// A full-width link under the steps (e.g. run the owner's shortcut).
     var linkTitle: String?
     var linkURL: URL?
+    /// Runs when iOS cannot open `linkURL` (e.g. the Shortcuts app was removed).
+    var onLinkFailed: (() -> Void)?
 }
 
 /// A toast with an optional action button. `id` lets a delayed auto-clear check it is still
@@ -321,7 +323,6 @@ struct GpsSimHomeView: View {
                     if !searchOpen {
                         mapMessages
                             .frame(maxWidth: Self.controlWidth)
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { messagesFrame = $0 }
                             // Apple Maps logo and Legal link sit in the bottom ~26 pt; they must stay visible.
                             .padding(.bottom, Self.legalClearance)
                     }
@@ -373,7 +374,8 @@ struct GpsSimHomeView: View {
         // again in the new open area, unless the person moved the map themselves.
         .onChange(of: [mapInsets.top, mapInsets.bottom, mapInsets.trailing,
                        mapFrame.width.rounded(), mapFrame.height.rounded()]) { _, _ in
-            guard let framing = lastFraming, !position.positionedByUser else { return }
+            // While search is open the right buttons and banners are hidden, so their readings are stale.
+            guard !searchOpen, let framing = lastFraming, !position.positionedByUser else { return }
             apply(framing, animated: true)
         }
         .onChange(of: engine.isBusy) { _, busy in
@@ -850,13 +852,16 @@ struct GpsSimHomeView: View {
 
     /// Room the Apple Maps logo and Legal link need at the bottom-left of the map.
     private static let legalClearance: CGFloat = 22
+    private static let toastReserve: CGFloat = 52
 
     /// Parts of the map covered by the floating controls, in points (rounded so tiny layout
     /// jitter does not refit the camera).
     private var mapInsets: EdgeInsets {
         guard mapFrame.width > 1 else { return EdgeInsets(top: 120, leading: 8, bottom: 40, trailing: 64) }
         let top = max(0, topBarFrame.maxY - mapFrame.minY)
-        let bottom = messagesFrame == .zero ? Self.legalClearance + 8 : max(0, mapFrame.maxY - messagesFrame.minY)
+        let banners = messagesFrame == .zero ? Self.legalClearance + 8 : max(0, mapFrame.maxY - messagesFrame.minY)
+        // Fixed room for a toast (44 pt + spacing) above the banners, shown or not.
+        let bottom = banners + Self.toastReserve
         let trailing = toolsFrame == .zero ? 64 : max(0, mapFrame.maxX - toolsFrame.minX)
         return EdgeInsets(top: top.rounded(), leading: 8, bottom: bottom.rounded(), trailing: trailing.rounded())
     }
@@ -957,9 +962,14 @@ struct GpsSimHomeView: View {
     private var mapMessages: some View {
         VStack(spacing: 8) {
             toastView
-            ForEach(orderedBanners) { b in
-                GpsBannerRow(banner: b, compact: draft != nil || managing)
+            // Only the lasting banners are measured for the camera; a toast comes and goes on
+            // every tap, so it gets a fixed reserve instead (the map must not jump with it).
+            VStack(spacing: 8) {
+                ForEach(orderedBanners) { b in
+                    GpsBannerRow(banner: b, compact: draft != nil || managing)
+                }
             }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { messagesFrame = $0 }
         }
     }
 
@@ -1402,6 +1412,9 @@ struct GpsSimHomeView: View {
                     banner.steps = GpsSimNetwork.fourGStepList
                     banner.linkTitle = "用捷徑「\(GpsSimNetwork.shortcutName)」一鍵完成"
                     banner.linkURL = GpsSimNetwork.shortcutURL
+                    banner.onLinkFailed = {
+                        showToast("找不到捷徑「\(GpsSimNetwork.shortcutName)」", autoClear: true, duration: 4)
+                    }
                 }
                 list.append(banner)
             }
@@ -1827,7 +1840,9 @@ private struct GpsBannerRow: View {
             }
             if let title = banner.linkTitle, let url = banner.linkURL {
                 Button {
-                    UIApplication.shared.open(url)
+                    UIApplication.shared.open(url) { opened in
+                        if !opened { banner.onLinkFailed?() }
+                    }
                 } label: {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
