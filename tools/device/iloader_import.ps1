@@ -23,24 +23,40 @@ $TS = [System.Windows.Automation.TreeScope]
 $root = $A::RootElement
 $ilPids = @((Get-Process iloader -ErrorAction Stop).Id)
 
+$donePat = "$([char]0x64CD)$([char]0x4F5C)$([char]0x5B8C)$([char]0x6210)"  # "operation complete"
+$closeNames = @("$([char]0x95DC)$([char]0x9589)", [string][char]0x2715)  # close / X button labels
 function Get-Win {
-  foreach ($w in $root.FindAll($TS::Children, [System.Windows.Automation.Condition]::TrueCondition)) {
-    if (($ilPids -contains $w.Current.ProcessId) -and $w.Current.ClassName -eq 'Tauri Window') { return $w }
-  }
+  $ws = @($root.FindAll($TS::Children, [System.Windows.Automation.Condition]::TrueCondition) |
+    Where-Object { ($ilPids -contains $_.Current.ProcessId) -and $_.Current.ClassName -eq 'Tauri Window' })
+  if ($ws.Count -gt 1) { Write-Warning "$($ws.Count) 'Tauri Window' windows found; using the first" }
+  $ws | Select-Object -First 1
+}
+function Get-Texts($win) {
+  @($win.FindAll($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text))) |
+    ForEach-Object { $_.Current.Name } | Where-Object { $_ })
 }
 function Find-Button($win, $name) {
   $win.FindAll($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, $name))) |
     Where-Object { $_.Current.ControlType.ProgrammaticName -match 'Button' } | Select-Object -First 1
 }
+# Error text that was NOT already visible before we clicked (stale modals must not count).
 function Get-ErrText($win) {
-  $win.FindAll($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text))) |
-    Where-Object { $_.Current.Name -match $errPat } | ForEach-Object { $_.Current.Name } | Select-Object -First 1
+  Get-Texts $win | Where-Object { $_ -match $errPat -and ($before -notcontains $_) } | Select-Object -First 1
 }
+$before = @()
 
 $win = Get-Win
 if (-not $win) { 'NO ILOADER WINDOW (class Tauri Window)'; exit 1 }
 $d = Find-Button $win $dismiss
 if ($d -and -not $DryRun) { $d.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 700 }
+# Close a leftover modal (finished/failed earlier run) so it cannot be mistaken for this run's result.
+if (-not $DryRun) {
+  foreach ($cn in $closeNames) {
+    $c = Find-Button $win $cn
+    if ($c) { $c.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 700; break }
+  }
+}
+$before = Get-Texts $win   # snapshot: only texts appearing after the pick count
 $btn = Find-Button $win $import
 if ($DryRun) {
   "DRYRUN window handle=$($win.Current.NativeWindowHandle) pid=$($win.Current.ProcessId); update-prompt dismiss button: $([bool]$d); import button: $([bool]$btn)"
@@ -65,27 +81,34 @@ for ($i = 0; $i -lt 30 -and -not $dlg; $i++) {
     Where-Object { $ilPids -contains $_.Current.ProcessId } | Select-Object -First 1
   if (-not $dlg -and $i -ge 4) {
     $e = Get-ErrText $win
-    if ($e) { "ILOADER ERROR: $e"; Get-Job | Remove-Job -Force; exit 1 }
+    if ($e) { "ILOADER ERROR: $e"; Remove-Job $job -Force; exit 1 }
   }
 }
-if (-not $dlg) { 'NO PICKER'; Get-Job | Remove-Job -Force; exit 1 }
+if (-not $dlg) { 'NO PICKER'; Remove-Job $job -Force; exit 1 }
 $item = $null; $all = @()
 for ($i = 0; $i -lt 10 -and -not $item; $i++) {
   Start-Sleep 1
   $all = @($dlg.FindAll($TS::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem))))
-  $item = $all | Where-Object { $_.Current.Name -eq $IpaName } | Select-Object -First 1
+  $item = $all | Where-Object { $_.Current.Name -eq $IpaName -or $_.Current.Name -eq "$IpaName.ipa" } | Select-Object -First 1
 }
 if (-not $item) {
   "FILE NOT IN PICKER: $IpaName"
   'ITEMS: ' + (($all | ForEach-Object { $_.Current.Name }) -join ', ')
-  Get-Job | Remove-Job -Force; exit 1
+  Remove-Job $job -Force; exit 1
 }
 $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 "invoked $IpaName at " + (Get-Date -Format HH:mm:ss)
-# After the pick, an expired session shows up as a visible error; watch a few seconds instead of waiting silently.
-for ($i = 0; $i -lt 8; $i++) {
+# Wait up to 120 s for a success signal (new "done" text); error text or timeout = exit 1.
+for ($i = 0; $i -lt 120; $i++) {
   Start-Sleep 1
   $w2 = Get-Win
-  if ($w2) { $e = Get-ErrText $w2; if ($e) { "ILOADER ERROR: $e"; Get-Job | Remove-Job -Force; exit 1 } }
+  if ($w2) {
+    $e = Get-ErrText $w2
+    if ($e) { "ILOADER ERROR: $e"; Remove-Job $job -Force; exit 1 }
+    $ok = Get-Texts $w2 | Where-Object { $_ -match $donePat -and ($before -notcontains $_) } | Select-Object -First 1
+    if ($ok) { "DONE: $ok"; Remove-Job $job -Force; exit 0 }
+  }
 }
-Get-Job | Remove-Job -Force
+'TIMEOUT: no success signal within 120 s'
+Remove-Job $job -Force
+exit 1
