@@ -95,3 +95,12 @@ jobs:
           name: tester-${{ matrix.tester }}-${{ github.sha }}
           path: out/
           retention-days: 30
+      - name: Build small review bundle (downscaled JPEGs, logs, summary)
+        if: always()
+        run: bash ci/make_summary.sh out summary-out
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tester-summary-${{ matrix.tester }}-${{ github.sha }}
+          path: summary-out/
+          retention-days: 30
