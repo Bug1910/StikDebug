@@ -36,17 +36,17 @@ function Get-Expiry($pattern) {
     $raw = (python -m pymobiledevice3 provision list 2>$null) -join "`n"
     if (-not $raw) { throw 'provision list returned nothing' }
     $list = $raw | ConvertFrom-Json
-  } catch { Fail "cannot read profiles (provision list / JSON): $($_.Exception.Message)" 'Is the iPhone unlocked and trusted? Try again.' }
-  $best = $null
-  foreach ($p in $list) {
-    $id = [string]$p.Entitlements.'application-identifier'
-    if ($id -like $pattern) {
-      # ConvertFrom-Json already yields a DateTime (Kind Unspecified, value is UTC): just mark it Utc.
-      $utc = [DateTime]::SpecifyKind([DateTime]$p.ExpirationDate, 'Utc')
-      if (-not $best -or $utc -gt $best) { $best = $utc }
+    $best = $null
+    foreach ($p in $list) {
+      $id = [string]$p.Entitlements.'application-identifier'
+      if ($id -like $pattern) {
+        # ConvertFrom-Json already yields a DateTime (Kind Unspecified, value is UTC): just mark it Utc.
+        $utc = [DateTime]::SpecifyKind([DateTime]$p.ExpirationDate, 'Utc')
+        if (-not $best -or $utc -gt $best) { $best = $utc }
+      }
     }
-  }
-  if ($best) { $best.ToLocalTime() } else { $null }
+    if ($best) { $best.ToLocalTime() } else { $null }
+  } catch { Fail "cannot read profiles (provision list / JSON): $($_.Exception.Message)" 'Is the iPhone unlocked and trusted? Try again.' }
 }
 function Show-Expiry($label, $dt) {
   if ($dt) { "{0}: {1:yyyy-MM-dd HH:mm} local, {2:N1} days left" -f $label, $dt, ($dt - (Get-Date)).TotalDays }
