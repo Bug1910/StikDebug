@@ -2,7 +2,7 @@
 # Small review bundle: usage make_summary.sh <src_dir> <dst_dir>
 # Copies logs/json/txt as-is, downscales every PNG to 360 px wide JPEG q60, writes summary.txt.
 src="$1"; dst="$2"
-mkdir -p "$dst"
+mkdir -p "$dst"; src="$(cd "$src" 2>/dev/null && pwd)"; dst="$(cd "$dst" && pwd)"
 [ -d "$src" ] || { echo "no $src" > "$dst/summary.txt"; exit 0; }
 (cd "$src" && find . -type f \( -name '*.json' -o -name '*.jsonl' -o -name '*.txt' -o -name '*.log' \) -print0 |
   while IFS= read -r -d '' f; do mkdir -p "$dst/$(dirname "$f")"; cp "$f" "$dst/$f"; done)
