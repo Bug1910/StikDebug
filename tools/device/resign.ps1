@@ -32,14 +32,17 @@ function Fail($msg, $hint = '') {
 }
 # Returns local expiry (DateTime) of the newest profile whose app id matches $pattern, or $null.
 function Get-Expiry($pattern) {
-  $raw = (python -m pymobiledevice3 provision list 2>$null) -join "`n"
-  if (-not $raw) { return $null }
-  $list = $raw | ConvertFrom-Json
+  try {
+    $raw = (python -m pymobiledevice3 provision list 2>$null) -join "`n"
+    if (-not $raw) { throw 'provision list returned nothing' }
+    $list = $raw | ConvertFrom-Json
+  } catch { Fail "cannot read profiles (provision list / JSON): $($_.Exception.Message)" 'Is the iPhone unlocked and trusted? Try again.' }
   $best = $null
   foreach ($p in $list) {
     $id = [string]$p.Entitlements.'application-identifier'
     if ($id -like $pattern) {
-      $utc = [DateTime]::SpecifyKind([DateTime]::Parse($p.ExpirationDate, [Globalization.CultureInfo]::InvariantCulture), 'Utc')
+      # ConvertFrom-Json already yields a DateTime (Kind Unspecified, value is UTC): just mark it Utc.
+      $utc = [DateTime]::SpecifyKind([DateTime]$p.ExpirationDate, 'Utc')
       if (-not $best -or $utc -gt $best) { $best = $utc }
     }
   }
@@ -81,7 +84,29 @@ for ($i = 0; $i -lt 40 -and -not $ready; $i++) {
 }
 if (-not $ready) { Fail 'iloader window did not appear within 40 s' }
 Start-Sleep 3
-'4) iloader is up'
+# Device area: wait for a button marked selected (label has the "selected" word); prefer the USB entry.
+$A = [System.Windows.Automation.AutomationElement]
+$selWord = "$([char]0x5DF2)$([char]0x9078)$([char]0x64C7)"  # "selected"
+function Get-DevButtons {
+  $ws = $A::RootElement.FindAll('Children', [System.Windows.Automation.Condition]::TrueCondition) |
+    Where-Object { (@(Get-Process iloader -ErrorAction SilentlyContinue | ForEach-Object Id) -contains $_.Current.ProcessId) -and $_.Current.ClassName -eq 'Tauri Window' } | Select-Object -First 1
+  if (-not $ws) { return @() }
+  @($ws.FindAll('Descendants', (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))) |
+    Where-Object { $_.Current.Name -match ' (USB|Network)( |$)' })
+}
+$sel = $false
+for ($i = 0; $i -lt 30 -and -not $sel; $i++) {
+  $btns = Get-DevButtons
+  $usb = $btns | Where-Object { $_.Current.Name -match ' USB( |$)' } | Select-Object -First 1
+  if ($usb -and $usb.Current.Name -notmatch $selWord) {
+    $usb.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep 2
+    $btns = Get-DevButtons
+  }
+  $sel = [bool]($btns | Where-Object { $_.Current.Name -match $selWord })
+  if (-not $sel) { Start-Sleep 1 }
+}
+if (-not $sel) { Fail 'iloader shows no selected device after 30 s' 'Open iloader and press the device refresh button, then run again.' }
+'4) iloader is up, device selected: ' + (($btns | Where-Object { $_.Current.Name -match $selWord } | ForEach-Object { $_.Current.Name }) -join ',')
 
 # 5) install newest IPA
 $ipas = @(Get-ChildItem $ipaDir -Filter 'GpsSim-app-*.ipa' -File | Sort-Object LastWriteTime -Descending)
@@ -95,6 +120,9 @@ if ($LASTEXITCODE -ne 0) {
   $txt = $out -join ' '
   if ($txt -match 'ILOADER ERROR' -and $txt -match "$loginFail|-90010") {
     Fail "login failed in iloader: $txt" "$([char]0x767B)$([char]0x5165)$([char]0x5931)$([char]0x6557)$([char]0xFF1A)$([char]0x8ACB)$([char]0x5728) iloader $([char]0x91CD)$([char]0x65B0)$([char]0x767B)$([char]0x5165) Apple ID$([char]0xFF0C)$([char]0x518D)$([char]0x6309)$([char]0x4E00)$([char]0x6B21)$([char]0x300C)$([char]0x5B9A)$([char]0x4F4D)$([char]0x5100)$([char]0x7E8C)$([char]0x7C3D)$([char]0x300D)$([char]0x3002)"
+  }
+  if ($txt -match 'FILE NOT IN PICKER') {
+    Fail "iloader_import failed: $txt" "Hint: iloader's file dialog must open in $ipaDir (the IPA must be listed there, stock IPA in its stock\ subfolder)."
   }
   Fail "iloader_import failed: $txt"
 }
