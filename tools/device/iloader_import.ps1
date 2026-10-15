@@ -24,11 +24,13 @@ $root = $A::RootElement
 $ilPids = @((Get-Process iloader -ErrorAction Stop).Id)
 
 $donePat = "$([char]0x64CD)$([char]0x4F5C)$([char]0x5B8C)$([char]0x6210)"  # "operation complete"
-$closeNames = @("$([char]0x95DC)$([char]0x9589)", [string][char]0x2715)  # close / X button labels
+$stalePat = "$donePat|$([char]0x6B63)$([char]0x5728)$([char]0x5B89)$([char]0x88DD)$([char]0x61C9)$([char]0x7528)$([char]0x7A0B)$([char]0x5F0F)"  # done | "installing app"
+$warned = $false
+$closeNames =@("$([char]0x95DC)$([char]0x9589)", [string][char]0x2715)  # close / X button labels
 function Get-Win {
   $ws = @($root.FindAll($TS::Children, [System.Windows.Automation.Condition]::TrueCondition) |
     Where-Object { ($ilPids -contains $_.Current.ProcessId) -and $_.Current.ClassName -eq 'Tauri Window' })
-  if ($ws.Count -gt 1) { Write-Warning "$($ws.Count) 'Tauri Window' windows found; using the first" }
+  if ($ws.Count -gt 1 -and -not $script:warned) { $script:warned = $true; Write-Warning "$($ws.Count) 'Tauri Window' windows found; using the first" }
   $ws | Select-Object -First 1
 }
 function Get-Texts($win) {
@@ -55,6 +57,8 @@ if (-not $DryRun) {
     $c = Find-Button $win $cn
     if ($c) { $c.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 700; break }
   }
+  $stale = Get-Texts (Get-Win) | Where-Object { $_ -match $stalePat } | Select-Object -First 1
+  if ($stale) { "STALE MODAL NOT CLOSED: $stale"; exit 1 }
 }
 $before = Get-Texts $win   # snapshot: only texts appearing after the pick count
 $btn = Find-Button $win $import
