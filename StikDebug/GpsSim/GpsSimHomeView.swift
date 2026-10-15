@@ -1383,8 +1383,10 @@ struct GpsSimHomeView: View {
     private var orderedBanners: [GpsBanner] {
         let all = banners
         let errors = all.filter { $0.id == "file" } + all.filter { $0.id == "issue" }
-        let device = all.filter { $0.id != "file" && $0.id != "issue" }
-        return errors + Array(device.prefix(1))
+        let device = all.filter { $0.id != "file" && $0.id != "issue" && $0.id != "sign" }
+        let shown = errors + Array(device.prefix(1))
+        // The signing reminder waits until no error or device banner is showing (one card at a time).
+        return shown.isEmpty ? all.filter { $0.id == "sign" } : shown
     }
 
     private var banners: [GpsBanner] {
@@ -1452,6 +1454,20 @@ struct GpsSimHomeView: View {
                 }
             }
             list.append(banner)
+        }
+        if GpsSigning.needsWarning(), let remaining = GpsSigning.remainingText() {
+            let expired = GpsSigning.isExpired()
+            list.append(GpsBanner(
+                id: "sign", color: expired ? GpsTheme.red : GpsTheme.yellow,
+                title: expired ? "簽名已過期，需要重簽" : "簽名\(remaining)",
+                detail: "打開 SideStore 按 Refresh All，或接電腦按「定位儀續簽」。",
+                buttonTitle: "打開 SideStore",
+                action: {
+                    UIApplication.shared.open(GpsSigning.sideStoreURL) { opened in
+                        if !opened { showToast("找不到 SideStore", autoClear: true, duration: 4) }
+                    }
+                }
+            ))
         }
         if let err = store.lastLoadError {
             list.append(GpsBanner(

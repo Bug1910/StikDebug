@@ -39,6 +39,18 @@ struct GpsSimSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let signText = GpsSigning.settingsText() {
+                    Section {
+                        Text(signText)
+                            .foregroundStyle(GpsSigning.isExpired() ? GpsTheme.red : Color.primary)
+                            .frame(minHeight: 44, alignment: .leading)
+                            .accessibilityIdentifier("settings.signExpiry")
+                    } header: {
+                        Text("簽名")
+                    } footer: {
+                        Text("免費 Apple ID 的簽名每 7 天到期；到期前打開 SideStore 按 Refresh All，或接電腦按「定位儀續簽」。")
+                    }
+                }
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("有 Wi-Fi 時：打開 LocalDevVPN，回定位儀按「重試」。")
