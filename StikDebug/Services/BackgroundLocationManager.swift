@@ -76,23 +76,17 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
     }
 
     /// First-time only (status .notDetermined): one line on why, then the system prompt.
-    /// 「暫時不要」 asks nothing; the next simulation start (after 停止) shows this again.
+    /// One 「繼續」 button that always opens the system alert (Apple HIG pre-alert rules);
+    /// 允許 / 不允許 is chosen there, and 不允許 keeps the audio keep-alive fallback.
     private func requestAuthorizationWithPrimer() {
-        // A shortcut can run the app in the background, where no alert can be seen:
+        // A shortcut can run the app in the background, where nothing can be seen:
         // ask next time instead of leaving an invisible primer pending.
         guard !isShowingPrimer, UIApplication.shared.applicationState == .active else { return }
         isShowingPrimer = true
-        showAlert(
-            title: "定位權限",
-            message: "為了在鎖螢幕或切到別的 App 時讓定位模擬不中斷，下一步系統會詢問定位權限。",
-            showOk: false,
-            showTryAgain: true,
-            primaryButtonText: "繼續",
-            secondaryButtonText: "暫時不要"
-        ) { [weak self] proceed in
+        GpsLocationPrimer.present { [weak self] shown in
             guard let self else { return }
             self.isShowingPrimer = false
-            guard proceed, self.locationManager.authorizationStatus == .notDetermined else { return }
+            guard shown, self.locationManager.authorizationStatus == .notDetermined else { return }
             self.isRequestingAuthorization = true
             self.locationManager.requestAlwaysAuthorization()
         }

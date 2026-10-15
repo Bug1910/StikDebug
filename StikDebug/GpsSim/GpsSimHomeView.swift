@@ -1462,6 +1462,9 @@ struct GpsSimHomeView: View {
                 engine.applyDemoIssue(noWifi: true)
             case "errorVPN":
                 engine.applyDemoIssue(noWifi: false)
+            case "primer":
+                // The first-time location line; 繼續 here only closes it (CI already granted location).
+                GpsLocationPrimer.present { _ in }
             default:
                 break   // "home" and "error" need no extra action
             }

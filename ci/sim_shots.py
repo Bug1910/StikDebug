@@ -1,4 +1,4 @@
-"""Screenshot every distinct iPhone/iPad logical size x 10 demo states.
+"""Screenshot every distinct iPhone/iPad logical size x 11 demo states.
 usage: sim_shots.py <iphone|ipad> <shard> <of> <app> <outdir>"""
 import os, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -6,7 +6,7 @@ from simlib import *
 
 family, shard, of, app, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]
 os.makedirs(out, exist_ok=True)
-STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error".split()
+STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error primer".split()
 bid = bundle_id(app)
 rt, sizes = distinct_sizes("iPad" if family == "ipad" else "iPhone")
 if os.environ.get("SHOTS_QUICK") == "1":  # everyday push: smallest + largest iPhone, largest iPad
@@ -63,7 +63,7 @@ for i, (size, name, tid) in enumerate(sizes):
         # plus the largest accessibility text size, so truncation and button growth show up
         if family == "iphone" and size in ("375x667", "390x844"):
             sh("xcrun", "simctl", "ui", udid, "content_size", "accessibility-extra-extra-extra-large", check=False)
-            for state in ("home", "edit", "simulating"):
+            for state in ("home", "edit", "simulating", "primer"):
                 sh("xcrun", "simctl", "terminate", udid, bid, check=False, quiet=True)
                 seed(udid, bid)
                 launch(udid, bid, ["-GpsSimDemo", state, "-GpsSimDemoWidth", "320"])
