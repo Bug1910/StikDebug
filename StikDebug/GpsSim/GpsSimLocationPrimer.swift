@@ -21,7 +21,9 @@ enum GpsLocationPrimer {
     /// on, `completion(false)` runs at once so the caller is never left waiting.
     static func present(completion: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
-            guard let top = topViewController() else {
+            // No window, or a sheet still opening/closing (UIKit then refuses a new
+            // presentation silently): skip, and the next simulation start asks again.
+            guard let top = topViewController(), !top.isBeingDismissed, !top.isBeingPresented else {
                 completion(false)
                 return
             }
@@ -37,6 +39,7 @@ enum GpsLocationPrimer {
             controller.isModalInPresentation = true
             host = controller
             top.present(controller, animated: true)
+            if controller.presentingViewController == nil { completion(false) }
         }
     }
 
