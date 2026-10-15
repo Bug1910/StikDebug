@@ -103,15 +103,26 @@ private struct GpsDraft {
     var followsCenter = false
 }
 
+/// What the camera framed on its own (re-applied when the overlays change size).
+private enum GpsFraming {
+    case all
+    case place(CLLocationCoordinate2D, Double)
+}
+
 private struct GpsBanner: Identifiable {
     let id: String
     let color: Color
-    let title: String
+    var title: String
     let detail: String
     var buttonTitle: String?
     var action: (() -> Void)?
     var secondaryTitle: String?
     var secondaryAction: (() -> Void)?
+    /// Short numbered steps shown instead of `detail` (detail stays as the VoiceOver value).
+    var steps: [String] = []
+    /// A full-width link under the steps (e.g. run the owner's shortcut).
+    var linkTitle: String?
+    var linkURL: URL?
 }
 
 /// A toast with an optional action button. `id` lets a delayed auto-clear check it is still
@@ -166,6 +177,8 @@ struct GpsSimHomeView: View {
     @ObservedObject private var mounting = MountingProgress.shared
     @ObservedObject private var network = GpsSimNetwork.shared
     @Environment(\.scenePhase) private var scenePhase
+    /// The system text size as set (the screen itself caps it at maxTypeSize below).
+    @Environment(\.dynamicTypeSize) private var systemTypeSize
 
     /// Satellite (hybrid: imagery + road names) by default; the owner asked for it 2026-10-15.
     @AppStorage("gpsSim.mapSatellite") private var mapSatellite = true
@@ -186,6 +199,15 @@ struct GpsSimHomeView: View {
     @State private var tunnelGraceOver = false
     @State private var didInitialFit = false
     @State private var toast: GpsToast?
+    /// Screen frames of the map and of what floats over it, so the camera frames places in the
+    /// open part of the map (pins were hidden under the search bar, the right buttons and banners).
+    @State private var mapFrame: CGRect = .zero
+    @State private var topBarFrame: CGRect = .zero
+    @State private var toolsFrame: CGRect = .zero
+    @State private var messagesFrame: CGRect = .zero
+    /// What the camera last framed on its own; re-applied when the overlays change size,
+    /// unless the person has moved the map since.
+    @State private var lastFraming: GpsFraming?
     @State private var sendingPlaceID: String?
     /// Guards against a double tap sending twice (the second tap would land somewhere else).
     @State private var lastFly: (id: String, at: Date)?
@@ -196,6 +218,18 @@ struct GpsSimHomeView: View {
     @FocusState private var draftNameFocused: Bool
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
+
+    /// Text follows the system size up to accessibility2; beyond that the map would vanish.
+    static let maxTypeSize = DynamicTypeSize.accessibility2
+    private var typeSize: DynamicTypeSize { min(systemTypeSize, Self.maxTypeSize) }
+    /// Accessibility sizes: one place per row and taller rows, so names never shrink to fit.
+    private var largeText: Bool { typeSize.isAccessibilitySize }
+    /// 48 pt at the default size, grown like body text (capped like the text itself).
+    private var placeCellHeight: CGFloat {
+        let category = UIContentSizeCategory(typeSize)
+        return UIFontMetrics(forTextStyle: .body)
+            .scaledValue(for: 48, compatibleWith: UITraitCollection(preferredContentSizeCategory: category))
+    }
     private var isSimulating: Bool { session.isActive || engine.activeName != nil }
     private var simulatedPoint: CLLocationCoordinate2D? { engine.current ?? session.coordinate }
 
@@ -266,6 +300,7 @@ struct GpsSimHomeView: View {
         return VStack(spacing: 0) {
             ZStack {
                 map.ignoresSafeArea(edges: [.top, .horizontal])
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapFrame = $0 }
                 if draft?.followsCenter == true {
                     GpsCrosshair().ignoresSafeArea(edges: [.top, .horizontal]).allowsHitTesting(false)
                 }
@@ -278,6 +313,7 @@ struct GpsSimHomeView: View {
                         HStack {
                             Spacer()
                             mapTools
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { toolsFrame = $0 }
                         }
                         .frame(maxWidth: Self.controlWidth)
                     }
@@ -285,6 +321,9 @@ struct GpsSimHomeView: View {
                     if !searchOpen {
                         mapMessages
                             .frame(maxWidth: Self.controlWidth)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { messagesFrame = $0 }
+                            // Apple Maps logo and Legal link sit in the bottom ~26 pt; they must stay visible.
+                            .padding(.bottom, Self.legalClearance)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -298,7 +337,7 @@ struct GpsSimHomeView: View {
                 .frame(maxWidth: .infinity)
                 .background(GpsTheme.background.ignoresSafeArea(edges: .bottom))
         }
-        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+        .dynamicTypeSize(...Self.maxTypeSize)
         .background(GpsTheme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(GpsTheme.mint)
@@ -330,6 +369,13 @@ struct GpsSimHomeView: View {
         }
         // Only the first places (empty -> some) refit the camera; adding one more must not jump away.
         .onChange(of: store.places.count) { old, _ in if old == 0 { fitAllPlaces() } }
+        // Overlays changed size (banner, toast, bigger text, bottom card): frame the same thing
+        // again in the new open area, unless the person moved the map themselves.
+        .onChange(of: [mapInsets.top, mapInsets.bottom, mapInsets.trailing,
+                       mapFrame.width.rounded(), mapFrame.height.rounded()]) { _, _ in
+            guard let framing = lastFraming, !position.positionedByUser else { return }
+            apply(framing, animated: true)
+        }
         .onChange(of: engine.isBusy) { _, busy in
             if !busy { sendingPlaceID = nil }
         }
@@ -396,6 +442,7 @@ struct GpsSimHomeView: View {
                 .accessibilityIdentifier("btn.settings")
             }
             searchBar
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBarFrame = $0 }
             if let msg = searchMessage {
                 searchMessageRow(msg)
             }
@@ -425,21 +472,24 @@ struct GpsSimHomeView: View {
             let fresh = confirmation(at: context.date)
             let line = statusLine(fresh: fresh)
             HStack(spacing: 8) {
-                GpsPulseDot(fresh: fresh, active: isSimulating)
+                GpsPulseDot(fresh: fresh, active: isSimulating, kept: engine.activeName != nil)
                 Text(line)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
-                    .lineLimit(1)
+                    .lineLimit(largeText ? 2 : 1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
                 // Spinner lives inside the pill so connecting/sending never adds a row.
                 if engine.isBusy || isConnecting || isMountingNow { ProgressView().controlSize(.small) }
             }
             .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
-            .background(GpsTheme.card.opacity(0.94), in: Capsule())
-            .overlay(Capsule().stroke(fresh ? GpsTheme.mint.opacity(0.6) : GpsTheme.line, lineWidth: 1))
-            .contentShape(Capsule())
+            .padding(.vertical, largeText ? 6 : 0)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(GpsTheme.card.opacity(0.94), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(fresh ? GpsTheme.mint.opacity(0.6) : (engine.activeName != nil ? GpsTheme.orange.opacity(0.7) : GpsTheme.line),
+                        lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(line)
             .accessibilityIdentifier("status.pill")
@@ -452,7 +502,7 @@ struct GpsSimHomeView: View {
     /// One short line, always text (never only colour or animation).
     private func statusLine(fresh: Bool) -> String {
         if let name = engine.activeName {
-            return fresh ? "在 \(name)" : "\(name)・連線中斷（定位仍保留）"
+            return fresh ? "在 \(name)" : "\(name)・已保留（離線）"
         }
         if session.isActive { return "在外部連結的位置" }
         if let stale = engine.staleTarget { return "上次在 \(stale.name)（定位可能仍保留）" }
@@ -684,10 +734,10 @@ struct GpsSimHomeView: View {
 
     // MARK: - Map
 
-    /// Pins: white normally, mint while confirmed there, grey while there but unconfirmed.
+    /// Pins: white normally, mint while confirmed there, amber while kept but unconfirmed (offline).
     private func pinColor(_ p: GpsPlace) -> Color {
         guard isActivePlace(p) else { return .white }
-        return confirmation(at: now) ? GpsTheme.mint : GpsTheme.sub
+        return confirmation(at: now) ? GpsTheme.mint : GpsTheme.orange
     }
 
     private var draftPoint: CLLocationCoordinate2D? {
@@ -798,52 +848,84 @@ struct GpsSimHomeView: View {
         return best?.place
     }
 
-    /// The top controls cover the upper part of the map, so the camera aims a little north
-    /// (negative lift) and the point sits slightly below the middle of the visible map.
-    private static let cameraLift = -0.05
-    /// Visible north-south extent for a region of `span` metres (the screen is taller than wide).
-    private static var screenAspect: Double {
-        let b = UIScreen.main.bounds
-        return max(Double(b.height / max(b.width, 1)), 1)
+    /// Room the Apple Maps logo and Legal link need at the bottom-left of the map.
+    private static let legalClearance: CGFloat = 22
+
+    /// Parts of the map covered by the floating controls, in points (rounded so tiny layout
+    /// jitter does not refit the camera).
+    private var mapInsets: EdgeInsets {
+        guard mapFrame.width > 1 else { return EdgeInsets(top: 120, leading: 8, bottom: 40, trailing: 64) }
+        let top = max(0, topBarFrame.maxY - mapFrame.minY)
+        let bottom = messagesFrame == .zero ? Self.legalClearance + 8 : max(0, mapFrame.maxY - messagesFrame.minY)
+        let trailing = toolsFrame == .zero ? 64 : max(0, mapFrame.maxX - toolsFrame.minX)
+        return EdgeInsets(top: top.rounded(), leading: 8, bottom: bottom.rounded(), trailing: trailing.rounded())
     }
 
     private func focus(on c: CLLocationCoordinate2D, radius: Double) {
-        let span = max(radius * 2 + 300, 450)
-        let liftMeters = span * Self.screenAspect * Self.cameraLift
-        let center = CLLocationCoordinate2D(latitude: c.latitude - liftMeters / 111_320, longitude: c.longitude)
-        withAnimation(.easeInOut(duration: 0.4)) {
-            position = .region(MKCoordinateRegion(center: center, latitudinalMeters: span, longitudinalMeters: span))
-        }
+        apply(.place(c, radius), animated: true)
     }
 
     private func fitAllPlaces(animated: Bool = false) {
-        let pts = visiblePlaces
-        guard !pts.isEmpty else { return }
-        if pts.count == 1 {
-            focus(on: pts[0].coordinate, radius: GpsGeo.radius(of: pts[0]))
-            return
+        guard !visiblePlaces.isEmpty else { return }
+        apply(.all, animated: animated)
+    }
+
+    private func apply(_ framing: GpsFraming, animated: Bool) {
+        lastFraming = framing
+        let box: (minLat: Double, maxLat: Double, minLon: Double, maxLon: Double)
+        switch framing {
+        case .place(let c, let radius):
+            let half = max(radius * 2 + 300, 450) / 2
+            let dLat = half / 111_320
+            let dLon = half / (111_320 * max(cos(c.latitude * Double.pi / 180), 0.01))
+            box = (c.latitude - dLat, c.latitude + dLat, c.longitude - dLon, c.longitude + dLon)
+        case .all:
+            let pts = visiblePlaces
+            guard !pts.isEmpty else { return }
+            if pts.count == 1 {
+                apply(.place(pts[0].coordinate, GpsGeo.radius(of: pts[0])), animated: animated)
+                lastFraming = .all
+                return
+            }
+            // Bounds include each place's circle (not just the pin).
+            var b = (minLat: 90.0, maxLat: -90.0, minLon: 180.0, maxLon: -180.0)
+            for p in pts {
+                let r = GpsGeo.radius(of: p)
+                let dLat = r / 111_320
+                let dLon = r / (111_320 * max(cos(p.lat * Double.pi / 180), 0.01))
+                b.minLat = min(b.minLat, p.lat - dLat); b.maxLat = max(b.maxLat, p.lat + dLat)
+                b.minLon = min(b.minLon, p.lon - dLon); b.maxLon = max(b.maxLon, p.lon + dLon)
+            }
+            box = b
         }
-        // Bounds include each place's circle (not just the pin).
-        var minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0
-        for p in pts {
-            let r = GpsGeo.radius(of: p)
-            let dLat = r / 111_320
-            let dLon = r / (111_320 * max(cos(p.lat * Double.pi / 180), 0.01))
-            minLat = min(minLat, p.lat - dLat); maxLat = max(maxLat, p.lat + dLat)
-            minLon = min(minLon, p.lon - dLon); maxLon = max(maxLon, p.lon + dLon)
-        }
-        // 2.0x: room for the top controls and the pin heads.
-        let latDelta = max((maxLat - minLat) * 2.0, 0.01)
-        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2 - latDelta * Self.cameraLift,
-                                            longitude: (minLon + maxLon) / 2)
-        let span = MKCoordinateSpan(latitudeDelta: latDelta,
-                                    longitudeDelta: max((maxLon - minLon) * 1.8, 0.01))
-        let region = MKCoordinateRegion(center: center, span: span)
+        let region = Self.region(fitting: box, in: mapFrame.size == .zero ? UIScreen.main.bounds.size : mapFrame.size,
+                                 insets: mapInsets)
         if animated {
             withAnimation(.easeInOut(duration: 0.4)) { position = .region(region) }
         } else {
             position = .region(region)
         }
+    }
+
+    /// The region that shows `box` inside the open band of a map of `size` (Web Mercator, small
+    /// spans: 1 pt is k degrees of longitude and k·cos(lat) degrees of latitude). The region has
+    /// the map's own aspect, so MapKit shows it exactly and the band offset holds.
+    private static func region(fitting box: (minLat: Double, maxLat: Double, minLon: Double, maxLon: Double),
+                               in size: CGSize, insets: EdgeInsets) -> MKCoordinateRegion {
+        let w = Double(max(size.width, 1)), h = Double(max(size.height, 1))
+        // Pin heads stand 37 pt above their point and names hang ~18 pt below it.
+        let top = Double(insets.top) + 44, bottom = Double(insets.bottom) + 22
+        let left = Double(insets.leading) + 16, right = Double(insets.trailing) + 16
+        let bandW = max(w - left - right, 80), bandH = max(h - top - bottom, 80)
+        let midLat = (box.minLat + box.maxLat) / 2, midLon = (box.minLon + box.maxLon) / 2
+        let cosLat = max(cos(midLat * Double.pi / 180), 0.01)
+        let k = max((box.maxLon - box.minLon) / bandW, (box.maxLat - box.minLat) / (bandH * cosLat), 1e-7)
+        let bandX = left + bandW / 2, bandY = top + bandH / 2
+        let center = CLLocationCoordinate2D(latitude: midLat + (bandY - h / 2) * k * cosLat,
+                                            longitude: midLon + (w / 2 - bandX) * k)
+        return MKCoordinateRegion(center: center,
+                                  span: MKCoordinateSpan(latitudeDelta: min(h * k * cosLat, 170),
+                                                         longitudeDelta: min(w * k, 350)))
     }
 
     // MARK: - Fly
@@ -903,7 +985,7 @@ struct GpsSimHomeView: View {
     private var placesCard: some View {
         GeometryReader { geo in
             let columns = Array(repeating: GridItem(.flexible(), spacing: 8),
-                                count: geo.size.width >= 480 ? 3 : 2)
+                                count: largeText ? 1 : (geo.size.width >= 480 ? 3 : 2))
             ScrollViewReader { reader in
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 8) {
@@ -929,10 +1011,14 @@ struct GpsSimHomeView: View {
     /// Up to three rows of 48 pt cells plus padding; fewer places = shorter card, more map.
     private var placesCardHeight: CGFloat {
         let cells = visiblePlaces.count + 1
-        let rows = min(3, (cells + 1) / 2)
-        // A peek of the fourth row tells the list scrolls when there are more.
-        let peek: CGFloat = (cells + 1) / 2 > 3 ? 22 : 0
-        return CGFloat(rows) * 48 + CGFloat(max(rows - 1, 0)) * 8 + 20 + peek
+        let perRow = largeText ? 1 : 2
+        let allRows = (cells + perRow - 1) / perRow
+        // Large text: two tall rows still leave the map in view on an iPhone SE.
+        let maxRows = largeText ? 2 : 3
+        let rows = min(maxRows, allRows)
+        // A peek of the next row tells the list scrolls when there are more.
+        let peek: CGFloat = allRows > maxRows ? 22 : 0
+        return CGFloat(rows) * placeCellHeight + CGFloat(max(rows - 1, 0)) * 8 + 20 + peek
     }
 
     private var addCell: some View {
@@ -944,7 +1030,7 @@ struct GpsSimHomeView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .foregroundStyle(GpsTheme.mint)
-                .frame(maxWidth: .infinity, minHeight: 48)
+                .frame(maxWidth: .infinity, minHeight: placeCellHeight)
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(GpsTheme.mint.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -977,12 +1063,13 @@ struct GpsSimHomeView: View {
                     .minimumScaleFactor(0.8)
             }
             .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: placeCellHeight)
             .foregroundStyle(fresh ? GpsTheme.background : .white)
-            .background(fresh ? GpsTheme.mint : Color.white.opacity(0.09),
+            // Kept but unconfirmed (offline): amber tint + 2 pt amber edge, still clearly "this one".
+            .background(fresh ? GpsTheme.mint : (active ? GpsTheme.orange.opacity(0.22) : Color.white.opacity(0.09)),
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(active && !fresh ? GpsTheme.sub : Color.clear, lineWidth: 1.5))
+                .stroke(active && !fresh ? GpsTheme.orange : Color.clear, lineWidth: 2))
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -1302,13 +1389,21 @@ struct GpsSimHomeView: View {
             ))
         } else if !demoReady && !linkUp {
             if tunnelGraceOver {
-                list.append(GpsBanner(
+                var banner = GpsBanner(
                     id: "tunnel", color: GpsTheme.orange,
                     title: network.onWiFi ? "連不到手機" : GpsSimNetwork.noWifiTitle,
                     detail: engine.activeName != nil ? GpsSimNetwork.disconnectedHint : (network.onWiFi ? GpsSimNetwork.checkVPNMessage : GpsSimNetwork.noWifiMessage),
                     buttonTitle: "重試",
                     action: { retryTunnel() }
-                ))
+                )
+                if !network.onWiFi {
+                    // A long grey sentence was unreadable (review 1.0.6): short numbered steps + the shortcut.
+                    banner.title = engine.activeName != nil ? "只有 4G：換地點照這 5 步" : "只有 4G：照這 5 步"
+                    banner.steps = GpsSimNetwork.fourGStepList
+                    banner.linkTitle = "用捷徑「\(GpsSimNetwork.shortcutName)」一鍵完成"
+                    banner.linkURL = GpsSimNetwork.shortcutURL
+                }
+                list.append(banner)
             }
         } else if !demoReady, tunnel.isConnected, !mounting.coolisMounted, mounting.mountingThread == nil {
             // Needs the JIT tunnel: on 4G only the location link is up and mounting cannot work.
@@ -1617,6 +1712,8 @@ private struct GpsPinView: View {
 private struct GpsPulseDot: View {
     let fresh: Bool
     let active: Bool
+    /// A saved place is kept on the phone but not confirmed lately: amber, never the grey of 真實位置.
+    var kept = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -1626,7 +1723,7 @@ private struct GpsPulseDot: View {
                 GpsPulseRing(delay: 0.8)
             }
             Circle()
-                .fill(fresh ? GpsTheme.mint : (active ? GpsTheme.sub : Color.white.opacity(0.45)))
+                .fill(fresh ? GpsTheme.mint : (active && kept ? GpsTheme.orange : (active ? GpsTheme.sub : Color.white.opacity(0.45))))
                 .frame(width: 10, height: 10)
         }
         .frame(width: 22, height: 22)
@@ -1658,6 +1755,7 @@ private struct GpsBannerRow: View {
     /// One line (title + button) while another card is open.
     var compact = false
     @State private var expanded = false
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// The cause and next step are always shown in full (never truncated, no chevron).
     private var showsDetailInline: Bool { true }
 
@@ -1690,7 +1788,9 @@ private struct GpsBannerRow: View {
                     chip(title, action: action)
                 }
             }
-            if !compact && (expanded || (showsDetailInline && !banner.detail.isEmpty)) {
+            if !compact && !banner.steps.isEmpty {
+                stepsView
+            } else if !compact && (expanded || (showsDetailInline && !banner.detail.isEmpty)) {
                 Text(banner.detail)
                     .font(.footnote)
                     .foregroundStyle(GpsTheme.sub)
@@ -1704,6 +1804,47 @@ private struct GpsBannerRow: View {
         .padding(.vertical, 4)
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityValue(banner.detail)
+    }
+
+    /// ①…⑤ in reading order; two columns keep the card short on an iPhone SE, one at large text.
+    private var stepsView: some View {
+        let marks = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"]
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .leading),
+                            count: typeSize.isAccessibilitySize ? 1 : 2)
+        return VStack(alignment: .leading, spacing: 6) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+                ForEach(Array(banner.steps.enumerated()), id: \.offset) { i, step in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(i < marks.count ? marks[i] : "\(i + 1).")
+                            .foregroundStyle(banner.color)
+                        Text(step)
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .font(.subheadline)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            if let title = banner.linkTitle, let url = banner.linkURL {
+                Button {
+                    UIApplication.shared.open(url)
+                } label: {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(GpsTheme.mint)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(GpsTheme.mint.opacity(0.7), lineWidth: 1.5))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("打開「捷徑」App 執行")
+                .accessibilityIdentifier("banner.shortcut")
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.bottom, 6)
     }
 
     private func chip(_ title: String, action: @escaping () -> Void) -> some View {

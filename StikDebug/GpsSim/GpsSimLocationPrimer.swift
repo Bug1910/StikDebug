@@ -58,6 +58,7 @@ struct GpsLocationPrimerView: View {
     let onContinue: () -> Void
     /// A quick double tap must not ask twice.
     @State private var tapped = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -74,7 +75,11 @@ struct GpsLocationPrimerView: View {
     }
 
     private var message: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        // Accessibility sizes: the icon sits above the text so the text gets the full width.
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 10))
+        return layout {
             Image(systemName: "location.fill")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(GpsTheme.mint)
@@ -94,8 +99,21 @@ struct GpsLocationPrimerView: View {
             // scrolls while the button stays pinned and reachable.
             ViewThatFits(in: .vertical) {
                 message
-                ScrollView { message }
-                    .scrollBounceBehavior(.basedOnSize)
+                ScrollView {
+                    // Room below the last line so it can scroll fully clear of the fade.
+                    message.padding(.bottom, 28)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.visible)
+                .scrollIndicatorsFlash(onAppear: true)
+                // The last visible line fades out instead of being cut, so it reads as "more below".
+                .mask(
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 36)
+                    }
+                )
             }
 
             Button {

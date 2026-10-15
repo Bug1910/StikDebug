@@ -24,6 +24,15 @@ final class GpsSimNetwork: ObservableObject {
     nonisolated static let noWifiTitle = "沒有連上 Wi-Fi"
     /// The 4G route the owner confirmed on his phone 2026-10-15 (the fake point stays after airplane mode is off).
     nonisolated static let fourGSteps = "只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回定位儀點地點 → 關飛航（假定位會保留）。或用捷徑一鍵完成。"
+    /// The same route as numbered steps for the banner (each short enough for an iPhone SE column).
+    nonisolated static let fourGStepList = ["開 LocalDevVPN", "開飛航模式", "開 Wi-Fi", "回來點地點", "關飛航模式"]
+    /// The owner's own shortcut that runs the route above (built and tested by him 2026-10-15).
+    nonisolated static let shortcutName = "出門改定位"
+    nonisolated static var shortcutURL: URL? {
+        var c = URLComponents(string: "shortcuts://run-shortcut")
+        c?.queryItems = [URLQueryItem(name: "name", value: shortcutName)]
+        return c?.url
+    }
     nonisolated static let noWifiMessage = fourGSteps
     nonisolated static let disconnectedHint = "連線中斷，定位仍保留。要換地點：" + fourGSteps
     nonisolated static let checkVPNMessage = "LocalDevVPN 開著還是連不到：請把它關掉再打開，然後按「重試」。"
