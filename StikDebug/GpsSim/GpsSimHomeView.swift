@@ -201,6 +201,9 @@ struct GpsSimHomeView: View {
     @State private var tunnelGraceOver = false
     @State private var didInitialFit = false
     @State private var toast: GpsToast?
+    /// Clock for the signing reminder: ticks every minute and on return to the app, so the days
+    /// left stay current while the app stays open.
+    @State private var signNow = Date()
     /// Screen frames of the map and of what floats over it, so the camera frames places in the
     /// open part of the map (pins were hidden under the search bar, the right buttons and banners).
     @State private var mapFrame: CGRect = .zero
@@ -343,9 +346,13 @@ struct GpsSimHomeView: View {
         .preferredColorScheme(.dark)
         .tint(GpsTheme.mint)
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { d in if isSimulating { now = d } }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { signNow = $0 }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { refreshFromDisk(startTunnel: true) }
+            if phase == .active {
+                signNow = Date()
+                refreshFromDisk(startTunnel: true)
+            }
         }
         .onChange(of: engine.toast) { _, value in
             guard let value else { return }
@@ -1384,9 +1391,15 @@ struct GpsSimHomeView: View {
         let all = banners
         let errors = all.filter { $0.id == "file" } + all.filter { $0.id == "issue" }
         let device = all.filter { $0.id != "file" && $0.id != "issue" && $0.id != "sign" }
+        let sign = all.filter { $0.id == "sign" }
+        // A day or less left (or expired): the signing reminder takes the device banner's place,
+        // since on 4G the tunnel banner never goes away (the status line still says what is wrong).
+        if let days = GpsSigning.daysLeft(now: signNow), days <= 1, !sign.isEmpty {
+            return errors + sign
+        }
         let shown = errors + Array(device.prefix(1))
-        // The signing reminder waits until no error or device banner is showing (one card at a time).
-        return shown.isEmpty ? all.filter { $0.id == "sign" } : shown
+        // Otherwise it waits until no error or device banner is showing (one card at a time).
+        return shown.isEmpty ? sign : shown
     }
 
     private var banners: [GpsBanner] {
@@ -1455,8 +1468,8 @@ struct GpsSimHomeView: View {
             }
             list.append(banner)
         }
-        if GpsSigning.needsWarning(), let remaining = GpsSigning.remainingText() {
-            let expired = GpsSigning.isExpired()
+        if GpsSigning.needsWarning(now: signNow), let remaining = GpsSigning.remainingText(now: signNow) {
+            let expired = GpsSigning.isExpired(now: signNow)
             list.append(GpsBanner(
                 id: "sign", color: expired ? GpsTheme.red : GpsTheme.yellow,
                 title: expired ? "簽名已過期，需要重簽" : "簽名\(remaining)",

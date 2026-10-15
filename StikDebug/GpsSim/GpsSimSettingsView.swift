@@ -39,12 +39,15 @@ struct GpsSimSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let signText = GpsSigning.settingsText() {
+                if GpsSigning.expiration != nil {
                     Section {
-                        Text(signText)
-                            .foregroundStyle(GpsSigning.isExpired() ? GpsTheme.red : Color.primary)
-                            .frame(minHeight: 44, alignment: .leading)
-                            .accessibilityIdentifier("settings.signExpiry")
+                        // Re-reads the days left every minute while the sheet stays open.
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            Text(GpsSigning.settingsText(now: context.date) ?? "")
+                                .foregroundStyle(GpsSigning.isExpired(now: context.date) ? GpsTheme.red : Color.primary)
+                                .frame(minHeight: 44, alignment: .leading)
+                                .accessibilityIdentifier("settings.signExpiry")
+                        }
                     } header: {
                         Text("簽名")
                     } footer: {
