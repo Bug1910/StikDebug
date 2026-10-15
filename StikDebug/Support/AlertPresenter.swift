@@ -16,7 +16,11 @@ enum AlertPresenter {
         completion: ((Bool) -> Void)? = nil
     ) {
         DispatchQueue.main.async {
-            guard let rootViewController = UIApplication.shared.activeRootViewController else {
+            // No window (e.g. launched in the background by a shortcut): report "not shown"
+            // so callers waiting on the answer are not stuck.
+            guard let rootViewController = UIApplication.shared.activeRootViewController,
+                  let presenter = UIApplication.shared.topViewController(from: rootViewController) else {
+                completion?(false)
                 return
             }
 
@@ -41,7 +45,7 @@ enum AlertPresenter {
                 })
             }
 
-            UIApplication.shared.topViewController(from: rootViewController)?.present(alert, animated: true)
+            presenter.present(alert, animated: true)
         }
     }
 
