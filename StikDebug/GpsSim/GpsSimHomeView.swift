@@ -840,7 +840,13 @@ struct GpsSimHomeView: View {
                 mapCenter = context.region.center
                 updateLegalScrim(proxy)
             }
-            .onChange(of: mapFrame.size) { _, _ in updateLegalScrim(proxy) }
+            .onChange(of: mapFrame) { _, _ in
+                // MKMapView lays out a beat after SwiftUI reports the new frame (panel/banners resized):
+                // recompute now and again after layout so the band never keeps a stale height.
+                updateLegalScrim(proxy)
+                DispatchQueue.main.async { updateLegalScrim(proxy) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { updateLegalScrim(proxy) }
+            }
             .onMapCameraChange(frequency: .onEnd) { context in
                 if draft?.followsCenter == true { suggestName(for: context.region.center) }
             }
