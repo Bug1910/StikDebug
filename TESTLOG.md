@@ -73,6 +73,8 @@
 | v1.0.14 | 雲端測試員 3 位（run 38877840008） | ✅ 127 步 0 失敗 | — |
 | v1.0.14 | 截圖驗收（run 38877836214；主對話＋2 位審查員各自看） | ✅ 101 圖釘頭完整在搜尋列下；❌ Legal 底帶浮在地圖底上方，面板越高浮越多（SE error 約 29pt、17ProMax simulating 約 33pt、17ProMax error 約 65pt、iPad error 約 75pt），模擬中 Legal 看不到 | 不裝手機；v1.0.15 改用底層 MKMapView 座標＋面板變高後延遲重算 |
 | v1.0.15 | 程式審查（code-reviewer）×2 輪 | 可合併；建議：無效座標過濾、快取地圖 view、依 frame 挑對的地圖、Attribution 高度上限、說明文字更正 | 6d95e75 全部修 |
+| v1.0.15 | 雲端測試員 3 位（run 38942533552） | ✅ 127 步 0 失敗 | — |
+| v1.0.15 | 實機安裝（resign.ps1，10/17 02:07；第 1 次 NO PICKER，資料夾有 2 個 IPA→舊的移到 old\ 後第 2 次成功） | ✅ 手機讀到 1.0.15「定位儀」；簽名 10/23 12:48→10/24 02:07 | 舊 IPA 收到 Installers\iOS-StikDebug\old\ |
 | v1.0.15 | 雲端編譯＋截圖（run 38939778423／38939773898）；主對話看 6 張＋ux-design-lead 看全部 46 張與 v1.0.14 並排 | ✅ 編譯過；底帶在所有狀態（含 iPad、axxxl）貼齊地圖底、Maps＋Legal 在帶上；v1.0.14 的 iPad 白畫面／灰圖這版正常（判定為截圖時機） | 併 main 92bf258、tag v1.0.15、同步 PinFly |
 | PinFly | v1.0.7～1.0.14 共 23 版搬到私人 Bug1910/PinFly（commit-tree 照順序重放、作者與時間保留、tag v1.0.7～v1.0.14） | ✅ 最後 tree 563e002 與公開版 main 完全相同；PinFly Actions 仍關 | — |
 | 改名 v1.1.0 | 研究 isideload 原始碼＋issue | 改名＝新 App ID（免費帳號每 7 天 10 個）；註冊用 app token 但存檔登入怎麼用沒查清；登入被擋時無人回報成功註冊 | 暫緩，等 10/23 前續簽完或 iloader 登入修好 |
