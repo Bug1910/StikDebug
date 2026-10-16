@@ -60,3 +60,4 @@
 | SideStore 配對檔 | 電腦用 AFC 放入：合併檔→「ambiguous」拒收；只留 lockdown→收下但 iOS 26 lockdown 連線 early eof；只留 RemoteRP（同定位儀那份）→ ✅ connection test SUCCEEDED | SideStore 改走 rppairing；PC 暫存的配對檔副本已刪 |
 | SideStore 登入 Apple ID | 他登入 2 次 | ❌ GSA -80045（init 階段就拒，未驗密碼）；7 支 agent 查：Apple 10/12 起擋遠端／Android anisette，全球同症狀；SideStore PR #1660 未合併 | 停止重試；續簽暫走電腦 resign.ps1；建議刪捷徑裡 Refresh All Apps 那步 |
 | 電腦續簽 | 時間量測（逐字稿）| resign.ps1 全程 35～36 秒（iloader 那段約 21 秒）；今天 12:48 仍成功＝PC 的 iloader 登入沒被擋 | — |
+| SideStore 登入（B 方案，只試 1 次） | 關 On-Device Anisette、伺服器選 #19 jkcoxson (Windows ADI)、Client Info／User Agent 改 Windows 值並 Save Overrides、Auto Rotation 關、Reset adi.pb 後登入 1 次 | ❌ Apple 回 503 Service Temporarily Unavailable（init 階段被擋，同 #1652 回報的 503） | 停止重試；續簽維持電腦 resign.ps1；手機上的三個設定值暫存檔已刪 |
