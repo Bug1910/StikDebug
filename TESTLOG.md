@@ -22,7 +22,8 @@
 
 ## 還沒測過（下一輪要測的）
 
-- Legal 在模擬中（深色）、離線、送失敗畫面是否可見（要看原尺寸截圖，縮圖看不清）；17ProMax 錯誤狀態台北101 圖釘被搜尋列蓋一半
+- v1.0.14 雲端截圖／測試員（run 38877836214、38877840008，10/16 17:03 排隊中）：看 17ProMax error 圖釘頭露在搜尋列下、模擬中／離線／SE 劇本第 39 步 Legal 清楚、底帶貼地圖底不閃；縮到全世界時底帶消失不變黑
+- v1.0.14 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常
 - 🔴 只有他能做：實機長按新增地點、反查地名、4G 流程、權限卡片（要先把定位權限改回「下次詢問」）、手機「每天自動續簽」捷徑跑一次後讀到期日
 - 純 4G 時 SideStore 自動續簽能否成功（兩份研究都無法證實）
 - SideStore 登入 Apple ID：10/16 被 Apple 拒（-80045，全球 10/12 起同症狀）；社群偏方「關 On-Device Anisette＋jkcoxson 伺服器＋Windows Client Info」未試，只准試 1 次
@@ -61,3 +62,4 @@
 | SideStore 登入 Apple ID | 他登入 2 次 | ❌ GSA -80045（init 階段就拒，未驗密碼）；7 支 agent 查：Apple 10/12 起擋遠端／Android anisette，全球同症狀；SideStore PR #1660 未合併 | 停止重試；續簽暫走電腦 resign.ps1；建議刪捷徑裡 Refresh All Apps 那步 |
 | 電腦續簽 | 時間量測（逐字稿）| resign.ps1 全程 35～36 秒（iloader 那段約 21 秒）；今天 12:48 仍成功＝PC 的 iloader 登入沒被擋 | — |
 | SideStore 登入（B 方案，只試 1 次） | 關 On-Device Anisette、伺服器選 #19 jkcoxson (Windows ADI)、Client Info／User Agent 改 Windows 值並 Save Overrides、Auto Rotation 關、Reset adi.pb 後登入 1 次 | ❌ Apple 回 503 Service Temporarily Unavailable（init 階段被擋，同 #1652 回報的 503） | 停止重試；續簽維持電腦 resign.ps1；手機上的三個設定值暫存檔已刪 |
+| v1.0.14 | 程式審查（code-reviewer×2）：上游 734361b 逐行相同、不碰定位路徑；Legal 底帶 MapPolygon 編譯 OK、抓到跨換日線會整片黑 | ✅ 合併；換日線已修（aa4d899） | main fefa102、tag v1.0.14；Build Debug IPA 成功 |
