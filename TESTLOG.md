@@ -17,12 +17,13 @@
 | SE 頂部不被推進狀態列、提示卡在地圖與清單之間、4G 收進「看步驟」、送失敗灰色虛線＋提示不重複、設定頁無重複字 | v1.0.13 | 截圖逐項驗收 | 主畫面版面、提示卡、送出流程 |
 | 簽名到期讀取與顯示 | v1.0.10 | 程式審查＋實機（設定頁） | `GpsSimSigning.swift` |
 | 安裝腳本 `iloader_import.ps1` | 8887310 後實跑 2 次成功 | 實機安裝 v1.0.8、v1.0.10 | iloader 改版、腳本改動 |
+| Legal 底帶貼地圖底（全狀態、iPhone／iPad、大字級）、101 圖釘不被搜尋列蓋 | v1.0.15 | 雲端截圖逐張＋與前版並排 | `updateLegalScrim`／`GpsLegalProbe`、地圖或底部面板版面 |
 | 一鍵續簽 `resign.ps1`（桌面「定位儀續簽」） | 36bce93，10/16 01:51 實跑成功 | 實機：01:26→01:52 | 腳本改動 |
 | 實機：安裝、5 個地點保留、模擬中隨機落點在圈內 | v1.0.10 | 遠端截圖 | 地點存檔格式、送定位流程 |
 
 ## 還沒測過（下一輪要測的）
 
-- v1.0.15（分支 fix/v1.0.15-legal-band）雲端截圖：底帶在 17ProMax／SE／iPad 的 error、simulating 都貼地圖底、蓋住 Maps＋Legal
+- 小問題（不擋）：地圖本身的店名／路名會畫在底帶上面、疊到 Legal（17ProMax newPlace、SE simulating）；可考慮讓地圖不在底帶那條顯示 POI
 - 測試員小問題（v1.0.14 發現，不擋）：offline 36_shot_back_home 步驟算過但畫面仍在設定頁；novice 28 搜尋結果截圖時還在轉圈；simulating_dark＝light 是 App 寫死深色（GpsSimHomeView:369 等），不是 CI 壞
 - v1.0.14/15 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常
 - 🔴 只有他能做：實機長按新增地點、反查地名、4G 流程、權限卡片（要先把定位權限改回「下次詢問」）、手機「每天自動續簽」捷徑跑一次後讀到期日
@@ -71,6 +72,7 @@
 |---|---|---|---|
 | v1.0.14 | 雲端測試員 3 位（run 38877840008） | ✅ 127 步 0 失敗 | — |
 | v1.0.14 | 截圖驗收（run 38877836214；主對話＋2 位審查員各自看） | ✅ 101 圖釘頭完整在搜尋列下；❌ Legal 底帶浮在地圖底上方，面板越高浮越多（SE error 約 29pt、17ProMax simulating 約 33pt、17ProMax error 約 65pt、iPad error 約 75pt），模擬中 Legal 看不到 | 不裝手機；v1.0.15 改用底層 MKMapView 座標＋面板變高後延遲重算 |
-| v1.0.15 | 程式審查（code-reviewer） | 可合併；建議：無效座標過濾、快取地圖 view、依 frame 挑對的地圖、Attribution 高度上限 | 同分支追加修正 |
+| v1.0.15 | 程式審查（code-reviewer）×2 輪 | 可合併；建議：無效座標過濾、快取地圖 view、依 frame 挑對的地圖、Attribution 高度上限、說明文字更正 | 6d95e75 全部修 |
+| v1.0.15 | 雲端編譯＋截圖（run 38939778423／38939773898）；主對話看 6 張＋ux-design-lead 看全部 46 張與 v1.0.14 並排 | ✅ 編譯過；底帶在所有狀態（含 iPad、axxxl）貼齊地圖底、Maps＋Legal 在帶上；v1.0.14 的 iPad 白畫面／灰圖這版正常（判定為截圖時機） | 併 main 92bf258、tag v1.0.15、同步 PinFly |
 | PinFly | v1.0.7～1.0.14 共 23 版搬到私人 Bug1910/PinFly（commit-tree 照順序重放、作者與時間保留、tag v1.0.7～v1.0.14） | ✅ 最後 tree 563e002 與公開版 main 完全相同；PinFly Actions 仍關 | — |
 | 改名 v1.1.0 | 研究 isideload 原始碼＋issue | 改名＝新 App ID（免費帳號每 7 天 10 個）；註冊用 app token 但存檔登入怎麼用沒查清；登入被擋時無人回報成功註冊 | 暫緩，等 10/23 前續簽完或 iloader 登入修好 |
