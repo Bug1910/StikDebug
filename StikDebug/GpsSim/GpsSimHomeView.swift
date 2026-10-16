@@ -908,6 +908,9 @@ struct GpsSimHomeView: View {
         let pts = [CGPoint(x: 0, y: top), CGPoint(x: size.width, y: top),
                    CGPoint(x: size.width, y: bottom), CGPoint(x: 0, y: bottom)]
         let coords = pts.compactMap { proxy.convert($0, from: .local) }
+        // Zoomed out across the ±180° line the corners flip sign and the polygon would wrap the globe.
+        let lons = coords.map(\.longitude)
+        if coords.count == 4, let lo = lons.min(), let hi = lons.max(), hi - lo > 180 { legalScrim = []; return }
         legalScrim = coords.count == 4 ? coords : []
     }
 
