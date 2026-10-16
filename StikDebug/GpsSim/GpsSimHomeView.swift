@@ -209,6 +209,7 @@ struct GpsSimHomeView: View {
     /// Screen frames of the map and of what floats over it, so the camera frames places in the
     /// open part of the map (pins were hidden under the search bar, the right buttons and banners).
     @State private var mapFrame: CGRect = .zero
+    @State private var legalScrim: [CLLocationCoordinate2D] = []
     @State private var topBarFrame: CGRect = .zero
     @State private var toolsFrame: CGRect = .zero
     /// What the camera last framed on its own; re-applied when the overlays change size,
@@ -309,17 +310,10 @@ struct GpsSimHomeView: View {
         // label are never covered, and the keyboard pushes the panel up instead of hiding it.
         return VStack(spacing: 0) {
             ZStack {
-                map.ignoresSafeArea(edges: [.top, .horizontal])
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapFrame = $0 }
-                // Apple Maps logo and Legal are white; on bright satellite imagery (zoomed into a
-                // city while simulating) they vanished. A soft dark strip keeps them readable.
-                VStack {
-                    Spacer()
-                    LinearGradient(colors: [.black.opacity(0), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 40)
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                // Measured inside ignoresSafeArea: outside it the frame stops at the status bar, so the
+                // camera maths ran on a map 62 pt too short and pins landed under the search bar (v1.0.14).
+                map.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapFrame = $0 }
+                    .ignoresSafeArea(edges: [.top, .horizontal])
                 if draft?.followsCenter == true {
                     GpsCrosshair().ignoresSafeArea(edges: [.top, .horizontal]).allowsHitTesting(false)
                 }
@@ -819,6 +813,12 @@ struct GpsSimHomeView: View {
                         .annotationTitles(.hidden)
                     }
                 }
+                // Dark band under the Apple Maps logo and Legal link, drawn as map content so it sits
+                // beneath them (a SwiftUI overlay sat on top and dimmed the label itself, v1.0.13).
+                if legalScrim.count == 4 {
+                    MapPolygon(coordinates: legalScrim)
+                        .foregroundStyle(Color.black.opacity(0.88))
+                }
                 if let point = simulatedPoint, isSimulating {
                     Annotation("模擬位置", coordinate: point) {
                         Circle()
@@ -838,7 +838,9 @@ struct GpsSimHomeView: View {
             .accessibilityHidden(true)
             .onMapCameraChange(frequency: .continuous) { context in
                 mapCenter = context.region.center
+                updateLegalScrim(proxy)
             }
+            .onChange(of: mapFrame.size) { _, _ in updateLegalScrim(proxy) }
             .onMapCameraChange(frequency: .onEnd) { context in
                 if draft?.followsCenter == true { suggestName(for: context.region.center) }
             }
@@ -895,6 +897,18 @@ struct GpsSimHomeView: View {
             }
         }
         return best?.place
+    }
+
+    /// Corners of the band behind the Apple Maps logo and Legal link, from screen points so it
+    /// follows rotation and pitch. Corners stay on screen: MapProxy may not convert points outside.
+    private func updateLegalScrim(_ proxy: MapProxy) {
+        let size = mapFrame.size
+        guard size.width > 1, size.height > 1 else { return }
+        let top = size.height - Self.legalClearance - 10, bottom = size.height
+        let pts = [CGPoint(x: 0, y: top), CGPoint(x: size.width, y: top),
+                   CGPoint(x: size.width, y: bottom), CGPoint(x: 0, y: bottom)]
+        let coords = pts.compactMap { proxy.convert($0, from: .local) }
+        legalScrim = coords.count == 4 ? coords : []
     }
 
     /// Room the Apple Maps logo and Legal link need at the bottom-left of the map.
