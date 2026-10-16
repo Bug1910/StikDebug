@@ -899,19 +899,68 @@ struct GpsSimHomeView: View {
         return best?.place
     }
 
-    /// Corners of the band behind the Apple Maps logo and Legal link, from screen points so it
-    /// follows rotation and pitch. Corners stay on screen: MapProxy may not convert points outside.
+    /// Corners of the band behind the Apple Maps logo and Legal link.
+    /// Why UIKit: converting SwiftUI points with MapProxy put the band a constant ~25 pt above the
+    /// map's bottom edge on every device (v1.0.14 screenshots), so the logo and Legal sat below it.
+    /// The proxy's local space is not the space the logo is drawn in. We now ask the real MKMapView:
+    /// its own bounds, the visible bottom edge (SwiftUI's mapFrame mapped into MKMapView coordinates)
+    /// and the actual logo / attribution views, and convert with the view that draws the polygon.
+    /// If no MKMapView is found we fall back to the proxy maths.
     private func updateLegalScrim(_ proxy: MapProxy) {
         let size = mapFrame.size
         guard size.width > 1, size.height > 1 else { return }
-        let top = size.height - Self.legalClearance - 10, bottom = size.height
-        let pts = [CGPoint(x: 0, y: top), CGPoint(x: size.width, y: top),
-                   CGPoint(x: size.width, y: bottom), CGPoint(x: 0, y: bottom)]
-        let coords = pts.compactMap { proxy.convert($0, from: .local) }
+        let coords: [CLLocationCoordinate2D]
+        if let mapView = Self.findMapView() {
+            let visibleBottom = mapView.convert(CGPoint(x: 0, y: mapFrame.maxY), from: nil).y
+            let bottom = min(mapView.bounds.maxY, visibleBottom)
+            var top = bottom - Self.legalBandHeight
+            for view in Self.attributionViews(in: mapView) {
+                let frame = view.convert(view.bounds, to: mapView)
+                if frame.maxY > bottom - 80 { top = min(top, frame.minY - 4) }
+            }
+            let left = mapView.bounds.minX, right = mapView.bounds.maxX
+            let pts = [CGPoint(x: left, y: top), CGPoint(x: right, y: top),
+                       CGPoint(x: right, y: bottom), CGPoint(x: left, y: bottom)]
+            coords = pts.map { mapView.convert($0, toCoordinateFrom: mapView) }
+        } else {
+            let top = size.height - Self.legalBandHeight, bottom = size.height
+            let pts = [CGPoint(x: 0, y: top), CGPoint(x: size.width, y: top),
+                       CGPoint(x: size.width, y: bottom), CGPoint(x: 0, y: bottom)]
+            coords = pts.compactMap { proxy.convert($0, from: .local) }
+        }
         // Zoomed out across the ±180° line the corners flip sign and the polygon would wrap the globe.
         let lons = coords.map(\.longitude)
         if coords.count == 4, let lo = lons.min(), let hi = lons.max(), hi - lo > 180 { legalScrim = []; return }
         legalScrim = coords.count == 4 ? coords : []
+    }
+
+    private static let legalBandHeight: CGFloat = 32
+
+    /// The MKMapView SwiftUI's Map is built on (first one found in the app's windows); nil if not UIKit-backed.
+    private static func findMapView() -> MKMapView? {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        for window in windows.sorted(by: { $0.isKeyWindow && !$1.isKeyWindow }) {
+            if let found = firstSubview(of: window, matching: { $0 is MKMapView }) as? MKMapView { return found }
+        }
+        return nil
+    }
+
+    /// Apple Maps logo / Legal views inside the map, matched by class name. Read-only: never modified.
+    private static func attributionViews(in root: UIView) -> [UIView] {
+        var result: [UIView] = []
+        func walk(_ view: UIView) {
+            let name = String(describing: type(of: view))
+            if name.contains("Attribution") || name.contains("AppleLogo") { result.append(view); return }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return result
+    }
+
+    private static func firstSubview(of root: UIView, matching test: (UIView) -> Bool) -> UIView? {
+        if test(root) { return root }
+        for child in root.subviews { if let hit = firstSubview(of: child, matching: test) { return hit } }
+        return nil
     }
 
     /// Room the Apple Maps logo and Legal link need at the bottom-left of the map.
