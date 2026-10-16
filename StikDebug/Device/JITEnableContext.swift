@@ -117,7 +117,8 @@ final class JITEnableContext {
         guard let ffiError else {
             return makeError(fallback)
         }
-        let message = nsString(from: ffiError.pointee.message, fallback: fallback)
+        let detail = nsString(from: ffiError.pointee.message, fallback: fallback)
+        let message = detail == fallback ? fallback : "\(fallback): \(detail)"
         let error = makeError(message, code: Int(ffiError.pointee.code))
         idevice_error_free(ffiError)
         return error
@@ -457,22 +458,19 @@ final class JITEnableContext {
     private func withConnectedRemoteServer<T>(
         _ body: (OpaquePointer) throws -> T
     ) throws -> T {
-        try ensureTunnel()
-        guard let adapter, let handshake else {
-            throw makeError("Tunnel is not connected")
-        }
+        try withFreshDebugTunnel(hostname: "StikDebugRemoteServer") { adapter, handshake in
+            var remoteServer: OpaquePointer?
+            if let ffiError = remote_server_connect_rsd(adapter, handshake, &remoteServer) {
+                throw error(from: ffiError, fallback: "Failed to connect remote server")
+            }
 
-        var remoteServer: OpaquePointer?
-        if let ffiError = remote_server_connect_rsd(adapter, handshake, &remoteServer) {
-            throw error(from: ffiError, fallback: "Failed to connect remote server")
-        }
+            guard let remoteServer else {
+                throw makeError("Remote server handle was not created")
+            }
 
-        guard let remoteServer else {
-            throw makeError("Remote server handle was not created")
+            defer { remote_server_free(remoteServer) }
+            return try body(remoteServer)
         }
-
-        defer { remote_server_free(remoteServer) }
-        return try body(remoteServer)
     }
 
     private func withProcessControl<T>(

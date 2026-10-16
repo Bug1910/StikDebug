@@ -39,7 +39,8 @@ private enum IdeviceBridge {
         }
 
         let code = Int(ffiError.pointee.code)
-        let message = string(from: ffiError.pointee.message) ?? fallback
+        let detail = string(from: ffiError.pointee.message) ?? fallback
+        let message = detail == fallback ? fallback : "\(fallback): \(detail)"
         idevice_error_free(ffiError)
         return makeError(domain: domain, code: code, message: message)
     }
@@ -264,45 +265,50 @@ private enum IdeviceBridge {
 extension JITEnableContext {
     func isDeveloperDiskImageMounted() throws -> Bool {
         try IdeviceBridge.withTunnelHandles(for: self) { adapter, handshake in
-            var installed: UnsafeMutablePointer<InstalledCryptexC>?
-            let ffiError = cryptexd_installed_ddi(adapter, handshake, &installed)
-            let queryError = ffiError.map {
-                IdeviceBridge.consumeFFIError($0, fallback: "Failed to query installed DDI cryptex")
-            }
-            defer { cryptexd_free_installed_cryptex(installed) }
-            if installed != nil {
-                return true
+            var cryptexQuerySucceeded = false
+            var cryptexQueryError: NSError?
+            if DeveloperDiskImageService.usesCryptexDDI {
+                var installed: UnsafeMutablePointer<InstalledCryptexC>?
+                defer { cryptexd_free_installed_cryptex(installed) }
+                if let ffiError = cryptexd_installed_ddi(adapter, handshake, &installed) {
+                    cryptexQueryError = IdeviceBridge.consumeFFIError(ffiError, fallback: "Failed to query installed DDI cryptex")
+                } else {
+                    cryptexQuerySucceeded = true
+                    if installed != nil {
+                        return true
+                    }
+                }
             }
 
-            let legacyMounted = (try? IdeviceBridge.withConnectedClient(
-                fallback: "Failed to connect to image mounter",
-                missingClientMessage: "Image mounter client was not created",
-                connect: { image_mounter_connect_rsd(adapter, handshake, $0) },
-                cleanup: { image_mounter_free($0) }
-            ) { client in
-                var devices: UnsafeMutablePointer<plist_t?>?
-                var deviceCount = 0
-                if let error = image_mounter_copy_devices(client, &devices, &deviceCount) {
-                    throw IdeviceBridge.consumeFFIError(error, fallback: "Failed to fetch mounted devices")
-                }
-                if let devices {
-                    for index in 0..<deviceCount {
-                        plist_free(devices[index])
+            do {
+                return try IdeviceBridge.withConnectedClient(
+                    fallback: "Failed to connect to image mounter",
+                    missingClientMessage: "Image mounter client was not created",
+                    connect: { image_mounter_connect_rsd(adapter, handshake, $0) },
+                    cleanup: { image_mounter_free($0) }
+                ) { client in
+                    var devices: UnsafeMutablePointer<plist_t?>?
+                    var deviceCount = 0
+                    if let error = image_mounter_copy_devices(client, &devices, &deviceCount) {
+                        throw IdeviceBridge.consumeFFIError(error, fallback: "Failed to fetch mounted devices")
                     }
-                    idevice_data_free(
-                        UnsafeMutableRawPointer(devices).assumingMemoryBound(to: UInt8.self),
-                        UInt(deviceCount * MemoryLayout<plist_t?>.stride)
-                    )
+                    if let devices {
+                        for index in 0..<deviceCount {
+                            plist_free(devices[index])
+                        }
+                        idevice_data_free(
+                            UnsafeMutableRawPointer(devices).assumingMemoryBound(to: UInt8.self),
+                            UInt(deviceCount * MemoryLayout<plist_t?>.stride)
+                        )
+                    }
+                    return deviceCount > 0
                 }
-                return deviceCount > 0
-            }) ?? false
-            if legacyMounted {
-                return true
+            } catch {
+                if cryptexQuerySucceeded {
+                    return false
+                }
+                throw cryptexQueryError ?? (error as NSError)
             }
-            if let queryError {
-                throw queryError
-            }
-            return false
         }
     }
 
