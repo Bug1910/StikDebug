@@ -22,8 +22,9 @@
 
 ## 還沒測過（下一輪要測的）
 
-- v1.0.14 雲端截圖／測試員（run 38877836214、38877840008，10/16 17:03 排隊中）：看 17ProMax error 圖釘頭露在搜尋列下、模擬中／離線／SE 劇本第 39 步 Legal 清楚、底帶貼地圖底不閃；縮到全世界時底帶消失不變黑
-- v1.0.14 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常
+- v1.0.15（分支 fix/v1.0.15-legal-band）雲端截圖：底帶在 17ProMax／SE／iPad 的 error、simulating 都貼地圖底、蓋住 Maps＋Legal
+- 測試員小問題（v1.0.14 發現，不擋）：offline 36_shot_back_home 步驟算過但畫面仍在設定頁；novice 28 搜尋結果截圖時還在轉圈；simulating_dark＝light 是 App 寫死深色（GpsSimHomeView:369 等），不是 CI 壞
+- v1.0.14/15 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常
 - 🔴 只有他能做：實機長按新增地點、反查地名、4G 流程、權限卡片（要先把定位權限改回「下次詢問」）、手機「每天自動續簽」捷徑跑一次後讀到期日
 - 純 4G 時 SideStore 自動續簽能否成功（兩份研究都無法證實）
 - SideStore 登入 Apple ID：10/16 被 Apple 拒（-80045，全球 10/12 起同症狀）；社群偏方「關 On-Device Anisette＋jkcoxson 伺服器＋Windows Client Info」未試，只准試 1 次
@@ -63,3 +64,13 @@
 | 電腦續簽 | 時間量測（逐字稿）| resign.ps1 全程 35～36 秒（iloader 那段約 21 秒）；今天 12:48 仍成功＝PC 的 iloader 登入沒被擋 | — |
 | SideStore 登入（B 方案，只試 1 次） | 關 On-Device Anisette、伺服器選 #19 jkcoxson (Windows ADI)、Client Info／User Agent 改 Windows 值並 Save Overrides、Auto Rotation 關、Reset adi.pb 後登入 1 次 | ❌ Apple 回 503 Service Temporarily Unavailable（init 階段被擋，同 #1652 回報的 503） | 停止重試；續簽維持電腦 resign.ps1；手機上的三個設定值暫存檔已刪 |
 | v1.0.14 | 程式審查（code-reviewer×2）：上游 734361b 逐行相同、不碰定位路徑；Legal 底帶 MapPolygon 編譯 OK、抓到跨換日線會整片黑 | ✅ 合併；換日線已修（aa4d899） | main fefa102、tag v1.0.14；Build Debug IPA 成功 |
+
+### 2026-10-17（凌晨，SHUN）
+
+| 版本 | 測了什麼 | 結果 | 因此改了什麼 |
+|---|---|---|---|
+| v1.0.14 | 雲端測試員 3 位（run 38877840008） | ✅ 127 步 0 失敗 | — |
+| v1.0.14 | 截圖驗收（run 38877836214；主對話＋2 位審查員各自看） | ✅ 101 圖釘頭完整在搜尋列下；❌ Legal 底帶浮在地圖底上方，面板越高浮越多（SE error 約 29pt、17ProMax simulating 約 33pt、17ProMax error 約 65pt、iPad error 約 75pt），模擬中 Legal 看不到 | 不裝手機；v1.0.15 改用底層 MKMapView 座標＋面板變高後延遲重算 |
+| v1.0.15 | 程式審查（code-reviewer） | 可合併；建議：無效座標過濾、快取地圖 view、依 frame 挑對的地圖、Attribution 高度上限 | 同分支追加修正 |
+| PinFly | v1.0.7～1.0.14 共 23 版搬到私人 Bug1910/PinFly（commit-tree 照順序重放、作者與時間保留、tag v1.0.7～v1.0.14） | ✅ 最後 tree 563e002 與公開版 main 完全相同；PinFly Actions 仍關 | — |
+| 改名 v1.1.0 | 研究 isideload 原始碼＋issue | 改名＝新 App ID（免費帳號每 7 天 10 個）；註冊用 app token 但存檔登入怎麼用沒查清；登入被擋時無人回報成功註冊 | 暫緩，等 10/23 前續簽完或 iloader 登入修好 |
