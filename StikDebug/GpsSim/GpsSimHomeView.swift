@@ -210,6 +210,7 @@ struct GpsSimHomeView: View {
     /// open part of the map (pins were hidden under the search bar, the right buttons and banners).
     @State private var mapFrame: CGRect = .zero
     @State private var legalScrim: [CLLocationCoordinate2D] = []
+    @State private var legalProbe = GpsLegalProbe()
     @State private var topBarFrame: CGRect = .zero
     @State private var toolsFrame: CGRect = .zero
     /// What the camera last framed on its own; re-applied when the overlays change size,
@@ -840,7 +841,13 @@ struct GpsSimHomeView: View {
                 mapCenter = context.region.center
                 updateLegalScrim(proxy)
             }
-            .onChange(of: mapFrame.size) { _, _ in updateLegalScrim(proxy) }
+            .onChange(of: mapFrame) { _, _ in
+                // MKMapView lays out a beat after SwiftUI reports the new frame (panel/banners resized):
+                // recompute now and again after layout so the band never keeps a stale height.
+                updateLegalScrim(proxy, refreshAttribution: true)
+                DispatchQueue.main.async { updateLegalScrim(proxy, refreshAttribution: true) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { updateLegalScrim(proxy, refreshAttribution: true) }
+            }
             .onMapCameraChange(frequency: .onEnd) { context in
                 if draft?.followsCenter == true { suggestName(for: context.region.center) }
             }
@@ -899,19 +906,62 @@ struct GpsSimHomeView: View {
         return best?.place
     }
 
-    /// Corners of the band behind the Apple Maps logo and Legal link, from screen points so it
-    /// follows rotation and pitch. Corners stay on screen: MapProxy may not convert points outside.
-    private func updateLegalScrim(_ proxy: MapProxy) {
+    /// Corners of the band behind the Apple Maps logo and Legal link.
+    /// Why UIKit: converting SwiftUI points with MapProxy put the band 29-75 pt above the
+    /// map's bottom edge, growing with the bottom panel height (v1.0.14 screenshots), so the logo and Legal sat below it. The band is also recomputed after every map size change.
+    /// The proxy's local space is not the space the logo is drawn in. We now ask the real MKMapView:
+    /// its own bounds, the visible bottom edge (SwiftUI's mapFrame mapped into MKMapView coordinates)
+    /// and the actual logo / attribution views, and convert with the view that draws the polygon.
+    /// If no MKMapView is found we fall back to the proxy maths.
+    /// `refreshAttribution` re-reads the logo position (cheap view-tree walk); camera frames reuse the cached value.
+    private func updateLegalScrim(_ proxy: MapProxy, refreshAttribution: Bool = false) {
         let size = mapFrame.size
         guard size.width > 1, size.height > 1 else { return }
-        let top = size.height - Self.legalClearance - 10, bottom = size.height
-        let pts = [CGPoint(x: 0, y: top), CGPoint(x: size.width, y: top),
-                   CGPoint(x: size.width, y: bottom), CGPoint(x: 0, y: bottom)]
-        let coords = pts.compactMap { proxy.convert($0, from: .local) }
+        var coords: [CLLocationCoordinate2D]
+        if let mapView = legalProbe.mapView(matching: mapFrame) {
+            let visibleBottom = mapView.convert(CGPoint(x: 0, y: mapFrame.maxY), from: nil).y
+            let bottom = min(mapView.bounds.maxY, visibleBottom)
+            if refreshAttribution || legalProbe.logoHeight == nil {
+                var height = Self.legalBandHeight
+                for view in Self.attributionViews(in: mapView) {
+                    let frame = view.convert(view.bounds, to: mapView)
+                    if frame.maxY > bottom - 80 { height = max(height, bottom - frame.minY + 4) }
+                }
+                legalProbe.logoHeight = height
+            }
+            // Clamp: a misread attribution view must not turn the band into a big dark slab.
+            let top = bottom - min(60, max(Self.legalBandHeight, legalProbe.logoHeight ?? Self.legalBandHeight))
+            let left = mapView.bounds.minX, right = mapView.bounds.maxX
+            let pts = [CGPoint(x: left, y: top), CGPoint(x: right, y: top),
+                       CGPoint(x: right, y: bottom), CGPoint(x: left, y: bottom)]
+            coords = pts.map { mapView.convert($0, toCoordinateFrom: mapView) }
+        } else {
+            let top = size.height - Self.legalBandHeight, bottom = size.height
+            let pts = [CGPoint(x: 0, y: top), CGPoint(x: size.width, y: top),
+                       CGPoint(x: size.width, y: bottom), CGPoint(x: 0, y: bottom)]
+            coords = pts.compactMap { proxy.convert($0, from: .local) }
+        }
+        // MKMapView returns invalid coordinates for points it cannot place: drop the band instead of drawing junk.
+        coords = coords.filter { CLLocationCoordinate2DIsValid($0) }
+        guard coords.count == 4 else { legalScrim = []; return }
         // Zoomed out across the ±180° line the corners flip sign and the polygon would wrap the globe.
         let lons = coords.map(\.longitude)
-        if coords.count == 4, let lo = lons.min(), let hi = lons.max(), hi - lo > 180 { legalScrim = []; return }
-        legalScrim = coords.count == 4 ? coords : []
+        if let lo = lons.min(), let hi = lons.max(), hi - lo > 180 { legalScrim = []; return }
+        legalScrim = coords
+    }
+
+    private static let legalBandHeight: CGFloat = 32
+
+    /// Apple Maps logo / Legal views inside the map, matched by class name. Read-only: never modified.
+    private static func attributionViews(in root: UIView) -> [UIView] {
+        var result: [UIView] = []
+        func walk(_ view: UIView) {
+            let name = String(describing: type(of: view))
+            if name.contains("Attribution") || name.contains("AppleLogo") { result.append(view); return }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return result
     }
 
     /// Room the Apple Maps logo and Legal link need at the bottom-left of the map.
@@ -2163,5 +2213,33 @@ struct GpsPlaceEditSheet: View {
         }
         .editSheetSizing(regular: sizeClass == .regular)
         .dynamicTypeSize(...GpsSimHomeView.maxTypeSize)
+    }
+}
+
+
+/// Remembers the MKMapView behind SwiftUI's Map (weakly) and the logo height, so the Legal band
+/// does not walk the whole view tree on every camera frame.
+final class GpsLegalProbe {
+    weak var cachedMapView: MKMapView?
+    var logoHeight: CGFloat?
+
+    /// The MKMapView whose window-space frame matches SwiftUI's `mapFrame` (several windows/maps may exist).
+    func mapView(matching mapFrame: CGRect) -> MKMapView? {
+        if let cached = cachedMapView, cached.window != nil { return cached }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        var candidates: [MKMapView] = []
+        func walk(_ view: UIView) {
+            if let map = view as? MKMapView { candidates.append(map); return }
+            view.subviews.forEach(walk)
+        }
+        windows.forEach(walk)
+        let match = candidates.first { map in
+            let frame = map.convert(map.bounds, to: nil)
+            return abs(frame.minX - mapFrame.minX) < 4 && abs(frame.minY - mapFrame.minY) < 4
+                && abs(frame.width - mapFrame.width) < 4
+        }
+        cachedMapView = match ?? candidates.first
+        logoHeight = nil
+        return cachedMapView
     }
 }
