@@ -1544,14 +1544,18 @@ struct GpsSimHomeView: View {
                 } else {
                     Image(systemName: "stop.fill")
                 }
-                Text(stopping ? "停止中" : "停止模擬")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                // At accessibility text sizes the label folds away (icon only) so the status pill keeps its room;
+                // VoiceOver still reads 「停止模擬」.
+                if !largeText || stopping {
+                    Text(stopping ? "停止中" : "停止模擬")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(simulating ? Color.white : GpsTheme.stopIdleText)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 44)
+            .padding(.horizontal, largeText ? 12 : 14)
+            .frame(minWidth: 44, minHeight: 44)
             .contentShape(Capsule())
         }
         .buttonStyle(GpsStopButtonStyle(simulating: simulating))
@@ -1564,10 +1568,13 @@ struct GpsSimHomeView: View {
     }
 
     private func runStop() {
+        if Self.demoState != nil { engine.applyDemoStop(); return }
         stopping = true
         engine.stop { code in
             stopping = false
             guard code != 0, code != GpsSimEngine.busyCode else { return }
+            // The toast carries the reason and 重試; the duplicate red banner is dropped.
+            engine.issue = nil
             showToast("沒停止：\(GpsSimIssue.from(code: code).message)", actionTitle: "重試",
                       action: { runStop() }, autoClear: true, duration: 8)
         }

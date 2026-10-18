@@ -368,7 +368,7 @@ final class GpsSimEngine: ObservableObject {
         guard !isBusy else { completion?(Self.busyCode); return }
         isBusy = true
         beginBackgroundTask()
-        let wasSimulating = activeName != nil
+        let wasSimulating = activeName != nil || LocationSimulationSession.shared.isActive
         LocationSimulationSession.shared.pauseResending()
         LocationSimulationSession.shared.clearRoute()
         let reopenPoint = current ?? landing ?? staleTarget?.coordinate
@@ -380,7 +380,9 @@ final class GpsSimEngine: ObservableObject {
                 // A point left by an earlier (killed) process is not ours: clearing only this
                 // process's handle used to report success while the phone kept the old place
                 // (seen on device 2026-10-18).
-                let fallback = reopenPoint.map { (latitude: $0.latitude, longitude: $0.longitude) }
+                // Set-then-clear fallback only while we are simulating ourselves: from an idle press
+                // a failed clear after the set would pin the phone to the stale point.
+                let fallback = wasSimulating ? reopenPoint.map { (latitude: $0.latitude, longitude: $0.longitude) } : nil
                 finalCode = clear_all_simulated_locations(ip, path, fallbackPoint: fallback)
             } else {
                 var code = clear_simulated_location()
@@ -407,7 +409,8 @@ final class GpsSimEngine: ObservableObject {
                 self.issue = nil
                 // Idle phone + red button = clearing leftovers of an earlier run: say that, not "returned".
                 self.toast = wasSimulating ? "已回到真實位置" : "已經是真實位置（已清除殘留）"
-                self.previous = self.activeTarget
+                // An idle press must not wipe a pending 10 s undo of an earlier stop.
+                if let stopped = self.activeTarget { self.previous = stopped }
                 self.activeName = nil
                 self.activePlaceID = nil
                 self.activeCenter = nil
@@ -419,6 +422,17 @@ final class GpsSimEngine: ObservableObject {
                 completion?(0)
             }
         }
+    }
+
+    /// Screenshot-only: what a successful 停止模擬 leaves behind, without touching the device.
+    func applyDemoStop() {
+        previous = activeTarget
+        activeName = nil
+        activePlaceID = nil
+        activeCenter = nil
+        landing = nil
+        current = nil
+        toast = "已回到真實位置"
     }
 
     private func beginBackgroundTask() {

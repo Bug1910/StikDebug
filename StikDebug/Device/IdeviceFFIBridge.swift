@@ -814,12 +814,7 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     // after 停止 needs no new connection (on cellular a new one only works via the airplane trick).
     // If the reused connection is dead, drop everything and fall through to a fresh connect.
     // A changed IP or a replaced pairing file must not reuse the old adapter.
-    let pairingStamp = (try? FileManager.default.attributesOfItem(atPath: pairingFile)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-    let connectionKey = "\(deviceIP)|\(pairingFile)|\(pairingStamp)"
-    if LocationSimulationState.connectionKey != connectionKey {
-        LocationSimulationState.cleanup()
-        LocationSimulationState.connectionKey = connectionKey
-    }
+    useConnectionKey(deviceIP, pairingFile)
     if LocationSimulationState.adapter != nil, LocationSimulationState.handshake != nil {
         if let reusedStatus = openSimulation(latitude, longitude) {
             if reusedStatus == LocationSimulationStatus.ok { return reusedStatus }
@@ -833,6 +828,18 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     let status = openSimulation(latitude, longitude) ?? LocationSimulationStatus.remoteServer
     if status != LocationSimulationStatus.ok { LocationSimulationState.cleanup() }
     return status
+}
+
+/// A changed IP or a replaced pairing file must not reuse the old adapter: drop it and remember the
+/// new key. Shared by simulate_location and the full clear so a tunnel created by either one is
+/// recognised by the next send (otherwise it would be torn down and rebuilt, which breaks on 4G).
+private func useConnectionKey(_ deviceIP: String, _ pairingFile: String) {
+    let pairingStamp = (try? FileManager.default.attributesOfItem(atPath: pairingFile)[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+    let connectionKey = "\(deviceIP)|\(pairingFile)|\(pairingStamp)"
+    if LocationSimulationState.connectionKey != connectionKey {
+        LocationSimulationState.cleanup()
+        LocationSimulationState.connectionKey = connectionKey
+    }
 }
 
 /// Builds a brand-new adapter + handshake (the tunnel to the phone) into LocationSimulationState.
@@ -970,6 +977,7 @@ func clear_all_simulated_locations(_ deviceIP: String, _ pairingFile: String,
 
 private func confirmClearOnCurrentTunnel(_ deviceIP: String, _ pairingFile: String,
                                          _ fallbackPoint: (latitude: Double, longitude: Double)?) -> Int32 {
+    useConnectionKey(deviceIP, pairingFile)
     // No tunnel at all (process just started): the only way to reach the phone is a fresh one.
     if LocationSimulationState.adapter == nil || LocationSimulationState.handshake == nil {
         let connectStatus = connectLocationTunnel(deviceIP, pairingFile)
@@ -1022,6 +1030,11 @@ private func clearOnNewHandle(_ fallbackPoint: (latitude: Double, longitude: Dou
             return LocationSimulationStatus.locationSet
         }
         clearError = location_simulation_clear(LocationSimulationState.locationSimulation)
+        if clearError != nil {
+            // Set worked but clear did not: the phone would stay pinned to the fallback point, so try once more.
+            idevice_error_free(clearError)
+            clearError = location_simulation_clear(LocationSimulationState.locationSimulation)
+        }
     }
     LocationSimulationState.cleanupSimulationOnly()
     if let clearError {

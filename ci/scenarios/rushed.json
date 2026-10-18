@@ -47,7 +47,7 @@
   "tapId": "btn.stop"
  },
  {
-  "wait": 1
+  "wait": 3
  },
  {
   "shot": "stop"
@@ -71,7 +71,7 @@
   "tapId": "btn.stop"
  },
  {
-  "wait": 1
+  "wait": 3
  },
  {
   "shot": "sim_stop"
