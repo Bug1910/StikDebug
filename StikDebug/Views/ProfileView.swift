@@ -576,7 +576,8 @@ struct ProfileView: View {
                 }
             }
             
-            let profileData = try Data(contentsOf: fileURL)
+            let profileData = try GpsProfileRenew.readPicked(fileURL)
+            _ = try GpsProfileRenew.validate(profileData)
             try JITEnableContext.shared.addProfile(profileData)
             
             alertMsg = "Profile added successfully"
