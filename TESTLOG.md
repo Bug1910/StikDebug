@@ -46,7 +46,9 @@
 - 17:39 ❌ SideStore Refresh All（Wi-Fi＋LocalDevVPN 已連）→「Failed to refresh 2 apps. Your session has expired. Please log in. (-1)」；描述檔沒變。同訊息 GitHub SideStore #1646（10/13 開、無回應）、#1469
 - 17:43 ✅ 改定位：Google 地圖藍點到竹北新寮（他說「有移動過去」；用捷徑或 App 內按未確認）
 - 17:45 ✅ **把 SideStore 從多工畫面滑掉、重開、Refresh All 一次** → 成功，SideStore＋AltWidget＋定位儀描述檔都到 **10/25 17:45**（電腦讀 provision list 確認）。→ 遇到 session expired 先「滑掉重開再按一次」，不要連按、不要登出
-- 還沒測：捷徑「出門改定位」最後加 Refresh All 的自動化；純 4G 續簽
+- 18:18～18:21 捷徑改版（在捷徑 App 內按 ▶）：…→ 打開 setlog → 等待返回 → 停止定位 → 結束計時。✅ 回到捷徑後會接著跑、停止定位打勾。🔴 但 Google 地圖退回「台中美光」（18:18 那次沒停的舊模擬）；電腦 `pymobiledevice3 developer dvt simulate-location clear` 後回真實位置 → 修在 v1.0.17（分支 fix/v1.0.17-full-clear `1775b93`：紅色停止鈕永遠顯示＋同通道新開 handle 再清一次、失敗不假成功）
+- 18:33 ✅ **純 4G 續簽成功**：Wi-Fi 關、LocalDevVPN 連、SideStore Refresh All → Cellular Refresh 自動跑 TurnOffData（iOS 跳「已關閉行動數據」提醒，按「好」）→ TurnOnData → 兩個 App 都到 **10/25 18:33**（電腦讀 provision list）。中途停在捷徑 App，按左上「◀ SideStore」回去
+- 還沒測：戶外純 4G 跑「出門改定位」（在家捷徑會自動連家裡 Wi-Fi，不準）；從主畫面按捷徑時「等待返回」會不會等
 
 ### 2026-10-18（傍晚，SHUN，v1.0.16 匯入描述檔）
 
