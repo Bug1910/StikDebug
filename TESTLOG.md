@@ -41,7 +41,7 @@
 - 測什麼：程式審查 3 輪；雲端 Build Debug IPA（第 1 次 39107129745 ❌ iOS 18 才有的 `@Parameter(supportedContentTypes:)`；之後 39107296783、39107528682、main 39107693253 ✅）；main 上 Simulator Screenshots 39107693217 ✅、Simulator Testers 39107693214 ✅、Landing Randomness 39107693192 ✅
 - 結果：審查第 1 輪 7 項（權限單向、到期日記錯、背景重啟隧道、裝置訊息、捷徑不丟錯、ProfileView 限制、try? 吞錯）、第 2 輪 5 項（清舊日期、隧道錯誤重置、內嵌只解一次、畫面即時更新、讀回失敗誤報）全修；剩 3 個小問題不擋（讀回斷線下次才重建、開設定頁與匯入同時跑日期偏早、ProfileView 沒 noteTunnelFailure）
 - 因此改了什麼：見 CHANGELOG v1.0.16。誤把 `tools/device/_credread.py` 推上公開分支（無密碼），`ea5e099` 移除；之後 agent 一律用各自 worktree、明確 git add
-- 手機：10/18 16:00 建好捷徑 `TurnOnData`（開啟，已確認）、`TurnOffData`（內容待確認）
+- 手機：10/18 16:00 建好捷徑 `TurnOnData`（開啟）、`TurnOffData`（關閉），16:22 兩個內容都確認；16:27 SideStore 打開 Cellular Refresh（位置：Settings → ADVANCED SETTINGS → User Customizations → 第 4 區 CELLULAR REFRESH；名稱欄預設就是 TurnOnData／TurnOffData，延遲 1.0 秒；EMProxy(WireGuard) 維持關，兩者不能同開）。原始碼依據 UserCustomizationsView.swift:598-612（12ff39c6）。4G 續簽還沒實測
 
 ### 2026-10-18（下午，SHUN，兩個 App 續簽）
 
