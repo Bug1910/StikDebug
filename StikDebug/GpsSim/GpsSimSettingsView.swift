@@ -232,6 +232,7 @@ struct GpsSimSettingsView: View {
             GpsSimAdvancedView()
         }
         .gpsSimPadSheetSizing()
+        .task { await GpsProfileRenew.refreshFromPhone() }
     }
 }
 

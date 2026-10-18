@@ -577,7 +577,10 @@ struct ProfileView: View {
             }
             
             let profileData = try GpsProfileRenew.readPicked(fileURL)
-            _ = try GpsProfileRenew.validate(profileData)
+            do { _ = try GpsProfileRenew.validate(profileData) } catch {
+                throw NSError(domain: "ProfileView", code: -2, userInfo: [NSLocalizedDescriptionKey:
+                    "Rejected: only a newer profile for this app (same team, certificate and entitlements) can be added. 已拒絕：\(error.localizedDescription)"])
+            }
             try JITEnableContext.shared.addProfile(profileData)
             
             alertMsg = "Profile added successfully"

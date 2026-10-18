@@ -16,6 +16,7 @@ import UniformTypeIdentifiers
 enum GpsProfileRenew {
     static let maxFileBytes = 64 * 1024
     private static let renewedExpiryKey = "gpssim.renewedProfileExpiry"
+    private static let renewedForUUIDKey = "gpssim.renewedForEmbeddedUUID"
     static let needTunnelMessage = "需要 Wi-Fi 並且 LocalDevVPN 已連線（只有 4G 不行）。請在 Wi-Fi 下重新連線 LocalDevVPN 後再試。"
 
     static let fileTypes: [UTType] = {
@@ -78,20 +79,19 @@ enum GpsProfileRenew {
             throw Failure(message: "描述檔不是給定位儀的（App 識別碼不符），已拒絕。")
         }
         guard new.expiration > now else { throw Failure(message: "這個描述檔已經過期了。") }
-        guard new.expiration > effectiveExpiration(embedded: current.expiration) else {
+        guard new.expiration > current.expiration else {
             throw Failure(message: "這個描述檔不比目前的新，沒有必要換。")
         }
         guard !new.certs.isDisjoint(with: current.certs) else {
             throw Failure(message: "描述檔的簽名憑證和目前的不同，換了會打不開，已拒絕。")
         }
-        guard current.devices.isSubset(of: new.devices) else {
-            throw Failure(message: "描述檔沒有包含這支手機，已拒絕。")
+        // The app cannot read its own UDID, so the current profile's device list stands in for it.
+        guard current.devices.isEmpty || current.devices.isSubset(of: new.devices) else {
+            throw Failure(message: "這份描述檔沒有包含這支手機，已拒絕。")
         }
-        guard Set(new.entitlements.keys).isSubset(of: Set(current.entitlements.keys)) else {
-            throw Failure(message: "描述檔的權限比目前的多，已拒絕。")
-        }
-        if new.entitlements["get-task-allow"] as? Bool == true, current.entitlements["get-task-allow"] as? Bool != true {
-            throw Failure(message: "描述檔的權限比目前的多，已拒絕。")
+        // Same keys AND same values (application-identifier, team, keychain groups, get-task-allow...).
+        guard NSDictionary(dictionary: new.entitlements).isEqual(to: current.entitlements) else {
+            throw Failure(message: "描述檔的權限內容和目前的不一樣（多了、少了或不同），已拒絕。")
         }
         return new
     }
@@ -103,16 +103,17 @@ enum GpsProfileRenew {
         let parsed = try validate(data)
         try await requireTunnel()
         return try await Task.detached(priority: .userInitiated) { () throws -> Date in
+            // "Newer" is judged against what is really on the phone, not a remembered date.
+            let before = try ownProfiles(appID: parsed.appID).map(\.expiration).max() ?? .distantPast
+            guard parsed.expiration > before else {
+                throw Failure(message: "手機上已經有同樣新或更新的描述檔，沒有必要換。")
+            }
             try withTunnelRetry { try JITEnableContext.shared.addProfile(data) }
             // Read back instead of trusting the install call.
-            let installed = (try? withTunnelRetry { try JITEnableContext.shared.fetchAllProfiles() }) ?? []
-            let newest = installed.compactMap { try? parse($0) }
-                .filter { $0.appID == parsed.appID }
-                .map(\.expiration).max()
-            guard let newest, newest >= parsed.expiration else {
+            guard let newest = try ownProfiles(appID: parsed.appID).map(\.expiration).max(), newest >= parsed.expiration else {
                 throw Failure(message: "裝完後在手機上沒讀到新的描述檔，請再試一次。")
             }
-            UserDefaults.standard.set(newest.timeIntervalSince1970, forKey: renewedExpiryKey)
+            remember(newest)
             return newest
         }.value
     }
@@ -129,9 +130,7 @@ enum GpsProfileRenew {
         let ownID = "\(current.team).\(bundleID)"
         try await requireTunnel()
         return try await Task.detached(priority: .userInitiated) { () throws -> Int in
-            let own = try withTunnelRetry { try JITEnableContext.shared.fetchAllProfiles() }
-                .compactMap { try? parse($0) }
-                .filter { $0.appID == ownID }
+            let own = try ownProfiles(appID: ownID)
             guard let newest = own.map(\.expiration).max(), newest > Date() else {
                 throw Failure(message: "手機上沒有還有效的新描述檔，不清除。")
             }
@@ -144,24 +143,45 @@ enum GpsProfileRenew {
     // MARK: - Helpers
 
     /// Newest of the bundled profile's expiry and the one we installed ourselves (the bundled file never changes).
+    /// The remembered date only counts while the bundled profile is the same one it was read against.
     static func effectiveExpiration(embedded: Date) -> Date {
         let stored = UserDefaults.standard.double(forKey: renewedExpiryKey)
-        return stored > 0 ? max(embedded, Date(timeIntervalSince1970: stored)) : embedded
+        guard stored > 0, UserDefaults.standard.string(forKey: renewedForUUIDKey) == Self.embedded()?.uuid else {
+            return embedded
+        }
+        return max(embedded, Date(timeIntervalSince1970: stored))
     }
 
-    /// Runs a blocking misagent call; on a stale-tunnel error restarts the tunnel and retries once.
-    /// Errors are turned into Chinese so raw English never reaches the screen.
+    private static func remember(_ date: Date) {
+        UserDefaults.standard.set(date.timeIntervalSince1970, forKey: renewedExpiryKey)
+        UserDefaults.standard.set(embedded()?.uuid, forKey: renewedForUUIDKey)
+    }
+
+    private static func ownProfiles(appID: String) throws -> [Parsed] {
+        try withTunnelRetry { try JITEnableContext.shared.fetchAllProfiles() }
+            .compactMap { try? parse($0) }
+            .filter { $0.appID == appID }
+    }
+
+    /// Re-reads the phone (only if the tunnel is already up) so the shown date is verified, not remembered.
+    @MainActor
+    static func refreshFromPhone() async {
+        guard TunnelManager.shared.isConnected, let current = embedded(), let bundleID = Bundle.main.bundleIdentifier else { return }
+        let ownID = "\(current.team).\(bundleID)"
+        let newest = await Task.detached(priority: .utility) { () -> Date? in
+            try? ownProfiles(appID: ownID).map(\.expiration).max()
+        }.value
+        if let newest { remember(newest) }
+    }
+
+    /// Runs a blocking misagent call. Tunnel errors become the Wi-Fi/LocalDevVPN message; others keep their cause.
     private static func withTunnelRetry<T>(_ call: () throws -> T) throws -> T {
         do {
             return try call()
         } catch {
-            guard isTunnelError(error) else { throw Failure(message: "手機回報錯誤：\(error.localizedDescription)") }
-            do {
-                try JITEnableContext.shared.startTunnel()
-                return try call()
-            } catch {
-                throw Failure(message: needTunnelMessage)
-            }
+            // No startTunnel() here: it frees handles other threads may hold. The user reconnects instead.
+            if isTunnelError(error) { throw Failure(message: needTunnelMessage) }
+            throw Failure(message: "手機回報錯誤：\(error.localizedDescription)")
         }
     }
 
@@ -204,15 +224,12 @@ struct ImportProfileIntent: AppIntent {
     static var description = IntentDescription("把新的描述檔（.mobileprovision）裝到手機，不用重裝定位儀。需要 Wi-Fi 且 LocalDevVPN 已連線；檢查有任何一項不過就什麼都不做。")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "描述檔", supportedContentTypes: [.data])
+    @Parameter(title: "描述檔")
     var file: IntentFile
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        do {
-            let expiry = try await GpsProfileRenew.install(file.data)
-            return .result(dialog: "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(expiry))")
-        } catch {
-            return .result(dialog: "沒有換：\(error.localizedDescription)")
-        }
+        // Throws on any failure so the Shortcut stops instead of carrying on as if it had worked.
+        let expiry = try await GpsProfileRenew.install(file.data)
+        return .result(dialog: "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(expiry))")
     }
 }
