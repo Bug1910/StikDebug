@@ -35,6 +35,14 @@
 
 ## 紀錄
 
+### 2026-10-18（19:00～19:16，SHUN，捷徑內續簽＋裝 v1.0.17）
+- 研究（2 支 agent：SideStore 原始碼＋上網）：捷徑「Refresh All Apps」動作沒有 Cellular Refresh 處理；網路上能自動續簽的配方全在 Wi-Fi 下；4G 從捷徑續簽 0 篇回報
+- 19:00 「出門改定位」改成 VPN → 打開 SideStore → 等待 60 秒 → …，他在 SideStore 手動按 Refresh All：✅ 兩個 App 到 **10/25 19:00**（provision list）；❌ 4G 沒回來、捷徑沒往下跑。SideStore 紀錄 `Documents/ConsoleLogs/console_20261018_184801_898.log`：19:00:52 TurnOffData 有開、19:00:53 TurnOnData `Shortcut URL open completed with success: false`（SideStore 不在前景、被外層捷徑擠掉）→ 續簽不能放進正在跑的捷徑
+- 19:10 SideStore ＋ 裝 GpsSim-1.0.17.ipa（4G、沒關數據）：❌ `ensureRPConnection() failed because deviceEndpointIp is nil` → `RwAfc`；安裝流程 `isCellularRefreshGroup = false` 不會先跑 TurnOffData，只在最後跑 TurnOnData（所以畫面跳捷徑 App）→ 4G 下「安裝」要先手動關行動數據或連 Wi-Fi
+- 19:16 連星巴克 Wi-Fi 再裝：✅ v1.0.17（main `423021a`、tag v1.0.17、IPA 來自 run 39120250089 dd008c9 重新打包）；5 個地點與備份 hash 相同
+- v1.0.17 雲端：Screenshots 39120252336 ✅、Testers 39120254890 ✅；新手看截圖找到 3 個下版要改：閒置時透明停止鈕在衛星地圖上看不到、閒置也寫「停止模擬」像在模擬中、最大字級只剩紅方塊；3 種提示沒有截圖；offline 劇本 5 步、novice 2 步失敗（第 10 張白畫面、找不到「進階」「回定位儀」、搜尋無結果）待查
+- 還沒測：v1.0.17 實機按紅色停止鈕；捷徑尾端「有 Wi-Fi 才 Refresh All」
+
 ### 2026-10-18（17:34，SHUN，定位儀改由 SideStore 管）
 - 他決定走「SideStore 管定位儀」路線。先 house_arrest 備份地點 → `C:\Tools\Installers\iOS-StikDebug\places-backup-20261018.json`（5 個）
 - 3 支 agent 讀原始碼：SideStore／iloader 都是「原 bundle id＋.team id」、App ID 已存在就沿用、app group＝原 group＋.team id → 和手機現有的一樣
