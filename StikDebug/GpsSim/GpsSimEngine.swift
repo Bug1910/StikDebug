@@ -120,6 +120,8 @@ struct GpsSimIssue: Equatable {
             return GpsSimIssue(kind: .ddi, message: "定位服務打不開，多半是開發者磁碟映像（DDI）還沒掛載。請按上方「掛載 DDI」後再試。（錯誤 10）")
         case 11:
             return GpsSimIssue(kind: .other, message: "位置送不進手機（錯誤 11）。請解鎖手機後再按一次。")
+        case 12:
+            return GpsSimIssue(kind: .other, message: "沒能清掉手機上的模擬定位（錯誤 12），手機可能還停在假的位置。請解鎖手機、確認 LocalDevVPN 已連線後再按一次停止。")
         default:
             return GpsSimIssue(kind: .other, message: "定位失敗（錯誤 \(code)）。請確認 LocalDevVPN 已連線、DDI 已掛載後再試。")
         }
@@ -359,41 +361,57 @@ final class GpsSimEngine: ObservableObject {
 
     /// 停止模擬: stop the timer first so no resend can re-enable simulation after the clear.
     /// The UI is only reset when the phone confirmed (code 0); otherwise the stop button stays.
-    func stop(completion: ((Int32) -> Void)? = nil) {
+    /// `full` (default) = clear everything on the phone, including a point left by a killed earlier
+    /// process. `full: false` = the quick stop of this process's own handle only; 看真實位置 uses it
+    /// because it has a 24 s budget and puts the point back right after.
+    func stop(full: Bool = true, completion: ((Int32) -> Void)? = nil) {
         guard !isBusy else { completion?(Self.busyCode); return }
         isBusy = true
+        beginBackgroundTask()
+        let wasSimulating = activeName != nil || LocationSimulationSession.shared.isActive
         LocationSimulationSession.shared.pauseResending()
         LocationSimulationSession.shared.clearRoute()
-        let reopenPoint = current ?? landing ?? staleTarget?.coordinate
+        // Route playback moves the point through the session, so its coordinate comes first.
+        let reopenPoint = LocationSimulationSession.shared.coordinate ?? current ?? landing ?? staleTarget?.coordinate
         let path = sessionPairingPath ?? Self.pairingFilePath
         let ip = sessionIP ?? DeviceConnectionContext.targetIPAddress
         LocationSimulationCommandQueue.shared.async {
-            var code = clear_simulated_location()
-            // Code 12 = this process has no open simulation handle (e.g. the connection was
-            // dropped). Re-send the current point once to reopen it, then clear for real.
-            if code == 12, let point = reopenPoint {
-                let reopened = simulate_location(ip, point.latitude, point.longitude, path)
-                code = reopened == 0 ? clear_simulated_location() : reopened
+            let finalCode: Int32
+            if full {
+                // A point left by an earlier (killed) process is not ours: clearing only this
+                // process's handle used to report success while the phone kept the old place
+                // (seen on device 2026-10-18).
+                // Set-then-clear fallback only while we are simulating ourselves: from an idle press
+                // a failed clear after the set would pin the phone to the stale point.
+                let fallback = wasSimulating ? reopenPoint.map { (latitude: $0.latitude, longitude: $0.longitude) } : nil
+                finalCode = clear_all_simulated_locations(ip, path, fallbackPoint: fallback)
+            } else {
+                var code = clear_simulated_location()
+                // Code 12 = no open handle in this process: reopen at the current point, then clear.
+                if code == 12, let point = reopenPoint {
+                    let reopened = simulate_location(ip, point.latitude, point.longitude, path)
+                    code = reopened == 0 ? clear_simulated_location() : reopened
+                }
+                finalCode = code == 12 && reopenPoint == nil ? 0 : code
             }
-            let finalCode = code
-            let nothingToStop = reopenPoint == nil
             Task { @MainActor in
                 self.isBusy = false
-                // With no point of ours at all, 12 just means "nothing simulated by us".
-                guard finalCode == 0 || (finalCode == 12 && nothingToStop) else {
+                guard finalCode == 0 else {
                     self.issue = GpsSimIssue.from(code: finalCode)
-                    if let landing = self.landing { self.startTimer(at: landing) }
+                    // Deliberately no timer restart: after a stop attempt we never re-send a fake point.
+                    self.endBackgroundTask()
                     Haptics.light()
                     completion?(finalCode)
                     return
                 }
                 self.clearLastTarget()
                 self.connectionLost = false
-                if finalCode == 0 { self.lastLinkOK = Date() }
+                self.lastLinkOK = Date()
                 self.issue = nil
-                // 12 with nothing to reopen means no clear actually ran: don't claim 真實位置.
-                self.toast = finalCode == 0 ? "已回到真實位置" : "目前沒有可停止的定位"
-                self.previous = self.activeTarget
+                // Idle phone + red button = clearing leftovers of an earlier run: say that, not "returned".
+                self.toast = wasSimulating ? "已回到真實位置" : "已經是真實位置（已清除殘留）"
+                // An idle press must not wipe a pending 10 s undo of an earlier stop.
+                if let stopped = self.activeTarget { self.previous = stopped }
                 self.activeName = nil
                 self.activePlaceID = nil
                 self.activeCenter = nil
@@ -405,6 +423,17 @@ final class GpsSimEngine: ObservableObject {
                 completion?(0)
             }
         }
+    }
+
+    /// Screenshot-only: what a successful 停止模擬 leaves behind, without touching the device.
+    func applyDemoStop() {
+        previous = activeTarget
+        activeName = nil
+        activePlaceID = nil
+        activeCenter = nil
+        landing = nil
+        current = nil
+        toast = "已回到真實位置"
     }
 
     private func beginBackgroundTask() {
