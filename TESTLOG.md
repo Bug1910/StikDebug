@@ -28,10 +28,18 @@
 - v1.0.14/15 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常
 - 🔴 只有他能做：實機長按新增地點、反查地名、4G 流程、權限卡片（要先把定位權限改回「下次詢問」）、手機「每天自動續簽」捷徑跑一次後讀到期日
 - 純 4G 時 SideStore 自動續簽能否成功（兩份研究都無法證實）
-- SideStore 登入 Apple ID：10/16 被 Apple 拒（-80045，全球 10/12 起同症狀）；社群偏方「關 On-Device Anisette＋jkcoxson 伺服器＋Windows Client Info」未試，只准試 1 次
+- ✅ SideStore 登入 Apple ID：**10/18 12:34 成功**（見紀錄）；🔴 還沒測：補「登記裝置」（只有 4G → 建 TurnOffData／TurnOnData 捷徑＋開 Cellular Refresh）、SideStore 自己 Refresh、定位儀自己用 misagent 換描述檔
 - 電腦續簽改 Wi-Fi（不插 USB）：iloader 原始碼支援 Network 裝置，未實測；手機當熱點時大概率找不到手機
 
 ## 紀錄
+
+### 2026-10-18（中午，SHUN，實機 SideStore 登入）
+
+- 版本：手機 SideStore 0.7.0-20261013.1503+12ff39c6；定位儀 v1.0.15 沒動
+- 測什麼：手機上 SideStore 重新登入 Apple（10/12 起全球被擋）。電腦每 5 秒截手機畫面（他授權）＋畫面變化通知，一步步帶
+- 做法：伺服器清單選 **#16「SideStore (New)」https://new.ani.sidestore.io**（他手機不是網路說的 #5）、Auto Rotation 關、On-Device Anisette 關 → User Customizations「Reset adi.pb」（沒跳 keep headers，會登出）→ Anisette Client Configuration 裡 10/16 手填的 Windows 字串還在，清空後 Save Overrides 按不下 → 最底「Reset to Defaults」回預設 Mac 字串 → Sign in → 驗證方式 Apple Devices → 本機跳 6 位數 → **Authenticated**
+- 結果：✅ 登入成功（Free Developer Account）。❌ 接著「Device Registration Error：No wifi interface satisfied」（只有 4G）→ Skip → 「還沒登記，不能裝或續簽」
+- 因此改了什麼：沒改程式。原始碼研究（6 支 agent）：開 Cellular Refresh 會跳過 Wi-Fi 檢查（minimuxer MinimuxerWrapper.swift:202-204）；登記會向 Apple 查清單比對 UDID；SideStore 重裝定位儀＝新 App（地點會丟），定位儀要自己 misagent 換描述檔
 
 ### 2026-10-16（凌晨，SHUN）
 
