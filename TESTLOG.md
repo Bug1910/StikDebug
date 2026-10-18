@@ -35,6 +35,15 @@
 
 ## 紀錄
 
+### 2026-10-18（17:34，SHUN，定位儀改由 SideStore 管）
+- 他決定走「SideStore 管定位儀」路線。先 house_arrest 備份地點 → `C:\Tools\Installers\iOS-StikDebug\places-backup-20261018.json`（5 個）
+- 3 支 agent 讀原始碼：SideStore／iloader 都是「原 bundle id＋.team id」、App ID 已存在就沿用、app group＝原 group＋.team id → 和手機現有的一樣
+- IPA `GpsSim-app-92bf258.ipa`（v1.0.15）用 `pymobiledevice3 apps push com.SideStore.SideStore.CJA56ZFU6T <ipa> /Documents/GpsSim-1.0.15.ipa` 推進 SideStore 資料夾（`--documents` 參數會 FILE_OPEN 失敗，要用容器路徑 /Documents/）；拉回比對 hash 相同
+- 他在 SideStore：＋ → Choose from Files → 我的 iPhone/SideStore → 檔案 → Install
+- ✅ 結果：原地更新，bundle id 仍 `com.stik.stikdebug.CJA56ZFU6T`、簽名者不變、**5 個地點與備份逐位元相同**、App IDs Remaining 仍 7、新描述檔到 **10/25 17:34**、group 不變；My Apps 列出 SideStore＋定位儀
+- 🔴 推翻舊結論「別用 SideStore＋重裝定位儀（地點會丟）」：只要 IPA bundle id 是 `com.stik.stikdebug`，裝出來就是同一個 App
+- 還沒測：開定位儀實際用、捷徑「出門改定位」、SideStore Refresh All 一次續兩個
+
 ### 2026-10-18（傍晚，SHUN，v1.0.16 匯入描述檔）
 
 - 版本：`c1e6de8` → `4c1a462` → `dee831a`，併 main `964e8a5`，tag v1.0.16
