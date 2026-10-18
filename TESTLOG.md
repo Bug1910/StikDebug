@@ -28,10 +28,17 @@
 - v1.0.14/15 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常
 - 🔴 只有他能做：實機長按新增地點、反查地名、4G 流程、權限卡片（要先把定位權限改回「下次詢問」）、手機「每天自動續簽」捷徑跑一次後讀到期日
 - 純 4G 時 SideStore 自動續簽能否成功（兩份研究都無法證實）
-- ✅ SideStore 登入 Apple ID：**10/18 12:34 成功**（見紀錄）；🔴 還沒測：補「登記裝置」（只有 4G → 建 TurnOffData／TurnOnData 捷徑＋開 Cellular Refresh）、SideStore 自己 Refresh、定位儀自己用 misagent 換描述檔
+- ✅ SideStore 登入 Apple ID：**10/18 12:34 成功**（見紀錄）；✅ 10/18 15:04 Wi-Fi 下 SideStore 自己 Refresh 成功（到 10/25）；🔴 還沒測：純 4G 的 Cellular Refresh（TurnOffData／TurnOnData 捷徑）、定位儀自己用 misagent 換描述檔
 - 電腦續簽改 Wi-Fi（不插 USB）：iloader 原始碼支援 Network 裝置，未實測；手機當熱點時大概率找不到手機
 
 ## 紀錄
+
+### 2026-10-18（下午，SHUN，兩個 App 續簽）
+
+- 版本：定位儀 v1.0.15（`92bf258`）；SideStore 0.7.0 沒動
+- 測什麼：① 電腦 `resign.ps1` 續定位儀 ② 手機 SideStore 在 Wi-Fi 下 Refresh All（含自動登記裝置）。電腦每 3 秒截手機最新一張（他授權「背景監看」）帶他按
+- 結果：① ✅ 定位儀 10/24 02:07 → **10/25 14:54**。② 第一次 ❌「unable to reach the device endpoint … DeviceEndpointNotInitialized」＝LocalDevVPN 是「已中斷連線」；開 LocalDevVPN 按連線（通道 10.7.1.1／裝置 10.7.0.1）→ My Apps 小點紅轉綠 → Refresh All ✅ SideStore 10/21 17:29 → **10/25 15:04**；沒跳登記錯誤；顯示「7 App IDs Remaining」。電腦 `-CheckOnly` 讀手機確認兩個日期
+- 因此改了什麼：沒改程式。教訓：SideStore 續簽前先確認 LocalDevVPN「已連線」
 
 ### 2026-10-18（中午，SHUN，實機 SideStore 登入）
 
