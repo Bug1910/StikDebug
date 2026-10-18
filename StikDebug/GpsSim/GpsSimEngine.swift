@@ -371,7 +371,8 @@ final class GpsSimEngine: ObservableObject {
         let wasSimulating = activeName != nil || LocationSimulationSession.shared.isActive
         LocationSimulationSession.shared.pauseResending()
         LocationSimulationSession.shared.clearRoute()
-        let reopenPoint = current ?? landing ?? staleTarget?.coordinate
+        // Route playback moves the point through the session, so its coordinate comes first.
+        let reopenPoint = LocationSimulationSession.shared.coordinate ?? current ?? landing ?? staleTarget?.coordinate
         let path = sessionPairingPath ?? Self.pairingFilePath
         let ip = sessionIP ?? DeviceConnectionContext.targetIPAddress
         LocationSimulationCommandQueue.shared.async {

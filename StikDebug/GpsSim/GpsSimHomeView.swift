@@ -222,6 +222,8 @@ struct GpsSimHomeView: View {
     @State private var sendingPlaceID: String?
     /// The red 停止模擬 button is waiting for the phone (shows 「停止中」).
     @State private var stopping = false
+    /// Screenshot-only: the red button was tapped in a `simulating` demo, so the demo now shows the stopped state.
+    @State private var demoStopped = false
     /// Guards against a double tap sending twice (the second tap would land somewhere else).
     @State private var lastFly: (id: String, at: Date)?
     @State private var geocoder = CLGeocoder()
@@ -274,7 +276,7 @@ struct GpsSimHomeView: View {
         !demoReady && pairingExists && tunnel.isConnected && !mounting.coolisMounted && mounting.mountingThread != nil
     }
     /// Any of the `simulating*` demo states.
-    private var demoSimulating: Bool { Self.demoState?.hasPrefix("simulating") == true }
+    private var demoSimulating: Bool { Self.demoState?.hasPrefix("simulating") == true && !demoStopped }
     private var demoIsError: Bool {
         ["error", "errorNoWifi", "errorVPN"].contains(Self.demoState ?? "")
     }
@@ -386,7 +388,7 @@ struct GpsSimHomeView: View {
         .onChange(of: engine.toast) { _, value in
             guard let value else { return }
             // After a stop the previous target is the one just stopped: offer a 10 s undo.
-            if value == "已回到真實位置", engine.previous != nil {
+            if value.hasPrefix("已回到真實位置") || value.hasPrefix("已經是真實位置"), engine.previous != nil {
                 showToast(value, actionTitle: "復原", action: { engine.undoLastSend() }, autoClear: true, duration: 10)
             } else {
                 showToast(value, autoClear: true)
@@ -1534,7 +1536,7 @@ struct GpsSimHomeView: View {
     private var stopButton: some View {
         let simulating = isSimulating
         return Button {
-            clearToast()
+            // No clearToast(): a pending 10 s 復原 from an earlier stop must survive an idle press.
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             runStop()
         } label: {
@@ -1546,7 +1548,7 @@ struct GpsSimHomeView: View {
                 }
                 // At accessibility text sizes the label folds away (icon only) so the status pill keeps its room;
                 // VoiceOver still reads 「停止模擬」.
-                if !largeText || stopping {
+                if !largeText {
                     Text(stopping ? "停止中" : "停止模擬")
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -1568,7 +1570,7 @@ struct GpsSimHomeView: View {
     }
 
     private func runStop() {
-        if Self.demoState != nil { engine.applyDemoStop(); return }
+        if Self.demoState != nil { demoStopped = true; engine.applyDemoStop(); return }
         stopping = true
         engine.stop { code in
             stopping = false
