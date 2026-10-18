@@ -21,6 +21,10 @@ struct GpsSimSettingsView: View {
     @State private var showAdvanced = false
     @State private var confirmPairingReplace = false
     @State private var shortcutMessage: String?
+    @State private var showProfileImporter = false
+    @State private var profileMessage: String?
+    @State private var profileBusy = false
+    @State private var signTick = 0
     @ObservedObject private var store = GpsPlaceStore.shared
 
     /// 「版本 v1.0.0（dcd13a2 · 2026-10-15）」. CI stamps GpsSimBuild (short sha · build date)
@@ -37,17 +41,70 @@ struct GpsSimSettingsView: View {
         FileManager.default.fileExists(atPath: GpsPlaceStore.fileURL.path)
     }
 
+    private func runProfileImport(_ result: Result<[URL], Error>) {
+        profileBusy = true
+        profileMessage = "處理中…"
+        Task {
+            defer { profileBusy = false }
+            do {
+                guard let url = try result.get().first else { return }
+                let data = try GpsProfileRenew.readPicked(url)
+                let outcome = try await GpsProfileRenew.install(data)
+                profileMessage = outcome.message
+                signTick += 1
+            } catch {
+                profileMessage = "沒有換：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func runProfileCleanup() {
+        profileBusy = true
+        Task {
+            defer { profileBusy = false }
+            do {
+                let count = try await GpsProfileRenew.removeOwnExpired()
+                profileMessage = count == 0 ? "沒有過期的舊描述檔。" : "已清掉 \(count) 個過期的舊描述檔。"
+            } catch {
+                profileMessage = "清除失敗：\(error.localizedDescription)"
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 if GpsSigning.expiration != nil {
                     Section {
                         // Re-reads the days left every minute while the sheet stays open.
+                        // signTick: bump to re-read GpsSigning right after a swap or a phone re-read.
                         TimelineView(.periodic(from: .now, by: 60)) { context in
                             Text(GpsSigning.settingsText(now: context.date) ?? "")
                                 .foregroundStyle(GpsSigning.isExpired(now: context.date) ? GpsTheme.red : Color.primary)
                                 .frame(minHeight: 44, alignment: .leading)
                                 .accessibilityIdentifier("settings.signExpiry")
+                        }
+                        .id(signTick)
+                        Button {
+                            showProfileImporter = true
+                        } label: {
+                            Label("匯入描述檔（不用重裝）", systemImage: "doc.badge.plus").frame(minHeight: 44)
+                        }
+                        .disabled(profileBusy)
+                        .accessibilityIdentifier("settings.importProfile")
+                        // Separate view level: two fileImporters on one view only honor the last one.
+                        .background {
+                            Color.clear.fileImporter(isPresented: $showProfileImporter,
+                                                     allowedContentTypes: GpsProfileRenew.fileTypes,
+                                                     allowsMultipleSelection: false) { result in
+                                runProfileImport(result)
+                            }
+                        }
+                        Button("清掉過期的舊描述檔（只清定位儀自己的）") { runProfileCleanup() }
+                            .disabled(profileBusy)
+                            .frame(minHeight: 44)
+                        if let profileMessage {
+                            Text(profileMessage).font(.footnote).foregroundStyle(.secondary)
                         }
                     } header: {
                         Text("簽名")
@@ -179,6 +236,10 @@ struct GpsSimSettingsView: View {
             GpsSimAdvancedView()
         }
         .gpsSimPadSheetSizing()
+        .task {
+            await GpsProfileRenew.refreshFromPhone()
+            signTick += 1
+        }
     }
 }
 

@@ -103,3 +103,5 @@ rp_pairing_file.plist
 pairingFile.plist
 
 logs/
+
+__pycache__/

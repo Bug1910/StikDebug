@@ -23,6 +23,7 @@
 
 ## 還沒測過（下一輪要測的）
 
+- v1.0.16 匯入描述檔（分支 feat/v1.0.16-import-profile）：只過雲端編譯；實機 misagent 換描述檔、新描述檔 UUID 與 App 內嵌的不同時 iOS 是否採用，都還沒測
 - 小問題（不擋）：地圖本身的店名／路名會畫在底帶上面、疊到 Legal（17ProMax newPlace、SE simulating）；可考慮讓地圖不在底帶那條顯示 POI
 - 測試員小問題（v1.0.14 發現，不擋）：offline 36_shot_back_home 步驟算過但畫面仍在設定頁；novice 28 搜尋結果截圖時還在轉圈；simulating_dark＝light 是 App 寫死深色（GpsSimHomeView:369 等），不是 CI 壞
 - v1.0.14/15 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常

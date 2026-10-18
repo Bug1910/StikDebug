@@ -15,7 +15,7 @@ enum GpsSigning {
     static let sideStoreURL = URL(string: "sidestore://")!
 
     /// nil on the simulator / CI (no provisioning profile) and outside the screenshot demo.
-    static let expiration: Date? = {
+    static let embeddedExpiration: Date? = {
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-GpsSimDemo"), i + 1 < args.count {
             // Screenshot-only values: 1.5 days triggers the home banner, 6 days only the settings row.
@@ -31,6 +31,12 @@ enum GpsSigning {
         else { return nil }
         return plist["ExpirationDate"] as? Date
     }()
+
+    /// The bundled profile never changes after a swap, so a profile installed by 匯入描述檔 counts too.
+    static var expiration: Date? {
+        guard let embeddedExpiration else { return nil }
+        return GpsProfileRenew.effectiveExpiration(embedded: embeddedExpiration)
+    }
 
     /// Whole days left (6.4 days -> 6); negative or zero once less than a day is left.
     static func daysLeft(now: Date = Date()) -> Int? {
