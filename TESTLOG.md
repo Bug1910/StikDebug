@@ -23,7 +23,8 @@
 
 ## 還沒測過（下一輪要測的）
 
-- v1.0.16 匯入描述檔（分支 feat/v1.0.16-import-profile）：只過雲端編譯；實機 misagent 換描述檔、新描述檔 UUID 與 App 內嵌的不同時 iOS 是否採用，都還沒測
+- v1.0.16 匯入描述檔（已併 main `964e8a5`）：雲端編譯／截圖／測試員／落點全過；🔴 實機 misagent 換描述檔、新描述檔 UUID 與 App 內嵌的不同時 iOS 是否採用，都還沒測（缺新描述檔來源）
+- 手機自動化「續 SideStore」（LocalDevVPN `ControlLocalDevVPNIntent` 啟用 → 等 30 秒 → SideStore Refresh All → 打開 SideStore；觸發＝鬧鐘停止）：還沒建、沒測
 - 小問題（不擋）：地圖本身的店名／路名會畫在底帶上面、疊到 Legal（17ProMax newPlace、SE simulating）；可考慮讓地圖不在底帶那條顯示 POI
 - 測試員小問題（v1.0.14 發現，不擋）：offline 36_shot_back_home 步驟算過但畫面仍在設定頁；novice 28 搜尋結果截圖時還在轉圈；simulating_dark＝light 是 App 寫死深色（GpsSimHomeView:369 等），不是 CI 壞
 - v1.0.14/15 實機：拖地圖時 Legal 底帶會不會抖（抖就改 onMapCameraChange(.onEnd)）；上游 DDI 修正後送定位照常
@@ -33,6 +34,14 @@
 - 電腦續簽改 Wi-Fi（不插 USB）：iloader 原始碼支援 Network 裝置，未實測；手機當熱點時大概率找不到手機
 
 ## 紀錄
+
+### 2026-10-18（傍晚，SHUN，v1.0.16 匯入描述檔）
+
+- 版本：`c1e6de8` → `4c1a462` → `dee831a`，併 main `964e8a5`，tag v1.0.16
+- 測什麼：程式審查 3 輪；雲端 Build Debug IPA（第 1 次 39107129745 ❌ iOS 18 才有的 `@Parameter(supportedContentTypes:)`；之後 39107296783、39107528682、main 39107693253 ✅）；main 上 Simulator Screenshots 39107693217 ✅、Simulator Testers 39107693214 ✅、Landing Randomness 39107693192 ✅
+- 結果：審查第 1 輪 7 項（權限單向、到期日記錯、背景重啟隧道、裝置訊息、捷徑不丟錯、ProfileView 限制、try? 吞錯）、第 2 輪 5 項（清舊日期、隧道錯誤重置、內嵌只解一次、畫面即時更新、讀回失敗誤報）全修；剩 3 個小問題不擋（讀回斷線下次才重建、開設定頁與匯入同時跑日期偏早、ProfileView 沒 noteTunnelFailure）
+- 因此改了什麼：見 CHANGELOG v1.0.16。誤把 `tools/device/_credread.py` 推上公開分支（無密碼），`ea5e099` 移除；之後 agent 一律用各自 worktree、明確 git add
+- 手機：10/18 16:00 建好捷徑 `TurnOnData`（開啟，已確認）、`TurnOffData`（內容待確認）
 
 ### 2026-10-18（下午，SHUN，兩個 App 續簽）
 
