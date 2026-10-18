@@ -28,7 +28,19 @@ enum GpsProfileRenew {
 
     struct Failure: LocalizedError {
         let message: String
+        /// True when the cause was a dead tunnel (callers then reset TunnelManager so the next try rebuilds it).
+        var isTunnel = false
         var errorDescription: String? { message }
+    }
+
+    /// `note` is set when the install itself worked but reading it back did not.
+    struct InstallOutcome {
+        let expiry: Date?
+        let note: String?
+        var message: String {
+            if let expiry { return "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(expiry))" }
+            return note ?? "已安裝"
+        }
     }
 
     struct Parsed {
@@ -63,11 +75,14 @@ enum GpsProfileRenew {
     }
 
     /// The profile this install carries now (nil on the simulator / CI).
-    static func embedded() -> Parsed? {
+    static func embedded() -> Parsed? { cachedEmbedded }
+
+    /// Decoded once: the bundled profile cannot change while the app runs.
+    private static let cachedEmbedded: Parsed? = {
         guard let path = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision"),
               let data = FileManager.default.contents(atPath: path) else { return nil }
         return try? parse(data)
-    }
+    }()
 
     static func validate(_ data: Data, now: Date = Date()) throws -> Parsed {
         let new = try parse(data)
@@ -99,22 +114,38 @@ enum GpsProfileRenew {
     // MARK: - Install
 
     /// Install after validating; returns the newest expiry of this app's profiles read back from the phone.
-    static func install(_ data: Data) async throws -> Date {
+    static func install(_ data: Data) async throws -> InstallOutcome {
         let parsed = try validate(data)
         try await requireTunnel()
-        return try await Task.detached(priority: .userInitiated) { () throws -> Date in
+        do {
+            return try await installOnPhone(data, parsed: parsed)
+        } catch {
+            await noteTunnelFailure(error)
+            throw error
+        }
+    }
+
+    private static func installOnPhone(_ data: Data, parsed: Parsed) async throws -> InstallOutcome {
+        try await Task.detached(priority: .userInitiated) { () throws -> InstallOutcome in
             // "Newer" is judged against what is really on the phone, not a remembered date.
             let before = try ownProfiles(appID: parsed.appID).map(\.expiration).max() ?? .distantPast
             guard parsed.expiration > before else {
                 throw Failure(message: "手機上已經有同樣新或更新的描述檔，沒有必要換。")
             }
             try withTunnelRetry { try JITEnableContext.shared.addProfile(data) }
-            // Read back instead of trusting the install call.
-            guard let newest = try ownProfiles(appID: parsed.appID).map(\.expiration).max(), newest >= parsed.expiration else {
+            // Read back instead of trusting the install call. From here on the install HAS happened,
+            // so a read failure is reported as a note, not as a failed install.
+            let newest: Date?
+            do {
+                newest = try ownProfiles(appID: parsed.appID).map(\.expiration).max()
+            } catch {
+                return InstallOutcome(expiry: nil, note: "已安裝，但讀回失敗：\(error.localizedDescription)；請稍後在設定頁重新整理")
+            }
+            guard let newest, newest >= parsed.expiration else {
                 throw Failure(message: "裝完後在手機上沒讀到新的描述檔，請再試一次。")
             }
             remember(newest)
-            return newest
+            return InstallOutcome(expiry: newest, note: nil)
         }.value
     }
 
@@ -129,12 +160,21 @@ enum GpsProfileRenew {
         }
         let ownID = "\(current.team).\(bundleID)"
         try await requireTunnel()
-        return try await Task.detached(priority: .userInitiated) { () throws -> Int in
+        do {
+            return try await removeOnPhone(ownID: ownID, currentUUID: current.uuid)
+        } catch {
+            await noteTunnelFailure(error)
+            throw error
+        }
+    }
+
+    private static func removeOnPhone(ownID: String, currentUUID: String) async throws -> Int {
+        try await Task.detached(priority: .userInitiated) { () throws -> Int in
             let own = try ownProfiles(appID: ownID)
             guard let newest = own.map(\.expiration).max(), newest > Date() else {
                 throw Failure(message: "手機上沒有還有效的新描述檔，不清除。")
             }
-            let doomed = own.filter { $0.expiration <= Date() && $0.expiration < newest && $0.uuid != current.uuid }
+            let doomed = own.filter { $0.expiration <= Date() && $0.expiration < newest && $0.uuid != currentUUID }
             for profile in doomed { try withTunnelRetry { try JITEnableContext.shared.removeProfile(withUUID: profile.uuid) } }
             return doomed.count
         }.value
@@ -144,12 +184,12 @@ enum GpsProfileRenew {
 
     /// Newest of the bundled profile's expiry and the one we installed ourselves (the bundled file never changes).
     /// The remembered date only counts while the bundled profile is the same one it was read against.
-    static func effectiveExpiration(embedded: Date) -> Date {
+    static func effectiveExpiration(embedded embeddedDate: Date) -> Date {
         let stored = UserDefaults.standard.double(forKey: renewedExpiryKey)
         guard stored > 0, UserDefaults.standard.string(forKey: renewedForUUIDKey) == Self.embedded()?.uuid else {
-            return embedded
+            return embeddedDate
         }
-        return max(embedded, Date(timeIntervalSince1970: stored))
+        return max(embeddedDate, Date(timeIntervalSince1970: stored))
     }
 
     private static func remember(_ date: Date) {
@@ -164,14 +204,30 @@ enum GpsProfileRenew {
     }
 
     /// Re-reads the phone (only if the tunnel is already up) so the shown date is verified, not remembered.
+    /// A failed read keeps what is shown (never extends it); a good read with nothing newer than the bundled one clears it.
     @MainActor
     static func refreshFromPhone() async {
         guard TunnelManager.shared.isConnected, let current = embedded(), let bundleID = Bundle.main.bundleIdentifier else { return }
         let ownID = "\(current.team).\(bundleID)"
-        let newest = await Task.detached(priority: .utility) { () -> Date? in
-            try? ownProfiles(appID: ownID).map(\.expiration).max()
+        let result = await Task.detached(priority: .utility) { () -> Result<Date?, Error> in
+            Result { try ownProfiles(appID: ownID).map(\.expiration).max() }
         }.value
-        if let newest { remember(newest) }
+        switch result {
+        case .success(let newest):
+            if let newest, newest > current.expiration {
+                remember(newest)
+            } else {
+                UserDefaults.standard.removeObject(forKey: renewedExpiryKey)
+                UserDefaults.standard.removeObject(forKey: renewedForUUIDKey)
+            }
+        case .failure(let error):
+            await noteTunnelFailure(error)
+        }
+    }
+
+    @MainActor
+    private static func noteTunnelFailure(_ error: Error) {
+        if (error as? Failure)?.isTunnel == true { markTunnelDisconnected() }
     }
 
     /// Runs a blocking misagent call. Tunnel errors become the Wi-Fi/LocalDevVPN message; others keep their cause.
@@ -180,7 +236,7 @@ enum GpsProfileRenew {
             return try call()
         } catch {
             // No startTunnel() here: it frees handles other threads may hold. The user reconnects instead.
-            if isTunnelError(error) { throw Failure(message: needTunnelMessage) }
+            if isTunnelError(error) { throw Failure(message: needTunnelMessage, isTunnel: true) }
             throw Failure(message: "手機回報錯誤：\(error.localizedDescription)")
         }
     }
@@ -229,7 +285,7 @@ struct ImportProfileIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         // Throws on any failure so the Shortcut stops instead of carrying on as if it had worked.
-        let expiry = try await GpsProfileRenew.install(file.data)
-        return .result(dialog: "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(expiry))")
+        let outcome = try await GpsProfileRenew.install(file.data)
+        return .result(dialog: "\(outcome.message)")
     }
 }
