@@ -146,9 +146,20 @@ struct SendToPlaceIntent: AppIntent {
     }
 }
 
+/// Shown by Shortcuts when 停止定位 could not clear the phone.
+enum GpsSimStopError: Error, CustomLocalizedStringResourceConvertible {
+    case failed(String)
+
+    var localizedStringResource: LocalizedStringResource {
+        switch self {
+        case .failed(let reason): return "停止失敗：\(reason)"
+        }
+    }
+}
+
 struct StopSimulationIntent: AppIntent {
     static var title: LocalizedStringResource = "停止定位"
-    static var description = IntentDescription("讓手機回到真實位置。")
+    static var description = IntentDescription("清掉手機上所有模擬定位，讓手機回到真實位置。")
     static var openAppWhenRun: Bool = false
 
     @MainActor
@@ -156,7 +167,8 @@ struct StopSimulationIntent: AppIntent {
         let code = await GpsSimIntentRunner.retryingLink { done in GpsSimEngine.shared.stop(completion: done) }
         guard code == 0 else {
             let reason = code == GpsSimEngine.busyCode ? "定位儀正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
-            return .result(dialog: "停止失敗：\(reason)")
+            // Throw (not just a dialog) so Shortcuts marks the step failed instead of looking fine.
+            throw GpsSimStopError.failed(reason)
         }
         return .result(dialog: "已回到真實位置")
     }
@@ -184,7 +196,7 @@ struct PeekRealLocationIntent: AppIntent {
         // or every fix would be the fake one and the message would wrongly blame GPS.
         let stale = wasActive == nil ? engine.staleTarget : nil
         if wasActive != nil || stale != nil {
-            let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in engine.stop(completion: done) }
+            let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in engine.stop(full: false, completion: done) }
             guard code == 0 else {
                 let reason = code == GpsSimEngine.busyCode ? "定位儀正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
                 return .result(value: nil, dialog: "沒辦法暫停模擬：\(reason)")

@@ -29,6 +29,9 @@ enum GpsTheme {
     static let blue = Color(red: 0.231, green: 0.510, blue: 0.965)         // #3B82F6
     static let sub = Color(red: 0.604, green: 0.643, blue: 0.698)          // #9AA4B2
     static let stopRed = Color(red: 0.706, green: 0.137, blue: 0.165)      // #B4232A
+    static let stopRedPressed = Color(red: 0.557, green: 0.106, blue: 0.129) // #8E1B21
+    static let stopBorder = Color(red: 1.0, green: 0.42, blue: 0.42)        // #FF6B6B
+    static let stopIdleText = Color(red: 1.0, green: 0.541, blue: 0.541)    // #FF8A8A
     static let panelTop = Color(red: 0.075, green: 0.106, blue: 0.161)     // #131B29
 
     /// Stable per-place hue: FNV-1a over the id's UTF-8 bytes (never hashValue, which changes per launch).
@@ -217,6 +220,8 @@ struct GpsSimHomeView: View {
     /// unless the person has moved the map since.
     @State private var lastFraming: GpsFraming?
     @State private var sendingPlaceID: String?
+    /// The red 停止模擬 button is waiting for the phone (shows 「停止中」).
+    @State private var stopping = false
     /// Guards against a double tap sending twice (the second tap would land somewhere else).
     @State private var lastFly: (id: String, at: Date)?
     @State private var geocoder = CLGeocoder()
@@ -462,6 +467,7 @@ struct GpsSimHomeView: View {
         VStack(spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
                 statusPill
+                stopButton
                 Button {
                     showSettings = true
                 } label: {
@@ -1131,9 +1137,6 @@ struct GpsSimHomeView: View {
             } else {
                 placesCard
             }
-            if isSimulating && draft == nil {
-                stopBar
-            }
         }
     }
 
@@ -1522,30 +1525,51 @@ struct GpsSimHomeView: View {
         }
     }
 
-    // MARK: - Stop bar (always one tap while simulating; 復原 in the toast undoes a switch or stop)
+    // MARK: - Red stop button (top row, always visible, like 「⏹ 停止模擬」 on the PC page)
 
-    private var stopBar: some View {
-        HStack(spacing: 8) {
-            // Single tap, no hold, no confirm: the undo toast afterwards is the safety net.
-            Button {
-                clearToast()
-                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-                engine.stop()
-            } label: {
-                Text("停止模擬，回到真實位置")
-                    .font(.body.weight(.semibold))
+    /// One tap, no hold, no confirm: the 10 s 復原 toast afterwards is the safety net.
+    /// Not simulating: only an outline, but it still does the full clear, because a killed earlier
+    /// run can leave a fake point on the phone that this app no longer knows about. This button is
+    /// how the owner removes it.
+    private var stopButton: some View {
+        let simulating = isSimulating
+        return Button {
+            clearToast()
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            runStop()
+        } label: {
+            HStack(spacing: 6) {
+                if stopping {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else {
+                    Image(systemName: "stop.fill")
+                }
+                Text(stopping ? "停止中" : "停止模擬")
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .foregroundStyle(.white)
-                    .background(GpsTheme.stopRed, in: Capsule())
-                    .contentShape(Capsule())
+                    .minimumScaleFactor(0.8)
             }
-            .buttonStyle(.plain)
-            .disabled(engine.isBusy)
-            .accessibilityLabel("停止模擬")
-            .accessibilityHint("讓手機回到真實位置")
-            .accessibilityIdentifier("btn.stop")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(simulating ? Color.white : GpsTheme.stopIdleText)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(GpsStopButtonStyle(simulating: simulating))
+        .fixedSize()
+        .disabled(engine.isBusy || stopping)
+        .accessibilityLabel("停止模擬")
+        .accessibilityHint("讓手機回到真實位置，10 秒內可復原")
+        .accessibilityValue(simulating ? "" : "目前是真實位置")
+        .accessibilityIdentifier("btn.stop")
+    }
+
+    private func runStop() {
+        stopping = true
+        engine.stop { code in
+            stopping = false
+            guard code != 0, code != GpsSimEngine.busyCode else { return }
+            showToast("沒停止：\(GpsSimIssue.from(code: code).message)", actionTitle: "重試",
+                      action: { runStop() }, autoClear: true, duration: 8)
         }
     }
 
@@ -2241,5 +2265,19 @@ final class GpsLegalProbe {
         cachedMapView = match ?? candidates.first
         logoHeight = nil
         return cachedMapView
+    }
+}
+
+/// Red capsule for 停止模擬: solid while simulating, outline only when idle; darker while pressed.
+private struct GpsStopButtonStyle: ButtonStyle {
+    let simulating: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed ? GpsTheme.stopRedPressed : (simulating ? GpsTheme.stopRed : Color.clear),
+                in: Capsule()
+            )
+            .overlay(Capsule().stroke(GpsTheme.stopBorder, lineWidth: 1))
     }
 }

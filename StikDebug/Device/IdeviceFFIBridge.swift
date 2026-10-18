@@ -827,6 +827,17 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
         }
     }
 
+    let connectStatus = connectLocationTunnel(deviceIP, pairingFile)
+    guard connectStatus == LocationSimulationStatus.ok else { return connectStatus }
+
+    let status = openSimulation(latitude, longitude) ?? LocationSimulationStatus.remoteServer
+    if status != LocationSimulationStatus.ok { LocationSimulationState.cleanup() }
+    return status
+}
+
+/// Builds a brand-new adapter + handshake (the tunnel to the phone) into LocationSimulationState.
+/// Split out of simulate_location so clear_all_simulated_locations uses the exact same connect.
+private func connectLocationTunnel(_ deviceIP: String, _ pairingFile: String) -> Int32 {
     var address = sockaddr_in()
     address.sin_family = sa_family_t(AF_INET)
     address.sin_port = in_port_t(49152).bigEndian
@@ -869,10 +880,7 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
         LocationSimulationState.cleanup()
         return LocationSimulationStatus.providerCreate
     }
-
-    let status = openSimulation(latitude, longitude) ?? LocationSimulationStatus.remoteServer
-    if status != LocationSimulationStatus.ok { LocationSimulationState.cleanup() }
-    return status
+    return LocationSimulationStatus.ok
 }
 
 /// Opens a remote-server + location-simulation on the existing adapter/handshake and sets the point.
@@ -929,5 +937,96 @@ func clear_simulated_location() -> Int32 {
         return LocationSimulationStatus.locationClear
     }
 
+    return LocationSimulationStatus.ok
+}
+
+/// "Full clear" (same idea as `pymobiledevice3 developer dvt simulate-location clear` on the PC).
+/// The phone keeps a simulated point that an earlier, killed process set, and this process has no
+/// handle to it, so clearing only our own handle can "succeed" while the fake point stays.
+/// Step 1 clears our own handle (if any). Step 2 is the confirmation: a brand-new remote server +
+/// simulation handle on the SAME tunnel, cleared without setting any point first. The tunnel
+/// (adapter/handshake) is never torn down while it works: on 4G a new one only comes up via the
+/// airplane trick, so dropping it would break the next send or undo.
+///  - step 1 = 0 counts as success even if step 2 cannot run (connection dropped meanwhile)
+///  - step 1 failed but step 2 = 0 is success
+///  - both failed: the real error code
+/// `fallbackPoint` is only used if clear-without-set is refused: set it, then clear at once.
+func clear_all_simulated_locations(_ deviceIP: String, _ pairingFile: String,
+                                   fallbackPoint: (latitude: Double, longitude: Double)? = nil) -> Int32 {
+    var ownClearOK = false
+    if let locationSimulation = LocationSimulationState.locationSimulation {
+        if let ffiError = location_simulation_clear(locationSimulation) {
+            idevice_error_free(ffiError)
+        } else {
+            ownClearOK = true
+        }
+        LocationSimulationState.cleanupSimulationOnly()
+    }
+
+    let confirmCode = confirmClearOnCurrentTunnel(deviceIP, pairingFile, fallbackPoint)
+    if confirmCode == LocationSimulationStatus.ok || ownClearOK { return LocationSimulationStatus.ok }
+    return confirmCode
+}
+
+private func confirmClearOnCurrentTunnel(_ deviceIP: String, _ pairingFile: String,
+                                         _ fallbackPoint: (latitude: Double, longitude: Double)?) -> Int32 {
+    // No tunnel at all (process just started): the only way to reach the phone is a fresh one.
+    if LocationSimulationState.adapter == nil || LocationSimulationState.handshake == nil {
+        let connectStatus = connectLocationTunnel(deviceIP, pairingFile)
+        guard connectStatus == LocationSimulationStatus.ok else { return connectStatus }
+    }
+
+    var status = clearOnNewHandle(fallbackPoint)
+    if status == LocationSimulationStatus.remoteServer {
+        // The reused tunnel is dead (not the same as "nothing to clear"): rebuild it once.
+        LocationSimulationState.cleanup()
+        let connectStatus = connectLocationTunnel(deviceIP, pairingFile)
+        guard connectStatus == LocationSimulationStatus.ok else { return connectStatus }
+        status = clearOnNewHandle(fallbackPoint)
+    }
+    return status
+}
+
+/// New remote server + simulation handle on the existing adapter/handshake, then clear.
+/// Never sets a point unless clear-without-set was refused and a fallback point exists.
+private func clearOnNewHandle(_ fallbackPoint: (latitude: Double, longitude: Double)?) -> Int32 {
+    let remoteServerError = remote_server_connect_rsd(
+        LocationSimulationState.adapter,
+        LocationSimulationState.handshake,
+        &LocationSimulationState.remoteServer
+    )
+    if let remoteServerError {
+        idevice_error_free(remoteServerError)
+        return LocationSimulationStatus.remoteServer
+    }
+
+    let simulationError = location_simulation_new(
+        LocationSimulationState.remoteServer,
+        &LocationSimulationState.locationSimulation
+    )
+    if let simulationError {
+        idevice_error_free(simulationError)
+        LocationSimulationState.cleanupSimulationOnly()
+        return LocationSimulationStatus.locationSimulation
+    }
+    // The simulation handle owns the remote server now (same hand-over as openSimulation).
+    LocationSimulationState.remoteServer = nil
+
+    var clearError = location_simulation_clear(LocationSimulationState.locationSimulation)
+    if clearError != nil, let point = fallbackPoint {
+        idevice_error_free(clearError)
+        clearError = nil
+        if let setError = location_simulation_set(LocationSimulationState.locationSimulation, point.latitude, point.longitude) {
+            idevice_error_free(setError)
+            LocationSimulationState.cleanupSimulationOnly()
+            return LocationSimulationStatus.locationSet
+        }
+        clearError = location_simulation_clear(LocationSimulationState.locationSimulation)
+    }
+    LocationSimulationState.cleanupSimulationOnly()
+    if let clearError {
+        idevice_error_free(clearError)
+        return LocationSimulationStatus.locationClear
+    }
     return LocationSimulationStatus.ok
 }
