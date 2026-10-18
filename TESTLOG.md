@@ -42,7 +42,11 @@
 - 他在 SideStore：＋ → Choose from Files → 我的 iPhone/SideStore → 檔案 → Install
 - ✅ 結果：原地更新，bundle id 仍 `com.stik.stikdebug.CJA56ZFU6T`、簽名者不變、**5 個地點與備份逐位元相同**、App IDs Remaining 仍 7、新描述檔到 **10/25 17:34**、group 不變；My Apps 列出 SideStore＋定位儀
 - 🔴 推翻舊結論「別用 SideStore＋重裝定位儀（地點會丟）」：只要 IPA bundle id 是 `com.stik.stikdebug`，裝出來就是同一個 App
-- 還沒測：開定位儀實際用、捷徑「出門改定位」、SideStore Refresh All 一次續兩個
+- 17:39 ✅ 開定位儀：地圖＋5 地點正常；手機無閃退紀錄（crash ls）
+- 17:39 ❌ SideStore Refresh All（Wi-Fi＋LocalDevVPN 已連）→「Failed to refresh 2 apps. Your session has expired. Please log in. (-1)」；描述檔沒變。同訊息 GitHub SideStore #1646（10/13 開、無回應）、#1469
+- 17:43 ✅ 改定位：Google 地圖藍點到竹北新寮（他說「有移動過去」；用捷徑或 App 內按未確認）
+- 17:45 ✅ **把 SideStore 從多工畫面滑掉、重開、Refresh All 一次** → 成功，SideStore＋AltWidget＋定位儀描述檔都到 **10/25 17:45**（電腦讀 provision list 確認）。→ 遇到 session expired 先「滑掉重開再按一次」，不要連按、不要登出
+- 還沒測：捷徑「出門改定位」最後加 Refresh All 的自動化；純 4G 續簽
 
 ### 2026-10-18（傍晚，SHUN，v1.0.16 匯入描述檔）
 
