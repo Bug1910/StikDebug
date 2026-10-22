@@ -35,6 +35,14 @@
 
 ## 紀錄
 
+### 2026-10-22（17:46～18:01，SHUN，電腦續定位儀＋4G 續 SideStore）
+- 研究（5 支 agent：SideStore 原始碼 12ff39c6／上網／定位儀程式／電腦端／挑毛病）：TurnOnData 失敗最可能是 SideStore 被 TurnOffData 擠到背景開不了網址 → 兩個捷徑結尾各加「打開 App：SideStore」
+- 17:46 電腦 `resign.ps1`（iloader 裝 GpsSim-app-dd008c9）：✅ 定位儀 10/25 19:15 → **10/29 17:46**；🔴 副作用：**SideStore My Apps 清單裡的定位儀消失**（不再歸 SideStore 管）→ 改由 SideStore 管後別再用 iloader 續；要接回＝Wi-Fi 下 SideStore ＋ 重裝
+- 17:52～17:53 他在捷徑 App 給 TurnOffData／TurnOnData 結尾加「打開 SideStore」（截圖確認兩個都只有原本一行＋新一行）
+- 17:58～18:00 Refresh All 失敗 4 次：`session has expired (code 1100)`（Apple 登入過期，-1）、`-1009 offline`（上一次關掉的數據還沒開）、`request timed out`
+- 18:00:56 再按（4G、LocalDevVPN 已連）：✅ TurnOffData success true → minimuxer ready → **TurnOnData success true**（10/18 是 false）→ SUCCESS，9 秒；SideStore 到 **10/29 18:01**（provision list）。紀錄 `console_20261022_180050_097.log`
+- 因此改了什麼：手機捷徑兩個；沒改程式。還沒測：自動化（鬧鐘觸發）跑 Refresh All；session 1100 為何今天過期
+
 ### 2026-10-18（19:00～19:16，SHUN，捷徑內續簽＋裝 v1.0.17）
 - 研究（2 支 agent：SideStore 原始碼＋上網）：捷徑「Refresh All Apps」動作沒有 Cellular Refresh 處理；網路上能自動續簽的配方全在 Wi-Fi 下；4G 從捷徑續簽 0 篇回報
 - 19:00 「出門改定位」改成 VPN → 打開 SideStore → 等待 60 秒 → …，他在 SideStore 手動按 Refresh All：✅ 兩個 App 到 **10/25 19:00**（provision list）；❌ 4G 沒回來、捷徑沒往下跑。SideStore 紀錄 `Documents/ConsoleLogs/console_20261018_184801_898.log`：19:00:52 TurnOffData 有開、19:00:53 TurnOnData `Shortcut URL open completed with success: false`（SideStore 不在前景、被外層捷徑擠掉）→ 續簽不能放進正在跑的捷徑
