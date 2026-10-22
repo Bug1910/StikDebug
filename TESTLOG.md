@@ -43,7 +43,9 @@
 - 18:00:56 再按（4G、LocalDevVPN 已連）：✅ TurnOffData success true → minimuxer ready → **TurnOnData success true**（10/18 是 false）→ SUCCESS，9 秒；SideStore 到 **10/29 18:01**（provision list）。紀錄 `console_20261022_180050_097.log`
 - 因此改了什麼：手機捷徑兩個；沒改程式
 - 18:09 建自動化「08:20（平日）鬧鐘停止時、立即執行」：Enable LocalDevVPN → 等待 10 秒 → 打開 SideStore → Refresh All Apps。編輯器內按 ▶：18:09:57 refresh 被叫起 ✅、18:10:17 Apple 回 1100 ❌（同一 session 時好時壞，距 18:01 成功只 9 分）→ 自動化步驟有跑到，失敗在 Apple 端
-- 還沒測：10/23 08:20 鬧鐘實際觸發；1100 反覆出現是否要重新登入
+- 18:13 他再按 ▶：anisette new.ani.sidestore.io 16.7 秒逾時 ❌
+- 根因分析（2 支 agent，10/18～10/22 共 18 次）：anisette >16 秒 6 次全失敗、<4 秒 8 次 7 成功；1100 多半是 anisette 慢不是 token 過期；捷徑版有 27 秒前景時限、anisette 最壞 30 秒；prefs 無設錯（ODA 關、輪替關、只 1 台伺服器）
+- 還沒測：10/23 08:20 鬧鐘實際觸發；失敗時在 SideStore 內再按一次按鈕；開 Auto Rotation 多台伺服器（先不動）
 
 ### 2026-10-18（19:00～19:16，SHUN，捷徑內續簽＋裝 v1.0.17）
 - 研究（2 支 agent：SideStore 原始碼＋上網）：捷徑「Refresh All Apps」動作沒有 Cellular Refresh 處理；網路上能自動續簽的配方全在 Wi-Fi 下；4G 從捷徑續簽 0 篇回報
