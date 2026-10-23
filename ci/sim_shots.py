@@ -1,4 +1,4 @@
-"""Screenshot every distinct iPhone/iPad logical size x 12 demo states.
+"""Screenshot every distinct iPhone/iPad logical size x 18 demo states.
 usage: sim_shots.py <iphone|ipad> <shard> <of> <app> <outdir>"""
 import os, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -6,10 +6,14 @@ from simlib import *
 
 family, shard, of, app, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]
 os.makedirs(out, exist_ok=True)
-STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error primer signExpiring".split()
+STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error primer signExpiring signHours signNotLoggedIn renewRunning renewFailed settingsSign signIn".split()
+if os.environ.get("SHOTS_STATES"):  # minimal run: only these demo states
+    STATES = os.environ["SHOTS_STATES"].split()
 bid = bundle_id(app)
 rt, sizes = distinct_sizes("iPad" if family == "ipad" else "iPhone")
-if os.environ.get("SHOTS_QUICK") == "1":  # everyday push: smallest + largest iPhone, largest iPad
+if os.environ.get("SHOTS_SIZE"):  # minimal run: exactly one logical size
+    sizes = [x for x in sizes if x[0] in os.environ["SHOTS_SIZE"].split(",")]
+elif os.environ.get("SHOTS_QUICK") == "1":  # everyday push: smallest + largest iPhone, largest iPad
     sizes = [sizes[-1]] if family == "ipad" else [sizes[0], sizes[-1]]
 print("sizes:", [(s, n) for s, n, _ in sizes], flush=True)
 print("SKIPPED (no simulator type on this runtime):", [z for z in OFFICIAL["iPad" if family == "ipad" else "iPhone"] if z not in [s for s, _, _ in sizes]], flush=True)
@@ -61,14 +65,14 @@ for i, (size, name, tid) in enumerate(sizes):
         # Display Zoom can't be switched via simctl: emulate the 320 pt layouts with a demo launch arg
         # (needs the app to honour -GpsSimDemoWidth; harmless if it ignores it)
         # plus the largest accessibility text size, so truncation and button growth show up
-        if family == "iphone" and size in ("375x667", "390x844"):
+        if family == "iphone" and (size in ("375x667", "390x844") or os.environ.get("SHOTS_SIZE")):
             sh("xcrun", "simctl", "ui", udid, "content_size", "accessibility-extra-extra-extra-large", check=False)
-            for state in ("home", "edit", "simulating", "primer"):
+            for state in os.environ.get("SHOTS_AX_STATES", "home edit simulating primer signExpiring renewRunning").split():
                 sh("xcrun", "simctl", "terminate", udid, bid, check=False, quiet=True)
                 seed(udid, bid)
-                launch(udid, bid, ["-GpsSimDemo", state, "-GpsSimDemoWidth", "320"])
+                launch(udid, bid, ["-GpsSimDemo", state] + ([] if os.environ.get("SHOTS_NOZOOM") else ["-GpsSimDemoWidth", "320"]))
                 time.sleep(6)
-                sh("xcrun", "simctl", "io", udid, "screenshot", "%s/%s_%s_light_zoom320_axxxl.png" % (out, tag, state), check=False, quiet=True)
+                sh("xcrun", "simctl", "io", udid, "screenshot", "%s/%s_%s_light_%s.png" % (out, tag, state, "axxxl" if os.environ.get("SHOTS_NOZOOM") else "zoom320_axxxl"), check=False, quiet=True)
             sh("xcrun", "simctl", "ui", udid, "content_size", "large", check=False)
     except Exception as e:  # one broken device must not kill the rest
         print("ERROR", tag, e, flush=True)

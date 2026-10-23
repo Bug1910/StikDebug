@@ -23,7 +23,7 @@ final class GpsSimNetwork: ObservableObject {
 
     nonisolated static let noWifiTitle = "沒有連上 Wi-Fi"
     /// The 4G route the owner confirmed on his phone 2026-10-15 (the fake point stays after airplane mode is off).
-    nonisolated static let fourGSteps = "只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回定位儀點地點 → 關飛航（假定位會保留）。或用捷徑一鍵完成。"
+    nonisolated static let fourGSteps = "只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回PinFly點地點 → 關飛航（假定位會保留）。或用捷徑一鍵完成。"
     /// The same route as numbered steps for the banner (each short enough for an iPhone SE column).
     nonisolated static let fourGStepList = ["開 LocalDevVPN", "開飛航模式", "開 Wi-Fi", "回來點地點", "關飛航模式"]
     /// The owner's own shortcut that runs the route above (built and tested by him 2026-10-15).
@@ -409,7 +409,7 @@ final class GpsSimEngine: ObservableObject {
                 self.lastLinkOK = Date()
                 self.issue = nil
                 // Idle phone + red button = clearing leftovers of an earlier run: say that, not "returned".
-                self.toast = wasSimulating ? "已回到真實位置" : "已經是真實位置（已清除殘留）"
+                self.toast = wasSimulating ? "已回到真實位置，地圖約 10 秒內更新" : "已經是真實位置（已清除殘留）"
                 // An idle press must not wipe a pending 10 s undo of an earlier stop.
                 if let stopped = self.activeTarget { self.previous = stopped }
                 self.activeName = nil
@@ -433,7 +433,7 @@ final class GpsSimEngine: ObservableObject {
         activeCenter = nil
         landing = nil
         current = nil
-        toast = "已回到真實位置"
+        toast = "已回到真實位置，地圖約 10 秒內更新"
     }
 
     private func beginBackgroundTask() {

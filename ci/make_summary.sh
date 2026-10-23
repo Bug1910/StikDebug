@@ -9,7 +9,7 @@ mkdir -p "$dst"; src="$(cd "$src" 2>/dev/null && pwd)"; dst="$(cd "$dst" && pwd)
 (cd "$src" && find . -type f -name '*.png' -print0 |
   while IFS= read -r -d '' f; do
     o="$dst/${f%.png}.jpg"; mkdir -p "$(dirname "$o")"
-    sips -s format jpeg -s formatOptions 60 --resampleWidth 360 "$f" --out "$o" >/dev/null 2>&1 || true
+    sips -s format jpeg -s formatOptions 60 --resampleWidth "${SUMMARY_WIDTH:-360}" "$f" --out "$o" >/dev/null 2>&1 || true
   done)
 {
   echo "pngs: $(find "$src" -name '*.png' | wc -l | tr -d ' ')  jpgs: $(find "$dst" -name '*.jpg' | wc -l | tr -d ' ')"

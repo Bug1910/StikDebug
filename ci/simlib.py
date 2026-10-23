@@ -2,11 +2,11 @@
 import json, os, re, struct, subprocess
 
 PLACES = {"favorites": [
-    {"id": 1, "name": "台北101", "lat": 25.033964, "lon": 121.564468, "radius": 200},
-    {"id": 2, "name": "台中公園", "lat": 24.144, "lon": 120.6831, "radius": 150},
-    {"id": 3, "name": "高雄85大樓", "lat": 22.6118, "lon": 120.3, "radius": 300},
-    {"id": 4, "name": "新竹火車站", "lat": 24.8018, "lon": 120.9714, "radius": 100},
-    {"id": 5, "name": "台南赤崁樓", "lat": 22.9972, "lon": 120.2026, "radius": 50}]}
+    {"id": 1, "name": "艾菲爾鐵塔", "lat": 48.8584, "lon": 2.2945, "radius": 200},
+    {"id": 2, "name": "自由女神像", "lat": 40.6892, "lon": -74.0445, "radius": 150},
+    {"id": 3, "name": "東京鐵塔", "lat": 35.6586, "lon": 139.7454, "radius": 300},
+    {"id": 4, "name": "雪梨歌劇院", "lat": -33.8568, "lon": 151.2153, "radius": 100},
+    {"id": 5, "name": "大笨鐘", "lat": 51.5007, "lon": -0.1246, "radius": 50}]}
 
 LANG_ARGS = ["-AppleLanguages", "(zh-Hant)", "-AppleLocale", "zh_TW"]
 

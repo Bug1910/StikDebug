@@ -263,6 +263,41 @@ struct KillProcessIntent: AppIntent {
 
 struct StikDebugShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        // GpsSim fork actions first, in spec 2.3 order (most important first, HIG App Shortcuts).
+        // An app may have only one provider. Not listed on purpose (still usable as Shortcut actions):
+        // ConnectIntent (old step, no longer needed), SimulationStatusIntent, ImportProfileIntent.
+        // Total 7 here, under Apple's limit of 10.
+        AppShortcut(
+            intent: StopSimulationIntent(),
+            phrases: ["用\(.applicationName)停止模擬", "\(.applicationName)停止模擬"],
+            shortTitle: "停止模擬",
+            systemImageName: "location.fill"
+        )
+        AppShortcut(
+            intent: SendToPlaceIntent(),
+            phrases: ["用\(.applicationName)定位到\(\.$place)", "\(.applicationName)定位到\(\.$place)"],
+            shortTitle: "定位到地點",
+            systemImageName: "location.fill"
+        )
+        AppShortcut(
+            intent: RenewSigningIntent(),
+            phrases: ["用\(.applicationName)續簽", "\(.applicationName)續簽"],
+            shortTitle: "續簽PinFly",
+            systemImageName: "signature"
+        )
+        AppShortcut(
+            intent: SigningStatusIntent(),
+            phrases: ["\(.applicationName)簽名剩幾天", "用\(.applicationName)查簽名剩幾天"],
+            shortTitle: "查簽名剩幾天",
+            systemImageName: "calendar.badge.clock"
+        )
+        AppShortcut(
+            intent: PeekRealLocationIntent(),
+            phrases: ["用\(.applicationName)看真實位置", "\(.applicationName)看真實位置"],
+            shortTitle: "看真實位置",
+            systemImageName: "location.magnifyingglass"
+        )
+        // Upstream StikDebug.
         AppShortcut(
             intent: EnableJITIntent(),
             phrases: [
@@ -290,31 +325,6 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Kill Process",
             systemImageName: "xmark.circle.fill"
-        )
-        // GpsSim fork intents (GpsSim/GpsSimIntents.swift); an app may have only one provider.
-        AppShortcut(
-            intent: ConnectIntent(),
-            phrases: ["\(.applicationName)連線", "用\(.applicationName)連線"],
-            shortTitle: "定位儀連線",
-            systemImageName: "location.fill"
-        )
-        AppShortcut(
-            intent: SendToPlaceIntent(),
-            phrases: ["用\(.applicationName)定位到\(\.$place)", "\(.applicationName)定位到\(\.$place)"],
-            shortTitle: "定位到地點",
-            systemImageName: "location.fill"
-        )
-        AppShortcut(
-            intent: PeekRealLocationIntent(),
-            phrases: ["用\(.applicationName)看真實位置", "\(.applicationName)看真實位置"],
-            shortTitle: "看真實位置",
-            systemImageName: "location.magnifyingglass"
-        )
-        AppShortcut(
-            intent: StopSimulationIntent(),
-            phrases: ["\(.applicationName)停止定位", "用\(.applicationName)停止定位"],
-            shortTitle: "停止定位",
-            systemImageName: "location.fill"
         )
     }
 }

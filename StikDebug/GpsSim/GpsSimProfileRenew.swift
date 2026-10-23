@@ -30,6 +30,8 @@ enum GpsProfileRenew {
         let message: String
         /// True when the cause was a dead tunnel (callers then reset TunnelManager so the next try rebuilds it).
         var isTunnel = false
+        /// Which tunnel symptom it was ("RwAfc", "deviceEndpointIp"), for the renew error table.
+        var tunnelHint: String? = nil
         var errorDescription: String? { message }
     }
 
@@ -37,7 +39,10 @@ enum GpsProfileRenew {
     struct InstallOutcome {
         let expiry: Date?
         let note: String?
+        /// The phone already had an equal or newer profile: nothing was installed, and that is fine.
+        var alreadyUpToDate = false
         var message: String {
+            if alreadyUpToDate { return note ?? "不用續簽" }
             if let expiry { return "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(expiry))" }
             return note ?? "已安裝"
         }
@@ -91,7 +96,7 @@ enum GpsProfileRenew {
         }
         guard new.team == current.team else { throw Failure(message: "描述檔的開發者隊伍和目前的簽名不同，已拒絕。") }
         guard new.appID == "\(current.team).\(bundleID)" else {
-            throw Failure(message: "描述檔不是給定位儀的（App 識別碼不符），已拒絕。")
+            throw Failure(message: "描述檔不是給PinFly的（App 識別碼不符），已拒絕。")
         }
         guard new.expiration > now else { throw Failure(message: "這個描述檔已經過期了。") }
         guard new.expiration > current.expiration else {
@@ -130,7 +135,8 @@ enum GpsProfileRenew {
             // "Newer" is judged against what is really on the phone, not a remembered date.
             let before = try ownProfiles(appID: parsed.appID).map(\.expiration).max() ?? .distantPast
             guard parsed.expiration > before else {
-                throw Failure(message: "手機上已經有同樣新或更新的描述檔，沒有必要換。")
+                remember(before)
+                return InstallOutcome(expiry: before, note: "手機上已有同樣新或更新的描述檔，不用續簽。", alreadyUpToDate: true)
             }
             try withTunnelRetry { try JITEnableContext.shared.addProfile(data) }
             // Read back instead of trusting the install call. From here on the install HAS happened,
@@ -236,19 +242,32 @@ enum GpsProfileRenew {
             return try call()
         } catch {
             // No startTunnel() here: it frees handles other threads may hold. The user reconnects instead.
-            if isTunnelError(error) { throw Failure(message: needTunnelMessage, isTunnel: true) }
+            if isTunnelError(error) { throw Failure(message: needTunnelMessage, isTunnel: true, tunnelHint: tunnelHint(error)) }
             throw Failure(message: "手機回報錯誤：\(error.localizedDescription)")
         }
     }
 
-    private static func isTunnelError(_ error: Error) -> Bool {
-        let ns = error as NSError
-        let text = "\(error.localizedDescription) \(ns)"
-        return ns.code == -19 || text.contains("DeviceEndpointNotInitialized") || text.contains("Tunnel is not connected")
+    private static func errorText(_ error: Error) -> String {
+        "\(error.localizedDescription) \(error as NSError)"
     }
 
+    private static func isTunnelError(_ error: Error) -> Bool {
+        let text = errorText(error)
+        return (error as NSError).code == -19 || text.contains("DeviceEndpointNotInitialized")
+            || text.contains("Tunnel is not connected") || tunnelHint(error) != nil
+    }
+
+    /// SideStore-style symptoms of a missing LocalDevVPN path (seen in TESTLOG 10/18 on 4G).
+    private static func tunnelHint(_ error: Error) -> String? {
+        let text = errorText(error)
+        if text.contains("RwAfc") { return "RwAfc" }
+        if text.contains("deviceEndpointIp") { return "deviceEndpointIp" }
+        return nil
+    }
+
+    /// Waits up to 10 s for LocalDevVPN; throws the Wi-Fi/LocalDevVPN message if it is not up.
     @MainActor
-    private static func requireTunnel() async throws {
+    static func requireTunnel() async throws {
         let tunnel = TunnelManager.shared
         if !tunnel.isConnected {
             guard GpsSimEngine.pairingExists else { throw Failure(message: "還沒有配對檔。") }
@@ -277,7 +296,7 @@ enum GpsProfileRenew {
 
 struct ImportProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "匯入描述檔"
-    static var description = IntentDescription("把新的描述檔（.mobileprovision）裝到手機，不用重裝定位儀。需要 Wi-Fi 且 LocalDevVPN 已連線；檢查有任何一項不過就什麼都不做。")
+    static var description = IntentDescription("把新的描述檔（.mobileprovision）裝到手機，不用重裝PinFly。需要 Wi-Fi 且 LocalDevVPN 已連線；檢查有任何一項不過就什麼都不做。")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "描述檔")

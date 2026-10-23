@@ -19,12 +19,13 @@ struct GpsSimSettingsView: View {
     @State private var showPairingImporter = false
     @State private var pairingMessage: String?
     @State private var showAdvanced = false
+    @State private var advancedOpen = false
     @State private var confirmPairingReplace = false
     @State private var shortcutMessage: String?
-    @State private var showProfileImporter = false
-    @State private var profileMessage: String?
-    @State private var profileBusy = false
-    @State private var signTick = 0
+    /// Renewal sign-in sheet and advanced page, opened from the sign section (see GpsSignSection).
+    @State private var showRenewSignIn = false
+    @State private var showRenewAdvanced = false
+    @State private var confirmRenewReset = false
     @ObservedObject private var store = GpsPlaceStore.shared
 
     /// 「版本 v1.0.0（dcd13a2 · 2026-10-15）」. CI stamps GpsSimBuild (short sha · build date)
@@ -41,81 +42,49 @@ struct GpsSimSettingsView: View {
         FileManager.default.fileExists(atPath: GpsPlaceStore.fileURL.path)
     }
 
-    private func runProfileImport(_ result: Result<[URL], Error>) {
-        profileBusy = true
-        profileMessage = "處理中…"
-        Task {
-            defer { profileBusy = false }
-            do {
-                guard let url = try result.get().first else { return }
-                let data = try GpsProfileRenew.readPicked(url)
-                let outcome = try await GpsProfileRenew.install(data)
-                profileMessage = outcome.message
-                signTick += 1
-            } catch {
-                profileMessage = "沒有換：\(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func runProfileCleanup() {
-        profileBusy = true
-        Task {
-            defer { profileBusy = false }
-            do {
-                let count = try await GpsProfileRenew.removeOwnExpired()
-                profileMessage = count == 0 ? "沒有過期的舊描述檔。" : "已清掉 \(count) 個過期的舊描述檔。"
-            } catch {
-                profileMessage = "清除失敗：\(error.localizedDescription)"
-            }
-        }
-    }
-
     var body: some View {
         NavigationStack {
             Form {
                 if GpsSigning.expiration != nil {
-                    Section {
-                        // Re-reads the days left every minute while the sheet stays open.
-                        // signTick: bump to re-read GpsSigning right after a swap or a phone re-read.
-                        TimelineView(.periodic(from: .now, by: 60)) { context in
-                            Text(GpsSigning.settingsText(now: context.date) ?? "")
-                                .foregroundStyle(GpsSigning.isExpired(now: context.date) ? GpsTheme.red : Color.primary)
-                                .frame(minHeight: 44, alignment: .leading)
-                                .accessibilityIdentifier("settings.signExpiry")
-                        }
-                        .id(signTick)
-                        Button {
-                            showProfileImporter = true
-                        } label: {
-                            Label("匯入描述檔（不用重裝）", systemImage: "doc.badge.plus").frame(minHeight: 44)
-                        }
-                        .disabled(profileBusy)
-                        .accessibilityIdentifier("settings.importProfile")
-                        // Separate view level: two fileImporters on one view only honor the last one.
-                        .background {
-                            Color.clear.fileImporter(isPresented: $showProfileImporter,
-                                                     allowedContentTypes: GpsProfileRenew.fileTypes,
-                                                     allowsMultipleSelection: false) { result in
-                                runProfileImport(result)
-                            }
-                        }
-                        Button("清掉過期的舊描述檔（只清定位儀自己的）") { runProfileCleanup() }
-                            .disabled(profileBusy)
-                            .frame(minHeight: 44)
-                        if let profileMessage {
-                            Text(profileMessage).font(.footnote).foregroundStyle(.secondary)
-                        }
-                    } header: {
-                        Text("簽名")
-                    } footer: {
-                        Text("免費 Apple ID 的簽名每 7 天到期；到期前打開 SideStore 按 Refresh All，或接電腦按「定位儀續簽」。")
-                    }
+                    // 立即續簽 and the days left; 描述檔 import/cleanup moved to 簽名 › 進階 (spec 1.11).
+                    GpsSignSection(onSignIn: { showRenewSignIn = true },
+                                   onAdvanced: { showRenewAdvanced = true })
                 }
+                GpsSimShortcutsSection()
+
+                Section {
+                    Toggle("原地微飄（像真手機晃幾公尺）", isOn: $driftEnabled)
+                        .frame(minHeight: 44)
+                } footer: {
+                    Text("像真手機的 GPS 一樣在落點附近輕微飄動，不會離落點超過 4 公尺。")
+                }
+
+                Section {
+                    Button {
+                        withAnimation { advancedOpen.toggle() }
+                    } label: {
+                        HStack {
+                            Text("進階（一般不用動）")
+                            Spacer()
+                            Image(systemName: advancedOpen ? "chevron.up" : "chevron.down")
+                                .accessibilityHidden(true)
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityValue(advancedOpen ? "已展開" : "已收合")
+                    .accessibilityHint("連不上的說明、地點檔、配對檔、原版 StikDebug 畫面")
+                    .accessibilityIdentifier("settings.advanced")
+                } footer: {
+                    Text("多數時候用不到。")
+                }
+
+                if advancedOpen {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("有 Wi-Fi 時：打開 LocalDevVPN，回定位儀按「重試」。")
-                        Text("只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回定位儀點地點 → 關飛航（假定位會保留）。")
+                        Text("PinFly 要透過 LocalDevVPN（裝 PinFly 時一起裝的 App）才能改定位。")
+                        Text("有 Wi-Fi：打開 LocalDevVPN 按連線，回 PinFly 按「重試」。")
+                        Text("只有行動網路（4G／5G）時，LocalDevVPN 連不上。先開飛航模式切斷行動網路，再單獨打開 Wi-Fi，改完定位後關飛航，假定位會保留。")
                     }
                     .padding(.vertical, 4)
                     if let url = GpsSimNetwork.shortcutURL {
@@ -134,7 +103,7 @@ struct GpsSimSettingsView: View {
                         Text(shortcutMessage).font(.footnote).foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("連不上？")
+                    Text("連不上手機時")
                 }
 
                 Section {
@@ -161,14 +130,7 @@ struct GpsSimSettingsView: View {
                 } header: {
                     Text("地點")
                 } footer: {
-                    Text("地點存在本機的 places.json，更新 App 不會清掉。匯出可存到「檔案」或傳到電腦備份。")
-                }
-
-                Section {
-                    Toggle("原地微飄（像真手機晃幾公尺）", isOn: $driftEnabled)
-                        .frame(minHeight: 44)
-                } footer: {
-                    Text("像真手機的 GPS 一樣在落點附近輕微飄動，不會離落點超過 4 公尺。")
+                    Text("地點存在這支手機裡，更新 PinFly 不會不見。匯出可存到「檔案」或傳到電腦備份。")
                 }
 
                 Section {
@@ -178,14 +140,30 @@ struct GpsSimSettingsView: View {
                         Text(pairingMessage).font(.footnote).foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("配對檔")
+                    Text("配對檔（連手機用的鑰匙）")
+                } footer: {
+                    Text("配對檔要用電腦上的 iloader 產生一次（約 5 分鐘）。")
                 }
 
                 Section {
-                    Button("進階 (StikDebug)") { showAdvanced = true }
+                    Button("進階：原始除錯工具（一般不用）") { showAdvanced = true }
                         .frame(minHeight: 44)
                 } footer: {
                     Text("原本 StikDebug 的畫面（JIT、裝置資訊、Settings 等）。")
+                }
+                }
+
+                Section {
+                    Button("重設驗證資料", role: .destructive) { confirmRenewReset = true }
+                        .frame(minHeight: 44)
+                    NavigationLink("開源授權") { GpsSimLicensesView() }
+                        .frame(minHeight: 44)
+                } footer: {
+                    Text("重設會登出 Apple ID 並清掉 anisette 身分，下次續簽要重新登入並輸入驗證碼。")
+                }
+                .confirmationDialog("重設驗證資料？", isPresented: $confirmRenewReset, titleVisibility: .visible) {
+                    Button("登出並重設", role: .destructive) { Task { await GpsRenewCenter.shared.resetAuthData() } }
+                    Button("取消", role: .cancel) {}
                 }
 
                 Section {
@@ -198,6 +176,12 @@ struct GpsSimSettingsView: View {
                 }
             }
             .navigationTitle("設定")
+            .navigationDestination(isPresented: $showRenewAdvanced) {
+                GpsRenewAdvancedPage()
+            }
+            .sheet(isPresented: $showRenewSignIn) {
+                GpsRenewSignInSheet(origin: .renewAfter).preferredColorScheme(.dark)
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -238,7 +222,7 @@ struct GpsSimSettingsView: View {
         .gpsSimPadSheetSizing()
         .task {
             await GpsProfileRenew.refreshFromPhone()
-            signTick += 1
+            GpsRenewCenter.shared.bumpSign()
         }
     }
 }
@@ -261,7 +245,7 @@ struct GpsSimAdvancedView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Label("回定位儀", systemImage: "chevron.left")
+                    Label("回PinFly", systemImage: "chevron.left")
                         .font(.headline)
                         .frame(minHeight: 44)
                 }

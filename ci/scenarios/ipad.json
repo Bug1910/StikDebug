@@ -14,16 +14,16 @@
   "tapId": "search.field"
  },
  {
-  "type": "日月潭\n"
+  "type": "羅浮宮\n"
  },
  {
   "wait": 3
  },
  {
-  "shot": "search_sunmoon"
+  "shot": "search_louvre"
  },
  {
-  "tree": "search_sunmoon"
+  "tree": "search_louvre"
  },
  {
   "tapId": "search.result.0"
@@ -32,7 +32,7 @@
   "wait": 2
  },
  {
-  "shot": "draft_sunmoon"
+  "shot": "draft_louvre"
  },
  {
   "tapId": "draft.save"
@@ -47,7 +47,7 @@
   "tapId": "search.field"
  },
  {
-  "type": "23.4697, 120.9570\n"
+  "type": "37.8199, -122.4783\n"
  },
  {
   "wait": 2

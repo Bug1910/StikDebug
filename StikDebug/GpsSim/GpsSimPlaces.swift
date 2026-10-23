@@ -185,7 +185,7 @@ enum GpsGeo {
     }
 
     /// "lat, lon" (half- or full-width comma, or whitespace). If the first number can't be a
-    /// latitude but the second can (e.g. "120.97, 24.80" pasted lon-first), they are swapped.
+    /// latitude but the second can (e.g. "139.74, 35.65" pasted lon-first), they are swapped.
     static func parseCoordinateResult(_ text: String) -> CoordinateParse {
         let normalized = text
             .replacingOccurrences(of: "，", with: ",")

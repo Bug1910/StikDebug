@@ -2,7 +2,7 @@
  {
   "persona": "粗心的人（邊走邊滑、常按錯）",
   "situation": "出去玩邊走邊用：按到邊緣、連點兩下、刪錯又復原、座標打錯或前後顛倒、改名改到一半取消",
-  "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place (must send once), opens 管理地點 and deletes one (no confirm, 復原 in the toast), types malformed coordinates (25.03,abc and reversed 121.56, 25.03), cancels the edit sheet halfway."
+  "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place (must send once), opens 管理地點 and deletes one (no confirm, 復原 in the toast), types malformed coordinates (48.85,abc and reversed 139.74, 35.65), cancels the edit sheet halfway."
  },
  {
   "tree": "start"
@@ -73,7 +73,7 @@
   "tapId": "search.field"
  },
  {
-  "type": "25.03,abc\n"
+  "type": "48.85,abc\n"
  },
  {
   "wait": 2
@@ -88,7 +88,7 @@
   "tapId": "search.field"
  },
  {
-  "type": "121.56, 25.03\n"
+  "type": "139.74, 35.65\n"
  },
  {
   "wait": 2
@@ -109,7 +109,7 @@
   "tapId": "edit.name"
  },
  {
-  "type": "赤崁樓改名中"
+  "type": "大笨鐘改名中"
  },
  {
   "tap": "取消"

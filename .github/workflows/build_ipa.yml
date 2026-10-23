@@ -73,6 +73,34 @@ jobs:
           archive: false
           retention-days: 90
 
+      - name: 7. Compile Release archive (unsigned, for phone install)
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          xcodebuild archive \
+            -project StikDebug.xcodeproj \
+            -scheme "StikDebug" \
+            -configuration Release \
+            -archivePath build/StikDebugRelease.xcarchive \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=17.4
+          mkdir -p PayloadR
+          cp -R build/StikDebugRelease.xcarchive/Products/Applications/StikDebug.app PayloadR/
+          mkdir -p relpkg && mv PayloadR relpkg/Payload
+          (cd relpkg && zip -qr ../StikDebug-release-${GITHUB_SHA::7}.ipa Payload)
+
+      - name: 8. Store Release IPA artifact
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v7
+        with:
+          path: StikDebug-release-*.ipa
+          archive: false
+          retention-days: 30
+
       - name: Read version
         id: version
         if: startsWith(github.ref, 'refs/tags/')

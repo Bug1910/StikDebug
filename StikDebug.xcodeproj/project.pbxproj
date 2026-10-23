@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		68D569BE2E1B415700A5BA36 /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BD2E1B415700A5BA36 /* CodeEditorView */; };
 		68D569C02E1B415700A5BA36 /* LanguageSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 68D569BF2E1B415700A5BA36 /* LanguageSupport */; };
+		6A5E51C12F9A000100C0FFEE /* SideSign in Frameworks */ = {isa = PBXBuildFile; productRef = 6A5E51C22F9A000100C0FFEE /* SideSign */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,6 +88,7 @@
 			files = (
 				68D569C02E1B415700A5BA36 /* LanguageSupport in Frameworks */,
 				68D569BE2E1B415700A5BA36 /* CodeEditorView in Frameworks */,
+				6A5E51C12F9A000100C0FFEE /* SideSign in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -160,6 +162,7 @@
 			packageProductDependencies = (
 				68D569BD2E1B415700A5BA36 /* CodeEditorView */,
 				68D569BF2E1B415700A5BA36 /* LanguageSupport */,
+				6A5E51C22F9A000100C0FFEE /* SideSign */,
 			);
 			productName = StikDebug;
 			productReference = DC6F1D372D94EADD0071B2B6 /* StikDebug.app */;
@@ -248,6 +251,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				68D569BC2E1B415700A5BA36 /* XCRemoteSwiftPackageReference "CodeEditorView" */,
+				6A5E51C32F9A000100C0FFEE /* XCRemoteSwiftPackageReference "SideSign" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DC6F1D382D94EADD0071B2B6 /* Products */;
@@ -460,9 +464,9 @@
 				INFOPLIST_FILE = StikDebug/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "定位儀要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PinFly要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -522,9 +526,9 @@
 				INFOPLIST_FILE = StikDebug/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "定位儀要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "定位儀在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PinFly要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -718,6 +722,14 @@
 				minimumVersion = 0.15.4;
 			};
 		};
+		6A5E51C32F9A000100C0FFEE /* XCRemoteSwiftPackageReference "SideSign" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SideStore/SideSign";
+			requirement = {
+				kind = revision;
+				revision = 752d1ef602aa792a432ffa1e71646dc1ecf7363c;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -730,6 +742,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 68D569BC2E1B415700A5BA36 /* XCRemoteSwiftPackageReference "CodeEditorView" */;
 			productName = LanguageSupport;
+		};
+		6A5E51C22F9A000100C0FFEE /* SideSign */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6A5E51C32F9A000100C0FFEE /* XCRemoteSwiftPackageReference "SideSign" */;
+			productName = SideSign;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -92,6 +92,9 @@ for n, step in enumerate(steps, 1):
             r = sh("axe", "swipe", "--start-x", val[0], "--start-y", val[1], "--end-x", val[2], "--end-y", val[3],
                    "--udid", udid, check=False)
             ok, detail = r.returncode == 0, r.stderr.strip()[:200]
+        elif kind == "selectAll":  # Cmd+A in the focused field (so the next `type` replaces the text)
+            r = sh("axe", "key-combo", "--modifiers", "227", "--key", "4", "--udid", udid, check=False)
+            ok, detail = r.returncode == 0, r.stderr.strip()[:200]
         elif kind == "wait":
             time.sleep(float(val))
         elif kind == "shot":
@@ -120,3 +123,4 @@ for n, step in enumerate(steps, 1):
 json.dump({"tester": tester, **persona, "device": name, "results": results, "failed": sum(not r["ok"] for r in results)},
           open(out + "/results.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 sh("xcrun", "simctl", "shutdown", udid, check=False, quiet=True)
+sys.exit(1 if any(not r["ok"] for r in results) else 0)  # a scenario with any failed step turns the CI job red

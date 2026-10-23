@@ -1,0 +1,529 @@
+[
+ {
+  "persona": "renew mock",
+  "situation": "Debug build with GPSSIM_RENEW_MOCK: sign in, 2FA, renew, failures, reset",
+  "note": "mock backend scenario"
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_RENEW_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "start"
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "settings"
+ },
+ {
+  "tree": "settings"
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "account"
+ },
+ {
+  "tapId": "renew.signIn"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "intro"
+ },
+ {
+  "tapId": "signIn.next"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "signIn.appleID"
+ },
+ {
+  "type": "tester@example.com"
+ },
+ {
+  "tapId": "signIn.password"
+ },
+ {
+  "type": "wrong"
+ },
+ {
+  "tapId": "signIn.submit"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "wrong_password"
+ },
+ {
+  "tapId": "signIn.password"
+ },
+ {
+  "selectAll": 1
+ },
+ {
+  "type": "correct"
+ },
+ {
+  "tapId": "signIn.submit"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "code_screen"
+ },
+ {
+  "tapId": "signIn.code"
+ },
+ {
+  "type": "000000"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "code_wrong"
+ },
+ {
+  "tapId": "signIn.code"
+ },
+ {
+  "selectAll": 1
+ },
+ {
+  "type": "123456"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "signed_in"
+ },
+ {
+  "tapId": "signIn.renewNow"
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "renew_success"
+ },
+ {
+  "tree": "renew_success"
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "renew.advanced"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "renew.resetAuth"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "reset_alert"
+ },
+ {
+  "tap": "重設"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "after_reset"
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_RENEW_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "account"
+ },
+ {
+  "tapId": "renew.signIn"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "intro"
+ },
+ {
+  "tapId": "signIn.next"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "signIn.appleID"
+ },
+ {
+  "type": "mismatch@example.com"
+ },
+ {
+  "tapId": "signIn.password"
+ },
+ {
+  "type": "correct"
+ },
+ {
+  "tapId": "signIn.submit"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "signIn.code"
+ },
+ {
+  "type": "123456"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "signed_in_mismatch"
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "renew_fail_mismatch"
+ },
+ {
+  "tree": "renew_fail_mismatch"
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_RENEW_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "settings_after_mismatch"
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "renew.advanced"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "renew.resetAuth"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tap": "重設"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "reset_mismatch"
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_RENEW_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "account"
+ },
+ {
+  "tapId": "renew.signIn"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "intro"
+ },
+ {
+  "tapId": "signIn.next"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "signIn.appleID"
+ },
+ {
+  "type": "network@example.com"
+ },
+ {
+  "tapId": "signIn.password"
+ },
+ {
+  "type": "correct"
+ },
+ {
+  "tapId": "signIn.submit"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "signIn.code"
+ },
+ {
+  "type": "123456"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "signed_in_network@"
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "renew_fail_network@"
+ },
+ {
+  "tree": "renew_fail_network@"
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_RENEW_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "settings_after_network@"
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "renew.advanced"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "renew.resetAuth"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tap": "重設"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "reset_network@"
+ }
+]

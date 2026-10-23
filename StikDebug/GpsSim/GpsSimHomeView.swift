@@ -31,7 +31,12 @@ enum GpsTheme {
     static let stopRed = Color(red: 0.706, green: 0.137, blue: 0.165)      // #B4232A
     static let stopRedPressed = Color(red: 0.557, green: 0.106, blue: 0.129) // #8E1B21
     static let stopBorder = Color(red: 1.0, green: 0.42, blue: 0.42)        // #FF6B6B
-    static let stopIdleText = Color(red: 1.0, green: 0.541, blue: 0.541)    // #FF8A8A
+    /// Idle stop button outline: card alone vs a dark (forest) satellite map was 1.15:1, this is 4.87:1.
+    static let idleBorder = Color(red: 0.541, green: 0.580, blue: 0.639)    // #8A94A3
+    /// Text on mint or yellow fills (13.56:1 on mint, 9.86:1 on yellow).
+    static let onAccent = Color(red: 0.047, green: 0.067, blue: 0.102)      // #0C111A
+    /// Text of destructive buttons (登出、重設); #EF4444 as text on card is only 4.59:1.
+    static let dangerText = Color(red: 1.0, green: 0.42, blue: 0.42)        // #FF6B6B
     static let panelTop = Color(red: 0.075, green: 0.106, blue: 0.161)     // #131B29
 
     /// Stable per-place hue: FNV-1a over the id's UTF-8 bytes (never hashValue, which changes per launch).
@@ -43,6 +48,12 @@ enum GpsTheme {
         }
         return Color(hue: Double(h % 360) / 360.0, saturation: 0.38, brightness: 1.0)
     }
+
+    /// Whole world, for the second search when Taiwan has no name match.
+    static let worldRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+        span: MKCoordinateSpan(latitudeDelta: 179.9, longitudeDelta: 359.9)
+    )
 
     /// Whole of Taiwan incl. Penghu/Kinmen-ish; used for the first camera and MKLocalSearch.
     static let taiwanRegion = MKCoordinateRegion(
@@ -101,6 +112,8 @@ private struct GpsDraft {
     var coordinate: CLLocationCoordinate2D
     var name: String
     var nameEdited = false
+    /// Address line of a search result, shown in grey under the name.
+    var address: String?
     var size: GpsSize = .small
     /// ＋ button: the point follows the map centre (crosshair) until saved.
     var followsCenter = false
@@ -164,7 +177,7 @@ private enum GpsCoordinateInput {
         guard let lat = first, let lon = second else {
             if first == nil && second == nil { return .notCoordinate }
             let which = first == nil ? "緯度" : "經度"
-            return .malformed("座標格式不對：\(which)不是數字（範例：24.1443, 120.6851）")
+            return .malformed("座標格式不對：\(which)不是數字（範例：48.8584, 2.2945）")
         }
         guard (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else {
             let swappedValid = (-90.0...90.0).contains(lon) && (-180.0...180.0).contains(lat)
@@ -181,6 +194,9 @@ struct GpsSimHomeView: View {
     @ObservedObject private var tunnel = TunnelManager.shared
     @ObservedObject private var mounting = MountingProgress.shared
     @ObservedObject private var network = GpsSimNetwork.shared
+    @ObservedObject private var renew = GpsRenewCenter.shared
+    /// Sign-in sheet for 「登入並續簽」 on the home reminder card.
+    @State private var showRenewSignIn = false
     @Environment(\.scenePhase) private var scenePhase
     /// The system text size as set (the screen itself caps it at maxTypeSize below).
     @Environment(\.dynamicTypeSize) private var systemTypeSize
@@ -194,11 +210,15 @@ struct GpsSimHomeView: View {
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
     @State private var searchMessage: String?
+    /// Changes on every new search and on clear: a slow older search must not overwrite a newer one.
+    @State private var searchID = UUID()
     /// Lat/lon swapped version of an out-of-range paste, offered via the 「對調」 button.
     @State private var swappedSuggestion: CLLocationCoordinate2D?
     @State private var editing: GpsPlace?
     @State private var managing = false
     @State private var showSettings = false
+    @State private var showPairingImporter = false
+    @State private var pairingCardDismissed = false
     @State private var showPlacesImporter = false
     @State private var pairingExists = GpsSimEngine.pairingExists
     @State private var tunnelGraceOver = false
@@ -383,6 +403,8 @@ struct GpsSimHomeView: View {
             if phase == .active {
                 signNow = Date()
                 refreshFromDisk(startTunnel: true)
+                // Re-plans the expiry reminders and, if due, renews once (foreground only).
+                renew.appBecameActive()
             }
         }
         .onChange(of: engine.toast) { _, value in
@@ -419,12 +441,18 @@ struct GpsSimHomeView: View {
             guard !searchOpen, let framing = lastFraming, !position.positionedByUser else { return }
             apply(framing, animated: true)
         }
+        .onChange(of: renew.successToast) { _, text in
+            guard let text else { return }
+            signNow = Date()
+            showToast(text, autoClear: true, duration: 3)
+            renew.successToast = nil
+        }
         .onChange(of: engine.isBusy) { _, busy in
             if !busy { sendingPlaceID = nil }
         }
         // Only state changes are announced; sends are announced by their toast.
         .onChange(of: isSimulating) { _, simulating in
-            if !simulating { AccessibilityAnnouncer.announce("已回到真實位置") }
+            if !simulating { AccessibilityAnnouncer.announce("已回到真實位置，地圖約 10 秒內更新") }
         }
         // linkUp, not tunnel.isConnected: on 4G the JIT tunnel never changes, the location link does.
         .onChange(of: linkUp) { _, up in
@@ -458,33 +486,47 @@ struct GpsSimHomeView: View {
             })
             .preferredColorScheme(.dark)
         }
+        .sheet(isPresented: $showRenewSignIn) {
+            GpsRenewSignInSheet(origin: .renewAfter).preferredColorScheme(.dark)
+        }
         .fileImporter(isPresented: $showPlacesImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
             importPlaces(result)
         }
+        // A second fileImporter on the same view silently stops working, so the pairing one hangs off a background view.
+        .background(
+            Color.clear.fileImporter(isPresented: $showPairingImporter,
+                                     allowedContentTypes: PairingFileStore.supportedContentTypes,
+                                     allowsMultipleSelection: false) { result in
+                if case .success(let urls) = result, let url = urls.first, (try? PairingFileStore.importFromPicker(url)) != nil {
+                    pairingExists = true
+                    markTunnelDisconnected()
+                    startTunnelInBackground(showErrorUI: false)
+                    NotificationCenter.default.post(name: .pairingFileImported, object: nil)
+                } else {
+                    showToast("配對檔匯入失敗，請確認選的是電腦產生的配對檔。", autoClear: true, duration: 6)
+                }
+            }
+        )
     }
 
     // MARK: - Top: status line, settings, search
 
     private var topControls: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                statusPill
-                stopButton
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(Self.roundIconFont)
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(GpsTheme.card.opacity(0.94), in: Circle())
-                        .overlay(Circle().stroke(GpsTheme.line, lineWidth: 1))
-                        .contentShape(Circle())
+            if largeText {
+                // Accessibility sizes: status + settings on one row, the stop button on its own
+                // full-width row with its text (HIG Typography: stack, never icon only).
+                HStack(alignment: .top, spacing: 8) {
+                    statusPill
+                    settingsButton
                 }
-                .buttonStyle(.plain)
-                .fixedSize()
-                .accessibilityLabel("設定")
-                .accessibilityIdentifier("btn.settings")
+                stopButton(fullWidth: true)
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    statusPill
+                    stopButton(fullWidth: false)
+                    settingsButton
+                }
             }
             searchBar
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBarFrame = $0 }
@@ -497,6 +539,24 @@ struct GpsSimHomeView: View {
         }
         .frame(maxWidth: Self.controlWidth)
         .padding(.top, 2)
+    }
+
+    private var settingsButton: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(Self.roundIconFont)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(GpsTheme.card.opacity(0.94), in: Circle())
+                .overlay(Circle().stroke(GpsTheme.line, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("設定")
+        .accessibilityIdentifier("btn.settings")
     }
 
     /// Fresh = the phone accepted a point within the last 15 s (heartbeat is every 4 s).
@@ -518,11 +578,21 @@ struct GpsSimHomeView: View {
             let line = statusLine(fresh: fresh)
             HStack(spacing: 8) {
                 GpsPulseDot(fresh: fresh, active: isSimulating, kept: engine.activeName != nil)
+                // The 「・連線中斷」 tail is its own Text with higher layout priority, so a long place
+                // name is what gets cut (at the end), never the part that says something is wrong.
                 Text(line)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(largeText ? 2 : 1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
+                if let tail = statusTail(fresh: fresh) {
+                    Text(tail)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(GpsTheme.orange)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 Spacer(minLength: 0)
                 // Spinner lives inside the pill so connecting/sending never adds a row.
                 if engine.isBusy || isConnecting || isMountingNow { ProgressView().controlSize(.small) }
@@ -536,10 +606,15 @@ struct GpsSimHomeView: View {
                         lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(line)
+            .accessibilityLabel(line + (statusTail(fresh: fresh) ?? ""))
+            .accessibilityHint("點一下看說明")
             .accessibilityIdentifier("status.pill")
             .onTapGesture {
-                if !isSimulating { showToast("點下面的地點就會飛過去", autoClear: true) }
+                if engine.activeName != nil, !fresh {
+                    showToast("和手機的連線中斷。假定位通常還在，不用重按；要換地點或停止，先連上 LocalDevVPN。", autoClear: true, duration: 8)
+                } else if !isSimulating {
+                    showToast("現在是手機的真實位置。點下方地點開始模擬。", autoClear: true, duration: 6)
+                }
             }
         }
     }
@@ -547,13 +622,18 @@ struct GpsSimHomeView: View {
     /// One short line, always text (never only colour or animation).
     private func statusLine(fresh: Bool) -> String {
         if let name = engine.activeName {
-            return fresh ? "在 \(name)" : "\(name)・已保留（離線）"
+            return fresh ? "在 \(name)" : name
         }
         if session.isActive { return "在外部連結的位置" }
         if let stale = engine.staleTarget { return "上次在 \(stale.name)（定位可能仍保留）" }
         if isConnecting { return "連線中…" }
         if isMountingNow { return "準備中…" }
-        return "真實位置"
+        return "點下方地點開始模擬"
+    }
+
+    /// Orange tail shown after the place name when the phone has not confirmed the point lately.
+    private func statusTail(fresh: Bool) -> String? {
+        engine.activeName != nil && !fresh ? "・連線中斷" : nil
     }
 
     private var searchBar: some View {
@@ -625,14 +705,15 @@ struct GpsSimHomeView: View {
                         // The pick moves into the new-place card; an empty field is ready for the next search.
                         clearSearch()
                         searchFocused = false
-                        startDraft(at: c, name: item.name ?? String(format: "%.5f, %.5f", c.latitude, c.longitude))
+                        startDraft(at: c, name: item.name ?? String(format: "%.5f, %.5f", c.latitude, c.longitude),
+                                   address: addressText(of: item))
                     } label: {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.name ?? "（未命名）")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
-                            if let sub = addressText(of: item) {
+                            if let sub = resultSubtitle(of: item) {
                                 Text(sub).font(.footnote).foregroundStyle(GpsTheme.sub).lineLimit(1)
                             }
                         }
@@ -657,6 +738,8 @@ struct GpsSimHomeView: View {
     }
 
     private func clearSearch() {
+        searchID = UUID()
+        isSearching = false
         searchText = ""
         searchResults = []
         searchMessage = nil
@@ -687,24 +770,96 @@ struct GpsSimHomeView: View {
         case .notCoordinate:
             break
         }
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = q
-        request.region = GpsTheme.taiwanRegion
         searchFocused = false
         isSearching = true
+        let myID = UUID()
+        searchID = myID
         Task {
-            let items: [MKMapItem]
-            do {
-                items = try await MKLocalSearch(request: request).start().mapItems
-            } catch {
-                items = []
+            // Taiwan first (fast, local names), then the whole world: a Taiwan-only search answered
+            // 「大英博物館」 with a street in Taitung. Results whose name or address does not contain
+            // the typed words are never listed first, and the message says so.
+            let words = Self.queryWords(q)
+            let hasCJK = q.unicodeScalars.contains { $0.value >= 0x2E80 }
+            let taiwan = await Self.mapSearch(q, region: GpsTheme.taiwanRegion)
+            var matched = taiwan.items.filter { Self.matches($0, words: words, address: addressText(of:)) }
+            var fallback = taiwan.items
+            var networkFailed = taiwan.networkFailed
+            // Chinese query: ask the world when Taiwan has no name match. English query: names come
+            // back in Chinese so they cannot be checked; ask the world when Taiwan is empty or its
+            // first answer is outside Taiwan, and merge both lists (Taiwan first, no duplicates).
+            let firstOutsideTaiwan = taiwan.items.first.map { $0.placemark.isoCountryCode != "TW" } ?? true
+            if hasCJK ? matched.isEmpty : (taiwan.items.isEmpty || firstOutsideTaiwan) {
+                let world = await Self.mapSearch(q, region: GpsTheme.worldRegion)
+                networkFailed = networkFailed && world.networkFailed
+                if hasCJK {
+                    matched = world.items.filter { Self.matches($0, words: words, address: addressText(of:)) }
+                    fallback = world.items.isEmpty ? taiwan.items : world.items
+                } else {
+                    var seen = Set<String>()
+                    let merged = (taiwan.items + world.items).filter {
+                        let c = $0.placemark.coordinate
+                        return seen.insert("\($0.name ?? "")|\(Int(c.latitude * 1000))|\(Int(c.longitude * 1000))").inserted
+                    }
+                    matched = merged
+                    fallback = merged
+                }
             }
+            let (m, f, nf) = (matched, fallback, networkFailed)
             await MainActor.run {
+                // Cleared or replaced by a newer search while we waited: drop this answer.
+                guard searchID == myID else { return }
                 isSearching = false
-                searchResults = Array(items.prefix(6))
-                searchMessage = items.isEmpty ? "找不到「\(q)」。換個關鍵字，或長按地圖直接新增。" : nil
+                if !m.isEmpty {
+                    searchResults = Array(m.prefix(6))
+                    searchMessage = nil
+                } else if !f.isEmpty {
+                    searchResults = Array(f.prefix(6))
+                    searchMessage = "沒有名稱完全相符的結果，請看清楚再選；也可以試試英文名稱。"
+                } else if nf {
+                    searchResults = []
+                    searchMessage = "搜尋需要網路，請確認連線後再試"
+                } else {
+                    searchResults = []
+                    searchMessage = "找不到「\(q)」。試試英文名稱，或長按地圖直接新增。"
+                }
             }
         }
+    }
+
+    /// `networkFailed`: the search itself errored for a reason other than "nothing found".
+    private static func mapSearch(_ query: String, region: MKCoordinateRegion) async -> (items: [MKMapItem], networkFailed: Bool) {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.region = region
+        do {
+            return (try await MKLocalSearch(request: request).start().mapItems, false)
+        } catch {
+            NSLog("PinFly search failed: %@", String(describing: error))
+            if let mk = error as? MKError, mk.code == .placemarkNotFound { return ([], false) }
+            return ([], true)
+        }
+    }
+
+    /// Same text after folding case, full/half width, accents, simplified→traditional, 台→臺, and
+    /// dropping spaces and punctuation, so 「台北 101」 finds 「臺北101」.
+    private static let foldDropped = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+
+    private static func fold(_ text: String) -> String {
+        let hant = text.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? text
+        let folded = hant.folding(options: [.caseInsensitive, .widthInsensitive, .diacriticInsensitive], locale: nil)
+            .replacingOccurrences(of: "台", with: "臺")
+        return String(folded.unicodeScalars.filter { !foldDropped.contains($0) })
+    }
+
+    /// The typed words, folded once per search (not once per result).
+    private static func queryWords(_ query: String) -> [String] {
+        query.split(whereSeparator: { $0 == " " || $0 == "　" }).map { fold(String($0)) }.filter { !$0.isEmpty }
+    }
+
+    /// Every typed word appears in the result's name or address.
+    private static func matches(_ item: MKMapItem, words: [String], address: (MKMapItem) -> String?) -> Bool {
+        let haystack = fold((item.name ?? "") + " " + (address(item) ?? ""))
+        return !words.isEmpty && words.allSatisfy { haystack.contains($0) }
     }
 
     private func coordinate(of item: MKMapItem) -> CLLocationCoordinate2D {
@@ -712,6 +867,13 @@ struct GpsSimHomeView: View {
             return item.location.coordinate
         }
         return item.placemark.coordinate
+    }
+
+    /// 「國家・城市」 so a same-named place in another country is told apart at a glance.
+    private func resultSubtitle(of item: MKMapItem) -> String? {
+        let mark = item.placemark
+        let parts = [mark.country, mark.locality ?? mark.administrativeArea].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? addressText(of: item) : parts.joined(separator: "・")
     }
 
     private func addressText(of item: MKMapItem) -> String? {
@@ -1122,8 +1284,14 @@ struct GpsSimHomeView: View {
     private var bannerStack: some View {
         VStack(spacing: 8) {
             ForEach(orderedBanners) { b in
-                GpsBannerRow(banner: b, compact: draft != nil || managing,
-                             foldSteps: UIScreen.main.bounds.height < 700 || largeText)
+                if b.id == "sign" {
+                    GpsSignBannerCard(now: signNow, compact: draft != nil || managing, largeText: largeText,
+                                      onSignIn: { showRenewSignIn = true },
+                                      onAdvanced: { showSettings = true })
+                } else {
+                    GpsBannerRow(banner: b, compact: draft != nil || managing,
+                                 foldSteps: UIScreen.main.bounds.height < 700 || largeText)
+                }
             }
         }
     }
@@ -1417,6 +1585,15 @@ struct GpsSimHomeView: View {
                 .accessibilityLabel("取消新增")
                 .accessibilityIdentifier("draft.cancel")
             }
+            if let address = d.address, !address.isEmpty {
+                Text(address)
+                    .font(.footnote)
+                    .foregroundStyle(GpsTheme.sub)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .accessibilityIdentifier("draft.address")
+            }
             GpsSizePicker(selection: sizeBinding)
             HStack(spacing: 8) {
                 Button {
@@ -1457,10 +1634,10 @@ struct GpsSimHomeView: View {
 
     private var defaultDraftName: String { "新地點" }
 
-    private func startDraft(at c: CLLocationCoordinate2D, name: String?) {
+    private func startDraft(at c: CLLocationCoordinate2D, name: String?, address: String? = nil) {
         clearToast()
         managing = false
-        draft = GpsDraft(coordinate: c, name: name ?? defaultDraftName, nameEdited: name != nil)
+        draft = GpsDraft(coordinate: c, name: name ?? defaultDraftName, nameEdited: name != nil, address: address)
         focus(on: c, radius: GpsSize.small.meters)
         if name == nil { suggestName(for: c) }
     }
@@ -1529,12 +1706,18 @@ struct GpsSimHomeView: View {
 
     // MARK: - Red stop button (top row, always visible, like 「⏹ 停止模擬」 on the PC page)
 
+    /// Red while simulating or while a point from an earlier run may still be on the phone
+    /// (staleTarget); otherwise the idle card style with 「已停止」.
+    private var stopArmed: Bool { isSimulating || engine.staleTarget != nil }
+
     /// One tap, no hold, no confirm: the 10 s 復原 toast afterwards is the safety net.
-    /// Not simulating: only an outline, but it still does the full clear, because a killed earlier
+    /// Idle (「已停止」) is never disabled: it still does the full clear, because a killed earlier
     /// run can leave a fake point on the phone that this app no longer knows about. This button is
     /// how the owner removes it.
-    private var stopButton: some View {
-        let simulating = isSimulating
+    /// `fullWidth`: accessibility sizes put the button on its own row, at least 52 pt tall.
+    private func stopButton(fullWidth: Bool) -> some View {
+        let armed = stopArmed
+        let title = stopping ? "停止中" : (armed ? "停止模擬" : "已停止")
         return Button {
             // No clearToast(): a pending 10 s 復原 from an earlier stop must survive an idle press.
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
@@ -1546,26 +1729,29 @@ struct GpsSimHomeView: View {
                 } else {
                     Image(systemName: "stop.fill")
                 }
-                // At accessibility text sizes the label folds away (icon only) so the status pill keeps its room;
-                // VoiceOver still reads 「停止模擬」.
-                if !largeText {
-                    Text(stopping ? "停止中" : "停止模擬")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                // The widest label sits hidden underneath, so switching between 停止模擬 and 已停止
+                // never changes the button width and the status pill next to it does not jump.
+                ZStack {
+                    Text("停止模擬").opacity(0).accessibilityHidden(true)
+                    Text(title)
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             }
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(simulating ? Color.white : GpsTheme.stopIdleText)
-            .padding(.horizontal, largeText ? 12 : 14)
-            .frame(minWidth: 44, minHeight: 44)
+            .foregroundStyle(armed ? Color.white : GpsTheme.sub)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: fullWidth ? 52 : 44)
+            .frame(minWidth: 44)
             .contentShape(Capsule())
         }
-        .buttonStyle(GpsStopButtonStyle(simulating: simulating))
-        .fixedSize()
+        .buttonStyle(GpsStopButtonStyle(armed: armed))
+        // Compact: hug the text. Full width: stretch across the row, keep the natural height.
+        .fixedSize(horizontal: !fullWidth, vertical: true)
         .disabled(engine.isBusy || stopping)
         .accessibilityLabel("停止模擬")
         .accessibilityHint("讓手機回到真實位置，10 秒內可復原")
-        .accessibilityValue(simulating ? "" : "目前是真實位置")
+        .accessibilityValue(armed ? "" : "目前已停止，是真實位置")
         .accessibilityIdentifier("btn.stop")
     }
 
@@ -1596,9 +1782,11 @@ struct GpsSimHomeView: View {
         let errors = all.filter { $0.id == "file" } + all.filter { $0.id == "issue" }
         let device = all.filter { $0.id != "file" && $0.id != "issue" && $0.id != "sign" }
         let sign = all.filter { $0.id == "sign" }
-        // A day or less left (or expired): the signing reminder takes the device banner's place,
-        // since on 4G the tunnel banner never goes away (the status line still says what is wrong).
-        if let days = GpsSigning.daysLeft(now: signNow), days <= 1, !sign.isEmpty {
+        // A day or less left (or expired), or a renewal running / just failed: the signing card takes
+        // the device banner's place, since on 4G the tunnel banner never goes away (the status line
+        // still says what is wrong).
+        let urgent = (GpsSigning.daysLeft(now: signNow) ?? 99) <= 1 || renew.isRunning || renew.failure != nil
+        if urgent, !sign.isEmpty {
             return errors + sign
         }
         let shown = errors + Array(device.prefix(1))
@@ -1608,14 +1796,22 @@ struct GpsSimHomeView: View {
 
     private var banners: [GpsBanner] {
         var list: [GpsBanner] = []
-        if !pairingExists {
-            list.append(GpsBanner(
-                id: "pairing", color: GpsTheme.red,
-                title: "還沒有配對檔",
-                detail: "請到「設定 › 匯入配對檔」放入配對檔（檔案在電腦上用 iloader 簽名工具產生）。",
-                buttonTitle: "去設定",
-                action: { showSettings = true }
-            ))
+        // Mock mode (renew simulator scripts) has no real phone link: skip the card so the screens
+        // behind it can be captured.
+        if !pairingExists && MockRenewBackend.isEnabled {
+            // nothing: renewal works without a pairing file
+        } else if !pairingExists {
+            if !pairingCardDismissed {
+                list.append(GpsBanner(
+                    id: "pairing", color: GpsTheme.orange,
+                    title: "第一次使用：需要配對檔",
+                    detail: "配對檔是讓 PinFly 改這支手機定位的鑰匙，要用電腦產生一次。沒有電腦也可以先存地點，之後再匯入。",
+                    buttonTitle: "匯入配對檔",
+                    action: { showPairingImporter = true },
+                    secondaryTitle: "先存地點",
+                    secondaryAction: { pairingCardDismissed = true }
+                ))
+            }
         } else if !demoReady && !linkUp {
             if tunnelGraceOver {
                 var banner = GpsBanner(
@@ -1672,19 +1868,9 @@ struct GpsSimHomeView: View {
             }
             list.append(banner)
         }
-        if GpsSigning.needsWarning(now: signNow), let remaining = GpsSigning.remainingText(now: signNow) {
-            let expired = GpsSigning.isExpired(now: signNow)
-            list.append(GpsBanner(
-                id: "sign", color: expired ? GpsTheme.red : GpsTheme.yellow,
-                title: expired ? "簽名已過期，需要重簽" : "簽名\(remaining)",
-                detail: "打開 SideStore 按 Refresh All，或接電腦按「定位儀續簽」。",
-                buttonTitle: "打開 SideStore",
-                action: {
-                    UIApplication.shared.open(GpsSigning.sideStoreURL) { opened in
-                        if !opened { showToast("找不到 SideStore", autoClear: true, duration: 4) }
-                    }
-                }
-            ))
+        // Drawn by GpsSignBannerCard (立即續簽／稍後, progress, failures); this entry only holds its place.
+        if renew.signCardVisible(now: signNow) {
+            list.append(GpsBanner(id: "sign", color: GpsTheme.yellow, title: "", detail: ""))
         }
         if let err = store.lastLoadError {
             list.append(GpsBanner(
@@ -1720,7 +1906,12 @@ struct GpsSimHomeView: View {
     @ViewBuilder
     private var toastView: some View {
         if let t = toast {
-            HStack(spacing: 12) {
+            // Accessibility sizes: text on top, the action underneath, so 復原 is never squeezed out.
+            let layout = largeText
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+                : AnyLayout(HStackLayout(spacing: 12))
+            let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+            layout {
                 Text(t.text)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
@@ -1735,18 +1926,21 @@ struct GpsSimHomeView: View {
                         Text(title)
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(GpsTheme.mint)
+                            .fixedSize()
                             .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .layoutPriority(1)
                     .accessibilityIdentifier("toast.action")
                 }
             }
             .padding(.leading, 16)
             .padding(.trailing, 8)
+            .padding(.top, largeText ? 8 : 0)
             .frame(minHeight: 44)
-            .background(GpsTheme.background.opacity(0.96), in: Capsule())
-            .overlay(Capsule().stroke(GpsTheme.mint.opacity(0.5), lineWidth: 1))
+            .background(GpsTheme.background.opacity(0.96), in: shape)
+            .overlay(shape.stroke(GpsTheme.mint.opacity(0.5), lineWidth: 1))
             .transition(.opacity)
         }
     }
@@ -1759,6 +1953,8 @@ struct GpsSimHomeView: View {
             return
         }
         refreshFromDisk(startTunnel: true)
+        // scenePhase does not change on the first launch, so the reminders and auto-renew check run here too.
+        renew.appBecameActive()
         if !didInitialFit {
             didInitialFit = true
             fitAllPlaces()
@@ -1787,15 +1983,15 @@ struct GpsSimHomeView: View {
             case "manage":
                 managing = true
             case "simulating", "simulatingStale":
-                let taipei101 = CLLocationCoordinate2D(latitude: 25.0339, longitude: 121.5645)
-                engine.applyDemoSimulation(name: "台北101", coordinate: taipei101)
-                focus(on: taipei101, radius: 200)
+                let eiffelTower = CLLocationCoordinate2D(latitude: 48.8584, longitude: 2.2945)
+                engine.applyDemoSimulation(name: "艾菲爾鐵塔", coordinate: eiffelTower)
+                focus(on: eiffelTower, radius: 200)
             case "edit":
                 editing = first
             case "settings":
                 showSettings = true
             case "search":
-                searchText = "台北"
+                searchText = "艾菲爾"
                 runSearch()
             case "undoToast":
                 if let p = first { deletePlace(p) }
@@ -1803,6 +1999,17 @@ struct GpsSimHomeView: View {
                 engine.applyDemoIssue(noWifi: true)
             case "errorVPN":
                 engine.applyDemoIssue(noWifi: false)
+            case "renewRunning":
+                Task {
+                    await renew.refreshStatus()
+                    renew.renewNow()
+                }
+            case "renewFailed":
+                renew.applyDemoFailure(.anisetteTimeout(seconds: 17))
+            case "settingsSign":
+                showSettings = true
+            case "signIn":
+                showRenewSignIn = true
             case "primer":
                 // The first-time location line; 繼續 here only closes it (CI already granted location).
                 GpsLocationPrimer.present { _ in }
@@ -2277,16 +2484,25 @@ final class GpsLegalProbe {
     }
 }
 
-/// Red capsule for 停止模擬: solid while simulating, outline only when idle; darker while pressed.
+/// 停止模擬 capsule. Armed (simulating or leftover point): solid red, darker while pressed.
+/// Idle: the same opaque card as the status pill with a grey outline. A transparent idle button
+/// measured 1.84:1 against bright satellite imagery, which is why it could not be seen.
 private struct GpsStopButtonStyle: ButtonStyle {
-    let simulating: Bool
+    let armed: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(
-                configuration.isPressed ? GpsTheme.stopRedPressed : (simulating ? GpsTheme.stopRed : Color.clear),
-                in: Capsule()
-            )
-            .overlay(Capsule().stroke(GpsTheme.stopBorder, lineWidth: 1))
+            .background {
+                if armed {
+                    Capsule().fill(configuration.isPressed ? GpsTheme.stopRedPressed : GpsTheme.stopRed)
+                } else {
+                    ZStack {
+                        Capsule().fill(GpsTheme.card.opacity(0.94))
+                        if configuration.isPressed { Capsule().fill(Color.white.opacity(0.08)) }
+                    }
+                }
+            }
+            .overlay(Capsule().stroke(armed ? GpsTheme.stopBorder : GpsTheme.idleBorder,
+                                      lineWidth: armed ? 1 : 1.5))
     }
 }

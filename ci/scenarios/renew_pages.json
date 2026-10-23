@@ -1,0 +1,164 @@
+[
+ {
+  "persona": "pages",
+  "situation": "account + advanced pages, signed out and signed in (demo service)",
+  "note": "pages"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "signNotLoggedIn"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "settings_signed_out"
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   150
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "settings_scrolled"
+ },
+ {
+  "tapId": "settings.advanced"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   150
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "settings_advanced_open"
+ },
+ {
+  "swipe": [
+   180,
+   150,
+   180,
+   600
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   150,
+   180,
+   600
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "account_signed_out"
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   120
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "renew.advanced"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "advanced"
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   150
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "advanced_scrolled"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settingsSign"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "settings_signed_in"
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "account_signed_in"
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   150
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "account_signed_in_scrolled"
+ }
+]

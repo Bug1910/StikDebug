@@ -1,0 +1,152 @@
+name: Simulator Minimal (PinFly integrate)
+
+on:
+  push:
+    branches: [ "sim-integrate" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer push makes the older run's screenshots/testers stale; free accounts get only 5 macOS jobs at once.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build simulator app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Stamp build (short sha and date) shown in 設定 as 版本 v<x.y.z>（sha · date）
+        run: plutil -insert GpsSimBuild -string "${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
+
+      - name: Retag prebuilt idevice lib for simulator (CI workspace copy only)
+        run: bash ci/retag_idevice_sim.sh
+
+      - name: Build for iphonesimulator
+        run: |
+          xcodebuild build \
+            -project StikDebug.xcodeproj \
+            -scheme "StikDebug" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_OPTIMIZATION_LEVEL="-Onone" \
+            IPHONEOS_DEPLOYMENT_TARGET=17.4
+          test -d build/Build/Products/Debug-iphonesimulator/StikDebug.app
+          cd build/Build/Products/Debug-iphonesimulator
+          zip -qr "$GITHUB_WORKSPACE/sim-app.zip" StikDebug.app
+
+      - name: Upload app for the matrix jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: sim-app-zip-internal
+          path: sim-app.zip
+          retention-days: 1
+
+  shots:
+    name: Shots (SE + 17 Pro Max, normal + largest text, account/advanced pages)
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v6
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - uses: actions/download-artifact@v7
+        with:
+          name: sim-app-zip-internal
+      - run: unzip -q sim-app.zip
+      - name: Install AXe
+        run: brew install cameroncooke/axe/axe
+      - name: Demo-state screenshots
+        env:
+          SHOTS_SIZE: "375x667,440x956"
+          SHOTS_NOZOOM: "1"
+          SHOTS_STATES: "home simulating simulatingStale signExpiring signHours signNotLoggedIn renewRunning renewFailed settings settingsSign signIn"
+          SHOTS_AX_STATES: "home simulating signExpiring renewRunning"
+        run: python3 ci/sim_shots.py iphone 0 1 StikDebug.app shots
+      - name: Account + advanced pages
+        if: always()
+        run: |
+          python3 ci/run_scenario.py renew_pages "iPhone SE (3rd generation)" StikDebug.app shots/pages_SE
+          python3 ci/run_scenario.py renew_pages "iPhone 17 Pro Max" StikDebug.app shots/pages_ProMax
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: min-shots-${{ github.sha }}
+          path: shots/
+          retention-days: 7
+      - name: Review bundle
+        if: always()
+        env:
+          SUMMARY_WIDTH: "540"
+        run: bash ci/make_summary.sh shots summary-out
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: min-shots-summary-${{ github.sha }}
+          path: summary-out/
+          retention-days: 7
+
+  testers:
+    name: Users on ${{ matrix.device }}
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        device: ["iPhone SE (3rd generation)", "iPhone 17", "iPhone 17 Pro Max"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - uses: actions/download-artifact@v7
+        with:
+          name: sim-app-zip-internal
+      - run: unzip -q sim-app.zip
+      - name: Install AXe
+        run: brew install cameroncooke/axe/axe
+      - name: novice
+        run: python3 ci/run_scenario.py novice "${{ matrix.device }}" StikDebug.app out/novice
+      - name: rushed
+        if: always()
+        run: python3 ci/run_scenario.py rushed "${{ matrix.device }}" StikDebug.app out/rushed
+      - name: careless
+        if: always()
+        run: python3 ci/run_scenario.py careless "${{ matrix.device }}" StikDebug.app out/careless
+      - name: renew_mock
+        if: always()
+        run: python3 ci/run_scenario.py renew_mock "${{ matrix.device }}" StikDebug.app out/renew_mock
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: min-testers-${{ strategy.job-index }}-${{ github.sha }}
+          path: out/
+          retention-days: 7
+      - name: Review bundle
+        if: always()
+        env:
+          SUMMARY_WIDTH: "540"
+        run: bash ci/make_summary.sh out summary-out
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: min-testers-summary-${{ strategy.job-index }}-${{ github.sha }}
+          path: summary-out/
+          retention-days: 7

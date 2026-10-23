@@ -1,7 +1,7 @@
 [
  {
   "persona": "第一次用的大學生（iPhone SE 小螢幕，沒用過改定位的 App）",
-  "situation": "朋友推薦後剛裝好、第一次打開：想先搞懂畫面上每個東西是什麼，再搜「台中火車站」存成地點、點它送定位",
+  "situation": "朋友推薦後剛裝好、第一次打開：想先搞懂畫面上每個東西是什麼，再搜「大英博物館」存成地點、點它送定位",
   "note": "novice, iPhone SE 375x667: first time ever. Explores gear and the status line, long-presses the map to see the new-place card (size 中, then cancel), adds a place by search (result then ＋ 存成地點), taps it to fly."
  },
  {
@@ -85,7 +85,7 @@
   "tapId": "search.field"
  },
  {
-  "type": "台中火車站\n"
+  "type": "大英博物館\n"
  },
  {
   "wait": 3

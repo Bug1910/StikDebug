@@ -2,7 +2,7 @@
  {
   "persona": "規劃旅行的進階玩家（大螢幕 iPhone，晚上習慣深色模式）",
   "situation": "出發前一次建好幾個地點：改半徑、做兩個重疊的圈、看設定的進階區、切深色模式檢查",
-  "note": "advanced, iPhone 16 Pro Max 440x956: changes a place's size via 管理地點 (小/大/中), creates overlapping circles (台北101 plus a pasted coordinate about 200 m away, size 大), toggles 衛星/地圖, settings import/export and 進階, dark mode settings."
+  "note": "advanced, iPhone 16 Pro Max 440x956: changes a place's size via 管理地點 (小/大/中), creates overlapping circles (艾菲爾鐵塔 plus a pasted coordinate about 200 m away, size 大), toggles 衛星/地圖, settings import/export and 進階, dark mode settings."
  },
  {
   "tree": "start"
@@ -26,7 +26,7 @@
   "wait": 2
  },
  {
-  "tree": "edit_101"
+  "tree": "edit_eiffel"
  },
  {
   "tapId": "size.s"
@@ -59,7 +59,7 @@
   "tapId": "search.field"
  },
  {
-  "type": "25.0357, 121.5650\n"
+  "type": "48.8602, 2.2950\n"
  },
  {
   "wait": 2
