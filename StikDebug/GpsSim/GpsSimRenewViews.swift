@@ -408,7 +408,7 @@ struct GpsRenewAccountPage: View {
         Form {
             Section {
                 if renew.status.signedIn {
-                    Text(GpsRenewCopy.masked(renew.status.appleID ?? ""))
+                    Text(renew.status.appleID.map(GpsRenewCopy.masked) ?? renew.status.maskedAppleID ?? "已登入")
                         .frame(minHeight: 44, alignment: .leading)
                     Text(renew.status.lastSuccess.map { "已登入・最後成功 \(GpsRenewCopy.dateTime($0))" } ?? "已登入")
                         .font(.subheadline)

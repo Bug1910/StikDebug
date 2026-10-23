@@ -73,7 +73,7 @@ final class RenewServiceAdapter: RenewServicing {
     func status() async -> RenewServiceStatus {
         let status = await core.status()
         // The engine only keeps a masked Apple ID, so there is nothing to pre-fill the form with.
-        return RenewServiceStatus(signedIn: status.isSignedIn, appleID: nil,
+        return RenewServiceStatus(signedIn: status.isSignedIn, appleID: nil, maskedAppleID: status.maskedAppleID,
                                   lastSuccess: status.lastRenewAt, pendingInstall: false)
     }
 

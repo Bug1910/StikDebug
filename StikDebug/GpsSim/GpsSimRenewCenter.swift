@@ -88,6 +88,8 @@ struct RenewServiceStatus: Equatable {
     var signedIn: Bool
     /// Full Apple ID (screens mask it); also pre-fills the sign-in form.
     var appleID: String?
+    /// Already-masked form ("ab•••@gmail.com") for engines that never expose the full ID.
+    var maskedAppleID: String? = nil
     var lastSuccess: Date?
     /// Step 4 failed earlier and the fetched profile is still waiting to be installed.
     var pendingInstall = false
@@ -164,7 +166,9 @@ enum GpsRenewCopy {
     /// 「lol•••@gmail.com」: first 3 characters, dots, domain (safe in screenshots).
     static func masked(_ appleID: String) -> String {
         let parts = appleID.split(separator: "@", maxSplits: 1).map(String.init)
-        let head = String(parts[0].prefix(3)) + "•••"
+        // An empty string splits into no parts: indexing parts[0] trapped (crashed the account page).
+        guard let first = parts.first else { return "•••" }
+        let head = String(first.prefix(3)) + "•••"
         return parts.count == 2 ? head + "@" + parts[1] : head
     }
 
