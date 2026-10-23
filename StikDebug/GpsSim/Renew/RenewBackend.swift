@@ -102,7 +102,8 @@ struct LiveRenewBackend: RenewBackend {
             tokenExpiry: auth.session.expirationDate,
             xcodeVersion: Self.xcodeVersion,
             signedInAt: Date(),
-            anisetteHash: signInHash
+            anisetteHash: signInHash,
+            anisetteServer: RenewAnisette.primaryHost
         )
     }
 
@@ -133,6 +134,14 @@ struct LiveRenewBackend: RenewBackend {
         guard let bundleID = Bundle.main.bundleIdentifier, let embedded = GpsProfileRenew.embedded() else {
             throw RenewProblem(.install, detail: "讀不到這個 App 目前的簽名（模擬器沒有）。")
         }
+        // A session made under another anisette server's identity would get Apple's 1100: drop it and the
+        // old device identity (adi.pb, id), and make the user sign in again on the current server.
+        guard stored.anisetteServer == RenewAnisette.primaryHost else {
+            RenewDiagLog.write("renew: session server=\(stored.anisetteServer ?? "-") differs from current primary=\(RenewAnisette.primaryHost); identity cleared, sign-in required")
+            RenewAnisette.resetAll()
+            throw RenewProblem(.notSignedIn)
+        }
+        RenewDiagLog.write("renew: session server=\(RenewAnisette.primaryHost)")
         // Tunnel first: with no Wi-Fi + LocalDevVPN the profile could not be installed anyway,
         // so Apple is not contacted at all (saves sign-in attempts against rate limits).
         try await GpsProfileRenew.requireTunnel()

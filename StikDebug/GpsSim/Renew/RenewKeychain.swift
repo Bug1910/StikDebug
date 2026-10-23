@@ -21,6 +21,8 @@ struct RenewStoredSession: Codable, Equatable, Sendable {
     var signedInAt: Date
     /// SHA-256 of the machine ID the anisette data had at sign-in (diagnostics only; nil for older sessions).
     var anisetteHash: String? = nil
+    /// Anisette server host used at sign-in (nil for sessions saved before this field existed).
+    var anisetteServer: String? = nil
 
     /// "ab***@gmail.com" style, safe for the screen (never for logs).
     var maskedAppleID: String { RenewKeychain.mask(appleID) }

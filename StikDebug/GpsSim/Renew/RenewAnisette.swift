@@ -3,7 +3,7 @@
 //  StikDebug (GpsSim fork) - experimental renew copy
 //
 //  Gets "anisette" (the data that makes Apple believe the request comes from a Mac) for sign-in and renew.
-//  Fixed settings (B4): remote server https://new.ani.sidestore.io (v3), no On-Device anisette, no
+//  Fixed settings (B4): remote server https://mac-ani.jkcoxson.com (v3, 10/24: the one iloader signed in with while new.ani.sidestore.io gave 1100), no On-Device anisette, no
 //  rotation, default Mac client strings (headers: nil -> SideSign/AnisetteKit defaults); there is no
 //  way to type in other client strings.
 //  B1, same idea as SideStoreAuto feat-anisette 80f11e1: only when this phone is already provisioned
@@ -18,9 +18,12 @@ import Foundation
 import SideSign
 
 enum RenewAnisette {
-    static let primaryServer = URL(string: "https://new.ani.sidestore.io")!
-    /// Listed in servers.sidestore.io/servers.json as a v3 Mac ADI server.
-    static let backupServer = URL(string: "https://mac-ani.jkcoxson.com")!
+    static let primaryServer = URL(string: "https://mac-ani.jkcoxson.com")!
+    /// Former primary. Servers are never mixed: its answer is used only when its machine ID equals the primary's.
+    static let backupServer = URL(string: "https://new.ani.sidestore.io")!
+
+    /// Host name a session is bound to (a token issued under one server's identity is not valid under another's).
+    static var primaryHost: String { primaryServer.host ?? "?" }
     /// 10/22 device log: answers slower than ~16 s always failed, under ~4 s almost always worked.
     static let timeoutSeconds: TimeInterval = 6
 
