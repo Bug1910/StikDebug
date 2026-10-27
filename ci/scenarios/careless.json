@@ -2,7 +2,7 @@
  {
   "persona": "粗心的人（邊走邊滑、常按錯）",
   "situation": "出去玩邊走邊用：按到邊緣、連點兩下、刪錯又復原、座標打錯或前後顛倒、改名改到一半取消",
-  "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place (must send once), opens 管理地點 and deletes one (no confirm, 復原 in the toast), types malformed coordinates (48.85,abc and reversed 139.74, 35.65), cancels the edit sheet halfway."
+  "note": "careless, iPhone 16 393x852: mis-taps near edges, double-taps a place (must send once), opens 管理地點 and deletes one (no confirm, 復原 in the toast), types a malformed coordinate 25..03, 121.56 (must say 座標格式不對; text with any letter such as 48.85,abc is searched as a place name instead) and a reversed 139.74, 35.65, cancels the edit sheet halfway."
  },
  {
   "tree": "start"
@@ -73,7 +73,7 @@
   "tapId": "search.field"
  },
  {
-  "type": "48.85,abc\n"
+  "type": "25..03, 121.56\n"
  },
  {
   "wait": 2

@@ -192,7 +192,7 @@ enum GpsGeo {
     /// Full-width digits and punctuation become half-width; comma, 、, ;, space and new line separate.
     /// A trailing 「°」 is dropped. Shared by both coordinate parsers so they always agree.
     static func coordinateParts(_ text: String) -> [String]? {
-        let half = text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text
+        let half = signedHemispheres(text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text)
         let parts = half
             .replacingOccurrences(of: "、", with: ",")
             .split(whereSeparator: { $0 == "," || $0 == ";" || $0.isWhitespace })
@@ -201,6 +201,33 @@ enum GpsGeo {
         guard parts.count == 2,
               parts.allSatisfy({ $0.unicodeScalars.allSatisfy { coordinateChars.contains($0) } }) else { return nil }
         return parts.map { $0.hasSuffix("°") ? String($0.dropLast()) : $0 }
+    }
+
+    /// Hemisphere marks turned into signs, the way Apple Maps 「拷貝座標」 writes them:
+    /// 「25.03° N, 121.56° E」→「25.03, 121.56」, 「33.86° S」→「-33.86」, 「北緯25.03 東經121.56」 too.
+    /// Letter-after (Apple) wins; letter-before 「N 25.03」 is only tried when there is none, since
+    /// 「25° N 121° E」 would otherwise read 「N 121」 as one pair. Upper-case letters only.
+    private static func signedHemispheres(_ text: String) -> String {
+        let num = "(-?\\d+(?:\\.\\d+)?)"
+        let chinese = (pattern: "(北緯|南緯|東經|西經|北纬|南纬|东经|西经)\\s*" + num + "\\s*°?", num: 2, mark: 1)
+        let after = (pattern: num + "\\s*°?\\s*([NSEW])\\b", num: 1, mark: 2)
+        let before = (pattern: "\\b([NSEW])\\s*" + num + "\\s*°?", num: 2, mark: 1)
+        var s = text
+        func apply(_ rule: (pattern: String, num: Int, mark: Int)) -> Bool {
+            guard let re = try? NSRegularExpression(pattern: rule.pattern) else { return false }
+            let found = re.matches(in: s, range: NSRange(s.startIndex..., in: s))
+            for m in found.reversed() {
+                guard let whole = Range(m.range, in: s), let n = Range(m.range(at: rule.num), in: s),
+                      let k = Range(m.range(at: rule.mark), in: s) else { continue }
+                let negative = ["S", "W", "南緯", "西經", "南纬", "西经"].contains(String(s[k]))
+                let digits = s[n].replacingOccurrences(of: "-", with: "")
+                s.replaceSubrange(whole, with: " " + (negative ? "-" : "") + digits + " ")
+            }
+            return !found.isEmpty
+        }
+        _ = apply(chinese)
+        if !apply(after) { _ = apply(before) }
+        return s
     }
 
     /// "lat, lon" (see coordinateParts). If the first number can't be a
