@@ -32,6 +32,24 @@
   "tree": "after_two_taps"
  },
  {
+  "tapId": "btn.shortcuts"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "shortcuts_menu"
+ },
+ {
+  "tree": "shortcuts_menu"
+ },
+ {
+  "tapId": "btn.shortcuts"
+ },
+ {
+  "wait": 1
+ },
+ {
   "relaunch": [
    "-GpsSimDemo",
    "simulating"

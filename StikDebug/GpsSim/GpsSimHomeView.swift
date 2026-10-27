@@ -203,6 +203,7 @@ struct GpsSimHomeView: View {
     /// The system text size as set (the screen itself caps it at maxTypeSize below).
     @Environment(\.dynamicTypeSize) private var systemTypeSize
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
+    @Environment(\.openURL) private var openURL
 
     /// Satellite (hybrid: imagery + road names) by default; the owner asked for it 2026-10-15.
     @AppStorage("gpsSim.mapSatellite") private var mapSatellite = true
@@ -996,12 +997,17 @@ struct GpsSimHomeView: View {
                   ["http", "https"].contains($0.url?.scheme?.lowercased() ?? "") }),
               let found = match.url, let range = Range(match.range, in: text) else { return nil }
         let raw = String(text[range])
-        // A typed 「https://…」 link, or a map address without one (「www.google.com/maps/…」, upgraded
-        // to https). A bare 「abc.com」 typed as a name still searches normally.
+        // Map links only, with or without 「https://」 (upgraded below): google.<國碼>/maps…,
+        // maps.google.*, and the share domains. 「google.com」 or any other site searches normally.
         let host = found.host?.lowercased() ?? ""
-        let mapHost = host.contains("google.") || host.hasSuffix("goo.gl") || host == "g.co"
-            || host == "maps.apple" || host.hasSuffix("maps.apple.com")
-        guard raw.lowercased().hasPrefix("http") || mapHost else { return nil }
+        let path = found.path.lowercased()
+        let googleDomain = "google\\.(com|[a-z]{2})(\\.[a-z]{2})?$"
+        let isMatch = { (pattern: String) in host.range(of: pattern, options: .regularExpression) != nil }
+        let mapHost = (isMatch("^(www\\.)?" + googleDomain) && path.hasPrefix("/maps"))
+            || isMatch("^maps\\." + googleDomain)
+            || host == "maps.app.goo.gl" || (host == "goo.gl" && path.hasPrefix("/maps"))
+            || host == "g.co" || host == "maps.apple" || host == "maps.apple.com"
+        guard mapHost else { return nil }
         var parts = URLComponents(url: found, resolvingAgainstBaseURL: false)
         if parts?.scheme?.lowercased() == "http" && !raw.lowercased().hasPrefix("http") { parts?.scheme = "https" }
         guard let url = parts?.url else { return nil }
@@ -1338,9 +1344,20 @@ struct GpsSimHomeView: View {
     /// Round 44 pt buttons keep a fixed icon size: scaled with text they outgrew their circles.
     private static let roundIconFont = Font.system(size: 17, weight: .regular)
 
+    /// The round buttons go in one row under the search bar when a column would not fit beside
+    /// the toast room (large text, landscape, iPhone SE with banners); a column otherwise.
+    private var toolsInRow: Bool {
+        if largeText { return true }
+        guard mapFrame.height > 1, topBarFrame.height > 1 else { return false }
+        let count: CGFloat = store.places.isEmpty ? 2 : 4
+        let column = count * 44 + (count - 1) * 8
+        // 8 above the column, 8 below it, the toast room, the Legal label and the stack's bottom padding.
+        let need = 8 + column + 8 + Self.toastReserve + Self.legalClearance + 8
+        return mapFrame.maxY - topBarFrame.maxY < need
+    }
+
     private var mapTools: some View {
-        // Large text leaves little map height: the three buttons go in one row under the search bar.
-        let layout = largeText ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
+        let layout = toolsInRow ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
         return layout {
             Button {
                 mapSatellite.toggle()
@@ -1391,8 +1408,57 @@ struct GpsSimHomeView: View {
                 .accessibilityHint("改名、改範圍、隱藏或刪除")
                 .accessibilityIdentifier("btn.editPlaces")
             }
+            shortcutsMenu
         }
         .fixedSize()
+    }
+
+    /// The owner's own shortcuts, one tap away even without the 4G banner (owner request 2026-10-27).
+    private var shortcutsMenu: some View {
+        Menu {
+            if let url = GpsSimNetwork.renewShortcutURL {
+                Button {
+                    openShortcut(url)
+                } label: {
+                    Label(GpsSimNetwork.renewShortcutName, systemImage: "arrow.clockwise")
+                }
+            }
+            if let url = GpsSimNetwork.shortcutURL {
+                Button {
+                    openShortcut(url)
+                } label: {
+                    Label(GpsSimNetwork.shortcutName, systemImage: "bolt.fill")
+                }
+            }
+            if let url = URL(string: "shortcuts://") {
+                Button {
+                    openShortcut(url)
+                } label: {
+                    Label("打開捷徑 App", systemImage: "square.stack.3d.up")
+                }
+            }
+        } label: {
+            Image(systemName: "square.stack.3d.up.fill")
+                .font(Self.roundIconFont)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(GpsTheme.card.opacity(0.94), in: Circle())
+                .overlay(Circle().stroke(GpsTheme.line, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        // Keep the written order; the system would otherwise flip it when the menu opens upward.
+        .menuOrder(.fixed)
+        .accessibilityLabel("捷徑")
+        .accessibilityHint("執行「出門改定位續簽」或「出門改定位」，或打開「捷徑」App")
+        .accessibilityIdentifier("btn.shortcuts")
+    }
+
+    /// Opens the Shortcuts app; only a missing app is reported here (a missing shortcut is shown by Shortcuts itself).
+    private func openShortcut(_ url: URL) {
+        clearToast()
+        openURL(url) { accepted in
+            if !accepted { showToast("打不開「捷徑」App，請確認它沒有被刪除", autoClear: true) }
+        }
     }
 
     // MARK: - Map
@@ -1598,6 +1664,11 @@ struct GpsSimHomeView: View {
         // Banners are outside the map now; only the toast floats over it: fixed room for it
         // (44 pt + spacing) above the Apple Maps logo, shown or not, so the map never jumps.
         let bottom = Self.legalClearance + 8 + Self.toastReserve
+        // A row of buttons under the search bar covers the top, not the right edge.
+        if toolsInRow, toolsFrame != .zero {
+            let rowTop = max(top, toolsFrame.maxY - mapFrame.minY)
+            return EdgeInsets(top: rowTop.rounded(), leading: 8, bottom: bottom.rounded(), trailing: 8)
+        }
         let trailing = toolsFrame == .zero ? 64 : max(0, mapFrame.maxX - toolsFrame.minX)
         return EdgeInsets(top: top.rounded(), leading: 8, bottom: bottom.rounded(), trailing: trailing.rounded())
     }

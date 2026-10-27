@@ -28,9 +28,14 @@ final class GpsSimNetwork: ObservableObject {
     nonisolated static let fourGStepList = ["開 LocalDevVPN", "開飛航模式", "開 Wi-Fi", "回來點地點", "關飛航模式"]
     /// The owner's own shortcut that runs the route above (built and tested by him 2026-10-15).
     nonisolated static let shortcutName = "出門改定位"
-    nonisolated static var shortcutURL: URL? {
+    nonisolated static var shortcutURL: URL? { runShortcutURL(named: shortcutName) }
+    /// The owner's renew-then-change-location shortcut, offered from the home 「捷徑」 button.
+    nonisolated static let renewShortcutName = "出門改定位續簽"
+    nonisolated static var renewShortcutURL: URL? { runShortcutURL(named: renewShortcutName) }
+    /// URLComponents percent-encodes the Chinese name (a hand-built string would not open).
+    nonisolated static func runShortcutURL(named name: String) -> URL? {
         var c = URLComponents(string: "shortcuts://run-shortcut")
-        c?.queryItems = [URLQueryItem(name: "name", value: shortcutName)]
+        c?.queryItems = [URLQueryItem(name: "name", value: name)]
         return c?.url
     }
     nonisolated static let noWifiMessage = fourGSteps
