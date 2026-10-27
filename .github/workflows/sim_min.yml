@@ -76,7 +76,7 @@ jobs:
         env:
           SHOTS_SIZE: "375x667,440x956"
           SHOTS_NOZOOM: "1"
-          SHOTS_STATES: "home simulating simulatingStale signExpiring signHours signNotLoggedIn renewRunning renewFailed settings settingsSign signIn"
+          SHOTS_STATES: "home simulating simulatingStale signExpiring signHours signNotLoggedIn renewRunning renewFailed settings settingsSign signIn signPending settingsSignPending"
           SHOTS_AX_STATES: "home simulating signExpiring renewRunning"
         run: python3 ci/sim_shots.py iphone 0 1 StikDebug.app shots
       - name: Account + advanced pages

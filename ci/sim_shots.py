@@ -6,7 +6,7 @@ from simlib import *
 
 family, shard, of, app, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5]
 os.makedirs(out, exist_ok=True)
-STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error primer signExpiring signHours signNotLoggedIn renewRunning renewFailed settingsSign signIn".split()
+STATES = "home newPlace manage simulating simulatingStale edit settings search undoToast error primer signExpiring signHours signNotLoggedIn renewRunning renewFailed settingsSign signIn signPending settingsSignPending".split()
 if os.environ.get("SHOTS_STATES"):  # minimal run: only these demo states
     STATES = os.environ["SHOTS_STATES"].split()
 bid = bundle_id(app)

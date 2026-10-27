@@ -1,0 +1,93 @@
+[
+ {
+  "persona": "pending install",
+  "situation": "-GpsSimDemo signPending: a signature is downloaded and waits to be installed; check the home line, the 裝上 button, the run, and the Settings 簽名 wording (demo service)",
+  "note": "pending install"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "signPending"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "home_pending"
+ },
+ {
+  "tree": "home_pending"
+ },
+ {
+  "tapId": "banner.sign.primary"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "installing"
+ },
+ {
+  "tree": "installing"
+ },
+ {
+  "wait": 10
+ },
+ {
+  "shot": "after_install"
+ },
+ {
+  "tree": "after_install"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settingsSignPending"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "settings_pending"
+ },
+ {
+  "tree": "settings_pending"
+ },
+ {
+  "swipe": [
+   180,
+   500,
+   180,
+   150
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "settings_pending_scrolled"
+ },
+ {
+  "tree": "settings_pending_scrolled"
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "renew_section_pending"
+ },
+ {
+  "tree": "renew_section_pending"
+ }
+]
