@@ -142,7 +142,8 @@ private func lastRenewLine(_ renew: GpsRenewCenter) -> String? {
     if let r = renew.lastRecord {
         let when = GpsRenewCopy.dateTime(r.at)
         if r.succeeded {
-            return r.expiry.map { "上次續簽：\(when) 成功，簽到 \(GpsRenewCopy.dateTime($0))" } ?? "上次續簽：\(when) 成功"
+            // The expiry is already the line above: no second date here.
+            return "上次續簽：\(when) 成功"
         }
         return "上次續簽：\(when) 沒成功（\(r.reason ?? "原因不明")）"
     }
@@ -315,7 +316,7 @@ struct GpsSignSection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 state.indicator.font(.subheadline).accessibilityHidden(true)
-                Text(state.headline(signedIn: renew.status.signedIn))
+                Text(renew.status.pendingInstall ? "新簽名已下載，還沒裝上" : state.headline(signedIn: renew.status.signedIn))
                     .font(.title2.weight(.bold))
                     .foregroundStyle(state.level == .expired ? GpsTheme.dangerText : Color.white)
                     .lineLimit(nil)
@@ -324,6 +325,12 @@ struct GpsSignSection: View {
             Text("到 \(GpsRenewCopy.dateTime(state.expiry))")
                 .font(.subheadline)
                 .foregroundStyle(GpsTheme.sub)
+            if renew.status.pendingInstall {
+                Text("只有 4G：關行動數據 → 開 LocalDevVPN → 按「裝上新簽名」，裝好再開回行動數據。")
+                    .font(.subheadline)
+                    .foregroundStyle(GpsTheme.sub)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let line = lastRenewLine(renew) {
                 Text(line)
                     .font(.footnote)
@@ -346,7 +353,10 @@ struct GpsRenewButton: View {
     @ObservedObject private var renew = GpsRenewCenter.shared
 
     private var title: String {
-        renew.isRunning ? "續簽中…" : (renew.status.signedIn ? "立即續簽" : "登入並續簽")
+        if renew.isRunning { return "續簽中…" }
+        // A downloaded signature waits: this button installs it (no Apple, no sign-in).
+        if renew.status.pendingInstall { return "裝上新簽名" }
+        return renew.status.signedIn ? "立即續簽" : "登入並續簽"
     }
 
     private var label: some View {
@@ -437,7 +447,7 @@ struct GpsRenewAccountPage: View {
                     let state = GpsSignState(expiry: expiry, now: Date())
                     Text(state.level == .expired ? "簽名已過期" : "\(state.remaining)（到 \(GpsRenewCopy.dateTime(expiry))）")
                         .frame(minHeight: 44, alignment: .leading)
-                    if renew.status.signedIn {
+                    if renew.status.signedIn || renew.status.pendingInstall {
                         GpsRenewButton(state: state, onSignIn: {
                             signInOrigin = .renewAfter
                             showSignIn = true

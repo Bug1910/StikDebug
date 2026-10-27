@@ -1988,7 +1988,8 @@ struct GpsSimHomeView: View {
     /// All buttons (立即續簽, 登入, progress, failure reasons) live in Settings now.
     private var signLineTitle: String {
         if renew.isRunning { return "續簽中…" }
-        if renew.failure != nil { return "沒續簽成功" }
+        if renew.failure != nil { return "沒續簽成功，點看原因" }
+        if renew.status.pendingInstall { return "新簽名已下載，等安裝" }
         guard let expiry = GpsSigning.expiration else { return "簽名快到期" }
         let state = GpsSignState(expiry: expiry, now: signNow)
         return state.level == .expired ? "簽名已過期" : "簽名\(state.remaining)"
@@ -2076,7 +2077,10 @@ struct GpsSimHomeView: View {
         if renew.signCardVisible(now: signNow) {
             let expiry = GpsSigning.expiration ?? Date()
             let state = GpsSignState(expiry: expiry, now: signNow)
-            let signColor: Color = (state.level == .expired || renew.failure != nil) ? GpsTheme.red
+            // A downloaded signature waiting to be installed is good news: mint, not a warning colour.
+            let pendingOnly = renew.status.pendingInstall && !renew.isRunning && renew.failure == nil
+            let signColor: Color = pendingOnly ? GpsTheme.mint
+                : (state.level == .expired || renew.failure != nil) ? GpsTheme.red
                 : (state.level == .today ? GpsTheme.orange : GpsTheme.yellow)
             var signBanner = GpsBanner(id: "sign", color: signColor, title: signLineTitle,
                                        detail: "\(signLineTitle)。續簽、登入和失敗原因都在設定。",
@@ -2085,7 +2089,13 @@ struct GpsSimHomeView: View {
                                        settingsTarget: .renew)
             // Under 3 hours left: a one-tap 續簽 on the line itself (same call as the Settings button;
             // false = not signed in yet, so send them to the renew section instead).
-            if !renew.isRunning, state.level != .expired, state.hours < 3 {
+            if pendingOnly {
+                // Installs the waiting signature (no Apple, no sign-in needed).
+                signBanner.buttonTitle = "裝上"
+                signBanner.action = {
+                    if !renew.renewNow() { settingsTarget = .renew; showSettings = true }
+                }
+            } else if !renew.isRunning, state.level != .expired, state.hours < 3 {
                 signBanner.buttonTitle = "續簽"
                 signBanner.action = {
                     if !renew.renewNow() { settingsTarget = .renew; showSettings = true }
@@ -2175,7 +2185,9 @@ struct GpsSimHomeView: View {
         }
         refreshFromDisk(startTunnel: true)
         // scenePhase does not change on the first launch, so the reminders and auto-renew check run here too.
-        renew.appBecameActive()
+        // Not during a background launch (background download, Shortcut): only when he really opened the app.
+        // (`!= .background`, not `== .active`: a normal cold launch can still be `.inactive` here.)
+        if UIApplication.shared.applicationState != .background { renew.appBecameActive() }
         if !didInitialFit {
             didInitialFit = true
             fitAllPlaces()
@@ -2228,7 +2240,7 @@ struct GpsSimHomeView: View {
                 }
             case "renewFailed":
                 renew.applyDemoFailure(.anisetteTimeout(seconds: 17))
-            case "settingsSign":
+            case "settingsSign", "settingsSignPending":
                 showSettings = true
             case "signIn":
                 showRenewSignIn = true

@@ -40,6 +40,39 @@ def tap_retry(*args):
     return r
 
 
+PASTE_BUTTONS = ("Allow Paste", "允許貼上")
+
+
+def dismiss_paste_alert(limit=6):
+    """After Cmd+V: wait for the system paste-permission alert and tap its allow button."""
+    end = time.time() + limit
+    quiet_polls = 0
+    while time.time() < end:
+        time.sleep(1)
+        tree = sh("axe", "describe-ui", "--udid", udid, check=False, quiet=True).stdout
+        for allow in PASTE_BUTTONS:
+            if allow in tree:
+                if sh("axe", "tap", "--label", allow, "--wait-timeout", "2", "--udid", udid,
+                      check=False, quiet=True).returncode == 0:
+                    time.sleep(1)
+                    return True
+        quiet_polls += 1
+        if quiet_polls >= 3:  # no alert after 3 looks: already allowed, nothing to do
+            return False
+    return False
+
+
+def tree_dump():
+    """describe-ui with up to 3 tries (1 s apart): the dump is sometimes empty right after a tap."""
+    r = None
+    for _ in range(3):
+        r = sh("axe", "describe-ui", "--udid", udid, check=False, quiet=True)
+        if r.returncode == 0 and len(r.stdout.strip()) > 200:
+            break
+        time.sleep(1)
+    return r
+
+
 ui_ready()
 
 
@@ -78,13 +111,10 @@ for n, step in enumerate(steps, 1):
             import subprocess
             subprocess.run(["xcrun", "simctl", "pbcopy", udid], input=val.encode("utf-8"))
             r = sh("axe", "key-combo", "--modifiers", "227", "--key", "25", "--udid", udid, check=False)
-            # iOS asks "would like to paste from CoreSimulatorBridge" for a cross-app paste; allow it.
-            time.sleep(1)
-            for allow in ("Allow Paste", "允許貼上"):
-                if sh("axe", "tap", "--label", allow, "--wait-timeout", "2", "--udid", udid,
-                      check=False, quiet=True).returncode == 0:
-                    time.sleep(1)
-                    break
+            # iOS asks "would like to paste from CoreSimulatorBridge" for a cross-app paste and the
+            # alert blocks every later step until answered. It can appear >1 s after Cmd+V, so poll the
+            # UI tree for the alert button (up to ~6 s) and tap it; stop early when no alert shows.
+            dismiss_paste_alert()
             if enter and r.returncode == 0:  # Return key (HID usage 40) submits the search
                 r = sh("axe", "key", "40", "--udid", udid, check=False)
             ok, detail = r.returncode == 0, r.stderr.strip()[:200]
@@ -100,9 +130,9 @@ for n, step in enumerate(steps, 1):
         elif kind == "shot":
             pass
         elif kind == "tree":
-            r = sh("axe", "describe-ui", "--udid", udid, check=False, quiet=True)
+            r = tree_dump()
             open("%s/%02d_tree_%s.json" % (out, n, re.sub(r"\W+", "_", str(val))), "w", encoding="utf-8").write(r.stdout)
-            ok = r.returncode == 0
+            ok = r.returncode == 0 and len(r.stdout.strip()) > 200
         elif kind == "relaunch":
             launch(udid, bid, val)
             time.sleep(4)

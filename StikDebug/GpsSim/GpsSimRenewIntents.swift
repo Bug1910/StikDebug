@@ -95,15 +95,16 @@ struct RenewNowIntent: AppIntent {
 
 struct DownloadProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "下載PinFly描述檔"
-    static var description = IntentDescription("續簽的上半段：向 Apple 下載新的 7 天描述檔，先存在PinFly裡，還不會裝上。要有網路（4G 可以），不用 LocalDevVPN。預設只在簽名剩 3 天內才下載；之前下載好還能用的也不再找 Apple。接著關掉行動數據、打開 LocalDevVPN，再跑「安裝PinFly描述檔」。要先在PinFly › 設定 › 簽名登入 Apple 一次。失敗時預設不會讓捷徑停下來。")
+    static var description = IntentDescription("描述檔＝PinFly 的 7 天簽名。續簽的上半段：向 Apple 下載新的 7 天描述檔，先存在PinFly裡，還不會裝上。要有網路（4G 可以），不用 LocalDevVPN。預設只在簽名剩 3 天內才下載；之前下載好還能用的也不再找 Apple。接著關掉行動數據、打開 LocalDevVPN，再跑「安裝PinFly描述檔」。要先在PinFly › 設定 › 簽名登入 Apple 一次。失敗時預設不會讓捷徑停下來。")
     static var openAppWhenRun: Bool = false
 
     /// On by default (3 days): a daily automation does not ask Apple while there is time left.
-    /// A Bool + a defaulted Int (like 剩幾天內才續簽PinFly) instead of an optional Int: both always have a valid stored value, so an unattended automation is never prompted.
-    @Parameter(title: "只在快到期時才下載", default: true)
+    /// A Bool + a defaulted Int (like 剩幾天內才續簽PinFly) instead of an optional Int: both always have a
+    /// valid stored value, so an unattended automation is never prompted.
+    @Parameter(title: "快到期才下載", default: true)
     var onlyWhenExpiring: Bool
 
-    @Parameter(title: "只在剩幾天內才下載", default: 3, inclusiveRange: (1, 7))
+    @Parameter(title: "剩幾天算快到期", default: 3, inclusiveRange: (1, 7))
     var withinDays: Int
 
     @Parameter(title: "失敗時停止捷徑", default: false)
@@ -132,7 +133,7 @@ struct DownloadProfileIntent: AppIntent {
 
 struct InstallProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "安裝PinFly描述檔"
-    static var description = IntentDescription("續簽的下半段：把「下載PinFly描述檔」存好的描述檔裝上。要 LocalDevVPN 已連線（只有 4G 時先關掉行動數據），不用網路、不找 Apple。沒有等著安裝的就馬上結束、不算失敗，所以放在每天的捷徑裡也沒關係。失敗時預設不會讓捷徑停下來。")
+    static var description = IntentDescription("描述檔＝PinFly 的 7 天簽名。續簽的下半段：把「下載PinFly描述檔」存好的描述檔裝上。放在『開 LocalDevVPN → 等待 3 秒』之後。要 LocalDevVPN 已連線（只有 4G 時先關掉行動數據），不用網路、不找 Apple。沒有等著安裝的就馬上結束、不算失敗，所以放在每天的捷徑裡也沒關係。失敗時預設不會讓捷徑停下來。")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "失敗時停止捷徑", default: false)
@@ -206,7 +207,8 @@ enum GpsRenewIntentRunner {
             return (value, "簽名還剩 \(left) 天，不用下載")
         }
         let reason: String
-        if !before.isSignedIn {
+        // Signed out but a profile already waits: RenewService reports it ready (fresh) or asks to sign in.
+        if !before.isSignedIn, before.pendingExpiry == nil {
             reason = "還沒登入 Apple。請打開PinFly › 設定 › 簽名，登入一次。"
         } else {
             switch await GpsRenewRace.run(seconds: min(max(maxSeconds, 10), 25), operation: .download) {
@@ -216,9 +218,9 @@ enum GpsRenewIntentRunner {
             case .done(let outcome):
                 // 成功 (not 已續簽): nothing is installed yet. 簽名到期 stays the date the app runs on now.
                 let value = await GpsSimIntentStatus.make(.succeeded)
-                let until = outcome.expiry.map { "（簽名可到 \(GpsProfileRenew.expiryText($0))）" } ?? ""
-                let what = outcome.reusedPending ? "新描述檔之前已下載好" : "已下載新描述檔"
-                return (value, "\(what)\(until)。關掉行動數據、打開 LocalDevVPN 後跑「安裝PinFly描述檔」")
+                let until = outcome.expiry.map { "（可用到 \(GpsProfileRenew.expiryText($0))）" } ?? ""
+                let what = outcome.reusedPending ? "新描述檔之前已下載好" : "新描述檔已下載"
+                return (value, "\(what)\(until)。下一步：安裝PinFly描述檔")
             case .failed(let error):
                 let problem = (error as? RenewProblem) ?? RenewErrorClassifier.explain(error)
                 let code = problem.code.map { "（代碼 \($0)）" } ?? ""
@@ -238,7 +240,7 @@ enum GpsRenewIntentRunner {
         guard RenewService.shared.hasPendingFile else {
             RenewDiagLog.write("intent install: nothing pending, nothing to do")
             let value = await GpsSimIntentStatus.make(.notNeeded)
-            return (value, "沒有要安裝的描述檔")
+            return (value, "沒有等著安裝的描述檔，不用裝")
         }
         let reason: String
         switch await GpsRenewRace.run(seconds: min(max(maxSeconds, 10), 25), operation: .install) {
@@ -329,7 +331,10 @@ enum GpsRenewRace {
                                                                 nothingInstalled: outcome.pendingOnly || outcome.nothingToInstall)
                 } catch {
                     state.answer(.failed(error))
-                    GpsRenewCenter.shared.externalRenewFinished(expiry: nil, failure: error, nothingInstalled: operation != .renew)
+                    // downloadInProgress: this install never started; the running job ends the home card itself.
+                    if (error as? RenewProblem)?.kind != .downloadInProgress {
+                        GpsRenewCenter.shared.externalRenewFinished(expiry: nil, failure: error, nothingInstalled: operation != .renew)
+                    }
                 }
                 // Only now: after a timeout the renew is still worth finishing in the background.
                 state.endBackgroundTask()

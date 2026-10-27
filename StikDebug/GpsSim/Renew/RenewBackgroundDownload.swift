@@ -28,7 +28,11 @@ enum RenewBackgroundDownload {
             handle(refresh)
         }
         if !registered { RenewDiagLog.write("bg download: register failed") }
-        schedule()
+        // Only when nothing is planned yet: submitting replaces the request, so doing it on every launch
+        // would push earliestBeginDate 6 h ahead each time and the task might never run.
+        BGTaskScheduler.shared.getPendingTaskRequests { requests in
+            if !requests.contains(where: { $0.identifier == identifier }) { schedule() }
+        }
     }
 
     static func schedule() {
@@ -62,16 +66,41 @@ enum RenewBackgroundDownload {
         schedule()   // always plan the next run first, whatever happens to this one
         RenewDiagLog.write("bg download start")
         let completion = Completion(task)
-        let work = Task { @MainActor in
-            let success = await runOnce()
-            completion.finish(success: success)
-        }
+        let holder = WorkHolder()
+        // Set before the work starts, so an early expiry is never missed.
         task.expirationHandler = {
             // The download Task inside RenewService is not tied to this one (a half-saved profile is never
             // left: the file is written atomically at the very end), so only our wait is cancelled here.
             RenewDiagLog.write("bg download expired")
-            work.cancel()
+            holder.cancel()
             completion.finish(success: false)
+        }
+        holder.set(Task { @MainActor in
+            let success = await runOnce()
+            completion.finish(success: success)
+        })
+    }
+
+    /// Lets the expiration handler (set first) cancel the Task created after it.
+    private final class WorkHolder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var work: Task<Void, Never>?
+        private var cancelled = false
+
+        func set(_ task: Task<Void, Never>) {
+            lock.lock()
+            work = task
+            let cancelNow = cancelled
+            lock.unlock()
+            if cancelNow { task.cancel() }
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let task = work
+            lock.unlock()
+            task?.cancel()
         }
     }
 

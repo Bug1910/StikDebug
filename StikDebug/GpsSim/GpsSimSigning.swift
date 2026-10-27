@@ -22,7 +22,7 @@ enum GpsSigning {
             // 5 hours the 「剩 N 小時」 wording.
             let days: Double
             switch args[i + 1] {
-            case "signExpiring", "signNotLoggedIn", "renewRunning", "renewFailed", "settingsSign": days = 1.5
+            case "signExpiring", "signNotLoggedIn", "renewRunning", "renewFailed", "settingsSign", "signPending", "settingsSignPending": days = 1.5
             case "signHours": days = 5.1 / 24
             default: days = 6.2
             }

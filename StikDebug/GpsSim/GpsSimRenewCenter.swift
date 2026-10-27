@@ -238,8 +238,8 @@ struct RenewFailureText {
             detail = "續簽要連到 Apple。開行動數據或 Wi-Fi 後再按一次。" + keep
             primary = .retry
         case .installUnreachable:
-            title = "新簽名拿到了，還沒裝上"
-            detail = "要先連 LocalDevVPN。有 Wi-Fi：打開 LocalDevVPN 再按「裝上」；只有 4G：關掉行動數據、打開 LocalDevVPN 再按「裝上」（裝好再開回行動數據）。新簽名已存在手機，不會重新下載，也不用重新登入。" + keep
+            title = "新簽名已下載，還沒裝上"
+            detail = "有 Wi-Fi：開 LocalDevVPN 再按「裝上」。只有 4G：關行動數據 → 開 LocalDevVPN → 按「裝上」，裝好再開回行動數據。不用重新下載或登入。" + keep
             primary = .install
         case .appIDLimit(let again):
             title = "這週 Apple 帳號能簽的數量用完了"
@@ -628,6 +628,11 @@ final class GpsRenewCenter: ObservableObject {
                 return
             }
         }
+        // Something may have started during the wait (a Shortcut, the 續簽 button).
+        guard !isRunning, RenewService.shared.runningJob == nil else {
+            RenewDiagLog.write("auto-install skipped: another renew job started")
+            return
+        }
         do {
             let outcome = try await RenewService.shared.installPendingProfile()
             let installed = !outcome.alreadyUpToDate && !outcome.nothingToInstall
@@ -641,7 +646,10 @@ final class GpsRenewCenter: ObservableObject {
             }
         } catch {
             RenewDiagLog.write("auto-install FAILED \(RenewDiagLog.describe(error)) (silent)")
-            externalRenewFinished(expiry: nil, failure: error, nothingInstalled: true)
+            // downloadInProgress: never started; the running job's own caller finishes the mirror.
+            if (error as? RenewProblem)?.kind != .downloadInProgress {
+                externalRenewFinished(expiry: nil, failure: error, nothingInstalled: true)
+            }
         }
     }
 
@@ -657,8 +665,10 @@ final class GpsRenewCenter: ObservableObject {
         signTick += 1
     }
 
-    /// Running or failed always shows; otherwise from 2 days left, unless 稍後 is still in effect.
+    /// A downloaded signature waiting to be installed, running or failed always shows; otherwise from
+    /// 2 days left, unless 稍後 is still in effect.
     func signCardVisible(now: Date) -> Bool {
+        if status.pendingInstall { return true }
         if isRunning || failure != nil { return true }
         guard GpsSigning.needsWarning(now: now) else { return false }
         if let until = UserDefaults.standard.object(forKey: Self.snoozeKey) as? Date, until > now,
@@ -790,9 +800,14 @@ final class GpsDemoRenewService: RenewServicing {
         return Date().addingTimeInterval(7 * 86_400)
     }
 
+    /// Screenshot states signPending / settingsSignPending: a downloaded signature waits to be installed.
+    private let pending = ProcessInfo.processInfo.arguments.contains("signPending")
+        || ProcessInfo.processInfo.arguments.contains("settingsSignPending")
+
     func status() async -> RenewServiceStatus {
         RenewServiceStatus(signedIn: signedIn, appleID: Self.demoAppleID,
-                           lastSuccess: signedIn ? Date().addingTimeInterval(-5.5 * 86_400) : nil)
+                           lastSuccess: signedIn ? Date().addingTimeInterval(-5.5 * 86_400) : nil,
+                           pendingInstall: pending)
     }
 
     func signOut() async { signedIn = false }
@@ -853,8 +868,8 @@ enum GpsRenewReminders {
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
             let content = UNMutableNotificationContent()
-            content.title = "新簽名已下載"
-            content.body = "新簽名已下載，下次打開 \(GpsRenewCopy.appName) 或跑出門改定位時會自動裝好"
+            content.title = "\(GpsRenewCopy.appName) 新簽名已下載"
+            content.body = "打開 \(GpsRenewCopy.appName) 就會裝上。只有 4G 時先關行動數據、開 LocalDevVPN。"
             content.sound = .default
             center.add(UNNotificationRequest(identifier: "gpssim.sign.downloaded", content: content, trigger: nil))
         }

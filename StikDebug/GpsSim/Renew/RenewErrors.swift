@@ -114,17 +114,17 @@ enum RenewErrorTable {
             return Entry(code: nil, title: "沒有比較新的描述檔", advice: "目前的簽名已經是最新的。")
         case .tunnelRwAfc:
             return Entry(code: "RwAfc", title: "手機的本機連線沒通",
-                         advice: "連上 Wi-Fi 並打開 LocalDevVPN 後再試（只有 4G 不行）。")
+                         advice: "打開 LocalDevVPN 後再試；只有 4G 時先關掉行動數據。")
         case .deviceEndpointNil:
             return Entry(code: "deviceEndpointIp nil", title: "拿不到手機自己的連線位址",
-                         advice: "只有 4G 時會這樣。連上 Wi-Fi 並打開 LocalDevVPN 後再試。")
+                         advice: "打開 LocalDevVPN 後再試；只有 4G 時先關掉行動數據。")
         case .needTunnel:
-            return Entry(code: nil, title: "需要 Wi-Fi 和 LocalDevVPN",
-                         advice: "連上 Wi-Fi 並打開 LocalDevVPN 後再試（只有 4G 不行）。")
+            return Entry(code: nil, title: "需要 LocalDevVPN",
+                         advice: "打開 LocalDevVPN 後再試；只有 4G 時先關掉行動數據。")
         case .install:
             return Entry(code: nil, title: "描述檔沒有裝上", advice: "什麼都沒換掉。稍後再試。")
         case .pendingNeedsTunnel:
-            return Entry(code: nil, title: "新描述檔已下載，還沒裝上",
+            return Entry(code: nil, title: "新簽名已下載，還沒裝上",
                          advice: "關掉行動數據、打開 LocalDevVPN 後，跑「安裝PinFly描述檔」或在PinFly再按一次續簽（不會重新下載，也不用再登入）。")
         case .downloadInProgress:
             return Entry(code: nil, title: "下載還沒完成",

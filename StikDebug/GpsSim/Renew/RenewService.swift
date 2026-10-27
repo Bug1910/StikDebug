@@ -243,6 +243,29 @@ final class RenewService: ObservableObject {
         } else {
             let session = RenewKeychain.loadSession(service: backend.keychainService)
             let usable = (session?.isExpired ?? true) ? nil : session
+            // Download signed out but a fresh profile already waits: nothing to fetch, report it ready.
+            // Same certificate / newer check as the backend's reuse (local only, no session needed); the
+            // mock's fake bytes cannot be parsed, so it skips the check.
+            let isMock = backend is MockRenewBackend
+            if op == .download, usable == nil,
+               let pending = RenewPendingProfile.load(mock: isMock), RenewPendingProfile.isFresh(pending) {
+                do {
+                    if !isMock { try LiveRenewBackend.requireSameCertificates(newProfile: pending.profile) }
+                    RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); not signed in, Apple not contacted")
+                    refreshStatus()
+                    return RenewOutcome(expiry: pending.expiry, message: "新描述檔已下載好，等安裝。",
+                                        pendingOnly: true, reusedPending: true)
+                } catch let problem as RenewProblem where problem.kind == .profileNotNewer {
+                    RenewDiagLog.write("pending dropped: phone already as new; not signed in, Apple not contacted")
+                    RenewPendingProfile.delete(mock: isMock)
+                    refreshStatus()
+                    return RenewOutcome(expiry: current.profileExpiry, message: "手機上已有同樣新或更新的描述檔，不用續簽。",
+                                        alreadyUpToDate: true)
+                } catch {
+                    RenewDiagLog.write("pending dropped \(RenewDiagLog.describe(error))")
+                    RenewPendingProfile.delete(mock: isMock)   // unusable; falls through to "sign in first"
+                }
+            }
             // A waiting profile is installed without Apple, so a renew needs no valid sign-in then
             // (the backend asks for one only if it has to download after all).
             if usable == nil, !(op == .renew && hasPendingFile) {

@@ -49,18 +49,10 @@ enum RenewPendingProfile {
     /// Less validity left than this, likewise (Apple hands out 7 days; a fresh one is clearly better).
     static let minValidity: TimeInterval = 6 * 86_400
 
-    /// Like `load`, but a stale one (see maxAge / minValidity) is deleted and nil returned.
-    /// The install step itself uses `load`: an older but still newer profile is better than none.
-    static func loadFresh(mock: Bool) -> Pending? {
-        guard let pending = load(mock: mock) else { return nil }
-        let ageHours = Int(Date().timeIntervalSince(pending.savedAt) / 3_600)
-        let leftHours = Int(pending.expiry.timeIntervalSinceNow / 3_600)
-        guard Date().timeIntervalSince(pending.savedAt) <= maxAge, pending.expiry.timeIntervalSinceNow >= minValidity else {
-            RenewDiagLog.write("pending stale (saved \(ageHours) h ago, \(leftHours) h left); deleted")
-            delete(mock: mock)
-            return nil
-        }
-        return pending
+    /// A stale one is never deleted for being stale: it stays installable (if newer than the phone) until a
+    /// download saves a new one over it, or a check finds it no longer newer.
+    static func isFresh(_ pending: Pending) -> Bool {
+        Date().timeIntervalSince(pending.savedAt) <= maxAge && pending.expiry.timeIntervalSinceNow >= minValidity
     }
 
     static func save(_ profile: Data, expiry: Date, mock: Bool) throws {

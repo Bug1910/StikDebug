@@ -89,8 +89,10 @@ struct LiveRenewBackend: RenewBackend {
 
     func renew(session stored: RenewStoredSession?, quick: Bool) async throws -> RenewOutcome {
         try await RenewQuietOutput.run { () async throws -> RenewOutcome in
-            // Downloaded earlier (e.g. on 4G) and still fresh: install that first, without Apple.
-            if RenewPendingProfile.loadFresh(mock: false) != nil {
+            // Downloaded earlier (e.g. on 4G): install that first, without Apple. Freshness only matters
+            // when a download could replace it; signed out, any still-newer profile beats none. A stale one
+            // is left alone here: the download keeps it until a new one is saved over it.
+            if let pending = RenewPendingProfile.load(mock: false), stored == nil || RenewPendingProfile.isFresh(pending) {
                 let first = try await installPendingUnmuted()
                 if first.alreadyUpToDate || !first.nothingToInstall { return first }
                 // Dropped as unusable: fetch a new one below.
@@ -193,14 +195,19 @@ struct LiveRenewBackend: RenewBackend {
         RenewDiagLog.write("download start\(quick ? " (no retries)" : "")")
         // A profile downloaded earlier and still fresh (≤24 h old, ≥6 days left): keep it instead of asking
         // Apple again (every Apple call spends sign-in / rate-limit budget). Rechecked, since the phone may
-        // have been renewed another way (PC, SideStore) in the meantime.
-        if let pending = RenewPendingProfile.loadFresh(mock: false) {
+        // have been renewed another way (PC, SideStore) in the meantime. A stale one that is still newer
+        // than the phone is NOT deleted before asking Apple: if the download fails it is still installable;
+        // a successful save simply replaces it.
+        if let pending = RenewPendingProfile.load(mock: false) {
             do {
                 try Self.requireSameCertificates(newProfile: pending.profile)
-                RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); Apple not contacted")
-                return RenewOutcome(expiry: pending.expiry,
-                                    message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(pending.expiry))），等安裝。",
-                                    pendingOnly: true, reusedPending: true)
+                if RenewPendingProfile.isFresh(pending) {
+                    RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); Apple not contacted")
+                    return RenewOutcome(expiry: pending.expiry,
+                                        message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(pending.expiry))），等安裝。",
+                                        pendingOnly: true, reusedPending: true)
+                }
+                RenewDiagLog.write("pending stale; asking Apple, old one kept until a new one is saved")
             } catch let problem as RenewProblem where problem.kind == .profileNotNewer {
                 // The phone already has this one or newer: nothing to fetch either, so Apple is not asked.
                 RenewDiagLog.write("pending dropped: phone already as new; Apple not contacted")
@@ -259,6 +266,7 @@ struct LiveRenewBackend: RenewBackend {
         } catch let problem as RenewProblem where problem.kind == .profileNotNewer {
             // Not a failure: report "no renewal needed" with the date the phone already has.
             RenewDiagLog.write("download ok; phone already up to date, nothing saved")
+            RenewPendingProfile.delete(mock: false)   // a kept stale one is older still: useless now
             return RenewOutcome(expiry: GpsProfileRenew.effectiveExpiration(embedded: embedded.expiration),
                                 message: "手機上已有同樣新或更新的描述檔，不用續簽。", alreadyUpToDate: true)
         }
@@ -288,7 +296,7 @@ struct LiveRenewBackend: RenewBackend {
         // error (it must not stop that Shortcut). A failed download is reported by the download step itself.
         guard let pending = RenewPendingProfile.load(mock: false) else {
             RenewDiagLog.write("install: nothing pending, nothing to do")
-            return RenewOutcome(expiry: nil, message: "沒有等待安裝的描述檔，不用安裝。", nothingToInstall: true)
+            return RenewOutcome(expiry: nil, message: "沒有等著安裝的描述檔，不用裝。", nothingToInstall: true)
         }
         // Recheck before touching the phone: it may have been renewed another way since the download
         // (no longer newer), or the profile cannot be used (other certificate / entitlements). Either way
@@ -410,7 +418,7 @@ struct MockRenewBackend: RenewBackend {
     }
 
     func renew(session: RenewStoredSession?, quick: Bool) async throws -> RenewOutcome {
-        if RenewPendingProfile.loadFresh(mock: true) != nil {
+        if let pending = RenewPendingProfile.load(mock: true), session == nil || RenewPendingProfile.isFresh(pending) {
             let first = try await installPending()
             if first.alreadyUpToDate || !first.nothingToInstall { return first }
         }
@@ -422,7 +430,8 @@ struct MockRenewBackend: RenewBackend {
 
     func download(session: RenewStoredSession, quick: Bool) async throws -> RenewOutcome {
         RenewDiagLog.write("download start (mock)\(quick ? " (no retries)" : "")")
-        if let pending = RenewPendingProfile.loadFresh(mock: true) {
+        // Like the live one: a stale pending is kept until the new one is saved over it.
+        if let pending = RenewPendingProfile.load(mock: true), RenewPendingProfile.isFresh(pending) {
             RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); Apple not contacted (mock)")
             return RenewOutcome(expiry: pending.expiry,
                                 message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(pending.expiry))），等安裝。（模擬）",
@@ -450,7 +459,7 @@ struct MockRenewBackend: RenewBackend {
         RenewDiagLog.write("install start (mock)")
         guard let pending = RenewPendingProfile.load(mock: true) else {
             RenewDiagLog.write("install: nothing pending, nothing to do (mock)")
-            return RenewOutcome(expiry: nil, message: "沒有等待安裝的描述檔，不用安裝。（模擬）", nothingToInstall: true)
+            return RenewOutcome(expiry: nil, message: "沒有等著安裝的描述檔，不用裝。（模擬）", nothingToInstall: true)
         }
         try await Task.sleep(nanoseconds: 300_000_000)
         guard !Self.tunnelMissing else {
