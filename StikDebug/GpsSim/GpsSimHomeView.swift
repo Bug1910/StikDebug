@@ -833,6 +833,11 @@ struct GpsSimHomeView: View {
         clearToast()
         searchMessage = nil
         swappedSuggestion = nil
+        // A link from Google/Apple Maps 「分享→複製連結」: read the place from the link itself.
+        if let link = Self.pastedMapLink(q) {
+            openMapLink(link)
+            return
+        }
         switch GpsCoordinateInput.parse(q) {
         case .valid(let c):
             clearSearch()
@@ -923,6 +928,190 @@ struct GpsSimHomeView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Pasted map links
+
+    /// What a 「複製連結」 paste holds: the link, plus the other lines (shop name, then address).
+    private struct PastedMapLink {
+        let url: URL
+        let name: String?
+        let address: String?
+    }
+
+    private func openMapLink(_ link: PastedMapLink) {
+        // Name: the first non-link line of the paste, else the 「/place/名稱/」 part of the link,
+        // else nil so the draft asks the reverse geocoder like a long-press does.
+        let name = link.name ?? Self.mapLinkName(link.url)
+        if let c = Self.mapLinkCoordinate(link.url) {
+            clearSearch()
+            searchFocused = false
+            startDraft(at: c, name: name, address: link.address)
+            return
+        }
+        guard Self.isShortMapLink(link.url) else {
+            searchLinkText(name ?? link.address)
+            return
+        }
+        searchFocused = false
+        isSearching = true
+        let myID = UUID()
+        searchID = myID
+        Task {
+            let resolved = await Self.resolveMapLink(link.url)
+            await MainActor.run {
+                // Cleared or replaced by a newer search while we waited: drop this answer.
+                guard searchID == myID else { return }
+                isSearching = false
+                if let final = resolved.url, let c = Self.mapLinkCoordinate(final) {
+                    clearSearch()
+                    searchFocused = false
+                    startDraft(at: c, name: name ?? Self.mapLinkName(final), address: link.address)
+                } else if resolved.networkFailed {
+                    searchResults = []
+                    searchMessage = "打開連結需要網路，請確認連線後再試"
+                } else {
+                    searchLinkText(name ?? resolved.url.flatMap { Self.mapLinkName($0) } ?? link.address)
+                }
+            }
+        }
+    }
+
+    /// No position in the link: search its name (or address) the normal way instead.
+    private func searchLinkText(_ text: String?) {
+        // A name that is itself a link would come straight back here: treat it as no name.
+        guard let text, !text.isEmpty, Self.pastedMapLink(text) == nil else {
+            searchResults = []
+            searchMessage = "這個連結裡找不到位置。請改貼地點名稱，或長按地圖直接新增。"
+            return
+        }
+        searchText = text
+        runSearch()
+    }
+
+    private static func pastedMapLink(_ text: String) -> PastedMapLink? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+        let whole = NSRange(text.startIndex..., in: text)
+        guard let match = detector.matches(in: text, range: whole).first(where: {
+                  ["http", "https"].contains($0.url?.scheme?.lowercased() ?? "") }),
+              let found = match.url, let range = Range(match.range, in: text) else { return nil }
+        let raw = String(text[range])
+        // A typed 「https://…」 link, or a map address without one (「www.google.com/maps/…」, upgraded
+        // to https). A bare 「abc.com」 typed as a name still searches normally.
+        let host = found.host?.lowercased() ?? ""
+        let mapHost = host.contains("google.") || host.hasSuffix("goo.gl") || host == "g.co"
+            || host == "maps.apple" || host.hasSuffix("maps.apple.com")
+        guard raw.lowercased().hasPrefix("http") || mapHost else { return nil }
+        var parts = URLComponents(url: found, resolvingAgainstBaseURL: false)
+        if parts?.scheme?.lowercased() == "http" && !raw.lowercased().hasPrefix("http") { parts?.scheme = "https" }
+        guard let url = parts?.url else { return nil }
+        // Each line with the link cut out; whatever text is left is the name, then the address.
+        let lines = text.components(separatedBy: .newlines)
+            .map { $0.replacingOccurrences(of: raw, with: "").trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return PastedMapLink(url: url, name: lines.first, address: lines.dropFirst().first)
+    }
+
+    /// Share links that only redirect: 「maps.app.goo.gl/…」, 「goo.gl/maps/…」, Apple 「maps.apple/p/…」.
+    private static func isShortMapLink(_ url: URL) -> Bool {
+        let host = url.host?.lowercased() ?? ""
+        let path = url.path.lowercased()
+        if host == "maps.app.goo.gl" || host == "g.co" || host == "maps.apple" { return true }
+        if host == "goo.gl" { return path.hasPrefix("/maps") || path.hasPrefix("/app") }
+        if host.hasSuffix("maps.apple.com") { return path.hasPrefix("/p/") }
+        return false
+    }
+
+    /// No cookies kept: a share link must not leave a Google session behind.
+    private static let linkSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForResource = 8
+        return URLSession(configuration: config)
+    }()
+
+    /// The whole redirect chain gets 8 s in total (timeoutInterval alone is per idle gap); past that
+    /// the request is cancelled and treated like no network.
+    private static func resolveMapLink(_ url: URL) async -> (url: URL?, networkFailed: Bool) {
+        await withTaskGroup(of: (url: URL?, networkFailed: Bool)?.self) { group in
+            group.addTask { await Self.followMapLink(url) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? (nil, true)
+        }
+    }
+
+    /// Follows the redirects with GET (some short links do not answer HEAD) and cancels as soon as
+    /// the headers arrive, so the page itself is never downloaded on 4G.
+    private static func followMapLink(_ url: URL) async -> (url: URL?, networkFailed: Bool) {
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.httpMethod = "GET"
+        do {
+            let (bytes, response) = try await linkSession.bytes(for: request)
+            bytes.task.cancel()
+            guard var final = response.url else { return (nil, false) }
+            // Google's cookie page keeps the real address in 「continue=」.
+            if let next = URLComponents(url: final, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "continue" })?.value, let nextURL = URL(string: next) {
+                final = nextURL
+            }
+            return (final, false)
+        } catch {
+            NSLog("PinFly map link failed: %@", String(describing: error))
+            return (nil, error is URLError)
+        }
+    }
+
+    private static let linkNumber = "(-?\\d{1,3}(?:\\.\\d+)?)"
+
+    private static func numberPair(_ pattern: String, in text: String) -> CLLocationCoordinate2D? {
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              m.numberOfRanges >= 3,
+              let r1 = Range(m.range(at: 1), in: text), let r2 = Range(m.range(at: 2), in: text),
+              let lat = Double(text[r1]), let lon = Double(text[r2]) else { return nil }
+        let c = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        return CLLocationCoordinate2DIsValid(c) && !(lat == 0 && lon == 0) ? c : nil
+    }
+
+    /// 「25.03,121.56」 or 「loc:25.03,121.56」 as a whole query value (not a place name).
+    private static func coordinateValue(_ value: String) -> CLLocationCoordinate2D? {
+        let v = value.replacingOccurrences(of: "+", with: " ")
+        return numberPair("^\\s*(?:loc:)?\\s*\(linkNumber)\\s*,\\s*\(linkNumber)\\s*$", in: v)
+    }
+
+    /// Best first: 「!3d…!4d…」 is the place itself; q/query/ll/daddr (Apple: ll, coordinate, q)
+    /// are a pin; 「/@lat,lng,」 is only where the map was looking, so it is used last and only on a
+    /// 「/place/」 link (on /search or /dir it is just the screen, and the name is searched instead).
+    private static func mapLinkCoordinate(_ url: URL) -> CLLocationCoordinate2D? {
+        let text = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        if let c = numberPair("!3d\(linkNumber)!4d\(linkNumber)", in: text) { return c }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        for key in ["q", "query", "ll", "daddr", "coordinate"] {
+            if let value = items.first(where: { $0.name == key })?.value, let c = coordinateValue(value) { return c }
+        }
+        guard url.pathComponents.contains("place") else { return nil }
+        return numberPair("/@\(linkNumber),\(linkNumber)", in: text)
+    }
+
+    /// 「/place/Taipei+101/」 or 「/search/茶道/」, or a q/query/name value that is not a coordinate.
+    private static func mapLinkName(_ url: URL) -> String? {
+        let parts = url.pathComponents
+        if let i = parts.firstIndex(where: { $0 == "place" || $0 == "search" }), i + 1 < parts.count {
+            let piece = parts[i + 1].removingPercentEncoding ?? parts[i + 1]
+            let name = piece.replacingOccurrences(of: "+", with: " ").trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty && !name.hasPrefix("@") { return name }
+        }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        for key in ["q", "query", "name"] {
+            guard let value = items.first(where: { $0.name == key })?.value, coordinateValue(value) == nil else { continue }
+            let name = value.replacingOccurrences(of: "+", with: " ").trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty { return name }
+        }
+        return nil
     }
 
     private static func hasCJK(_ text: String) -> Bool {

@@ -104,6 +104,24 @@
   "wait": 1
  },
  {
+  "type": "https://www.google.com/maps/place/Taipei+101/@25.0339639,121.5644722,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d25.033976!4d121.5645389\n"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "search_maps_link"
+ },
+ {
+  "tree": "search_maps_link"
+ },
+ {
+  "tapId": "draft.cancel"
+ },
+ {
+  "wait": 1
+ },
+ {
   "tapId": "search.field"
  },
  {
