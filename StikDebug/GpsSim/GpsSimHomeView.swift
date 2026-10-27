@@ -202,6 +202,7 @@ struct GpsSimHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// The system text size as set (the screen itself caps it at maxTypeSize below).
     @Environment(\.dynamicTypeSize) private var systemTypeSize
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
 
     /// Satellite (hybrid: imagery + road names) by default; the owner asked for it 2026-10-15.
     @AppStorage("gpsSim.mapSatellite") private var mapSatellite = true
@@ -416,9 +417,11 @@ struct GpsSimHomeView: View {
         }
         .onChange(of: engine.toast) { _, value in
             guard let value else { return }
-            // After a stop the previous target is the one just stopped: offer a 10 s undo.
+            // After a stop the previous target is the one just stopped: offer an undo. 3 s as the
+            // owner asked; VoiceOver keeps 10 s so 復原 can still be reached (WCAG 2.2.1).
             if value.hasPrefix("已回到真實位置") || value.hasPrefix("已經是真實位置"), engine.previous != nil {
-                showToast(value, actionTitle: "復原", action: { engine.undoLastSend() }, autoClear: true, duration: 10)
+                showToast(value, actionTitle: "復原", action: { engine.undoLastSend() }, autoClear: true,
+                          duration: voiceOverOn ? 10 : 3)
             } else {
                 showToast(value, autoClear: true)
             }
@@ -859,74 +862,59 @@ struct GpsSimHomeView: View {
         let myID = UUID()
         searchID = myID
         Task {
-            // Taiwan first (fast, local names), then the whole world: a Taiwan-only search answered
-            // 「大英博物館」 with a street in Taitung. Results whose name or address does not contain
-            // the typed words are never listed first, and the message says so.
-            let hasCJK = q.unicodeScalars.contains { $0.value >= 0x2E80 }
-            // CJK: brackets and company suffixes removed; at most 3 Taiwan queries + 1 world query.
-            let plan = Self.namePlan(normalizedQuery)
-            let words = Self.queryWords(hasCJK ? normalizedQuery : q)
-            // list = score 2+ (listed as real matches); weak = core name only, shown first in the fallback.
-            let rank: ([MKMapItem]) -> (list: [MKMapItem], weak: [MKMapItem]) = { items in
-                let scored: [(item: MKMapItem, score: Int)] = items.map { item in
-                    let name = Self.fold(item.name ?? "")
-                    let hay = Self.fold((item.name ?? "") + " " + (addressText(of: item) ?? ""))
-                    let legacy = Self.matches(item, words: words, address: addressText(of:)) ? 3 : 0
-                    return (item, max(legacy, hasCJK ? plan.score(name: name, haystack: hay) : 0))
-                }
-                let kept = scored.enumerated().filter { $0.element.score >= 2 }
-                    .sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score : $0.offset < $1.offset }
-                return (kept.map { $0.element.item }, scored.filter { $0.score == 1 }.map { $0.item })
-            }
-            let taiwanQueries = hasCJK ? plan.taiwanQueries : [q]
-            let taiwan = await Self.mapSearch(taiwanQueries[0], region: GpsTheme.taiwanRegion)
-            var pool = Self.uniqueItems(taiwan.items)
-            var networkFailed = taiwan.networkFailed
-            var ranked = rank(pool)
-            if hasCJK {
-                var next = 1
-                while ranked.list.isEmpty && next < taiwanQueries.count {
-                    if await MainActor.run(body: { searchID != myID }) { return }
-                    let extra = await Self.mapSearch(taiwanQueries[next], region: GpsTheme.taiwanRegion)
-                    networkFailed = networkFailed && extra.networkFailed
-                    pool = Self.uniqueItems(pool + extra.items)
-                    ranked = rank(pool)
-                    next += 1
-                }
-            }
-            var matched = ranked.list
-            var fallback = Self.uniqueItems(ranked.weak + pool)
-            // Chinese query: ask the world when Taiwan has no name match. English query: names come
-            // back in Chinese so they cannot be checked; ask the world when Taiwan is empty or its
-            // first answer is outside Taiwan, and merge both lists (Taiwan first, no duplicates).
-            let firstOutsideTaiwan = taiwan.items.first.map { $0.placemark.isoCountryCode != "TW" } ?? true
-            if hasCJK ? ranked.list.isEmpty : (taiwan.items.isEmpty || firstOutsideTaiwan) {
+            guard let first = await searchCore(q, normalized: normalizedQuery, myID: myID) else { return }
+            var (m, f, nf) = (first.matched, first.fallback, first.networkFailed)
+            var shorterQuery: String?
+            // Nothing at all and not a network problem: vague or colloquial names (「台北海線」).
+            if m.isEmpty && f.isEmpty && !nf {
+                // The whole fallback stops after 8 s on 4G: past that, the plain 「找不到」 is kinder.
+                let deadline = Date().addingTimeInterval(8)
+                // a. The geocoder knows addresses and areas that the place search does not list.
                 if await MainActor.run(body: { searchID != myID }) { return }
-                let world = await Self.mapSearch(hasCJK ? plan.worldQuery : q, region: GpsTheme.worldRegion)
-                networkFailed = networkFailed && world.networkFailed
-                if hasCJK {
-                    let all = Self.uniqueItems(pool + world.items)
-                    let worldRanked = rank(all)
-                    matched = worldRanked.list
-                    fallback = Self.uniqueItems(worldRanked.weak + (world.items.isEmpty ? pool : world.items))
-                } else {
-                    let merged = Self.uniqueItems(taiwan.items + world.items)
-                    matched = merged
-                    fallback = merged
+                let geo = await Self.geocode(q)
+                if Date() < deadline { f = geo.items }
+                nf = geo.networkFailed
+                // b. Chinese: drop trailing characters (at least 2 left, at most 3 tries), one Taiwan
+                // search each. A name containing the shorter text wins; other answers are only kept
+                // as the 「沒有名稱完全相符」 list.
+                if f.isEmpty && !nf && Self.hasCJK(q) {
+                    let chars = Array(normalizedQuery)
+                    var tried: Set<String> = [normalizedQuery]
+                    var length = chars.count - 1
+                    while length >= 2 && tried.count <= 3 && Date() < deadline {
+                        let short = String(chars.prefix(length)).trimmingCharacters(in: .whitespaces)
+                        length -= 1
+                        guard short.count >= 2, tried.insert(short).inserted else { continue }
+                        if await MainActor.run(body: { searchID != myID }) { return }
+                        let r = await Self.mapSearch(short, region: GpsTheme.taiwanRegion)
+                        guard Date() < deadline else { break }
+                        if r.networkFailed { nf = f.isEmpty; break }
+                        let key = Self.fold(short)
+                        let named = Self.uniqueItems(r.items.filter { Self.fold($0.name ?? "").contains(key) })
+                        if !named.isEmpty {
+                            m = named
+                            shorterQuery = short
+                            break
+                        }
+                        if f.isEmpty { f = Self.uniqueItems(r.items) }
+                    }
                 }
             }
-            let (m, f, nf) = (matched, fallback, networkFailed)
+            let (fm, ff, fnf, short) = (m, f, nf, shorterQuery)
             await MainActor.run {
                 // Cleared or replaced by a newer search while we waited: drop this answer.
                 guard searchID == myID else { return }
                 isSearching = false
-                if !m.isEmpty {
-                    searchResults = Array(m.prefix(6))
+                if let short, !fm.isEmpty {
+                    searchResults = Array(fm.prefix(6))
+                    searchMessage = "找不到「\(q)」，以下是「\(short)」的結果"
+                } else if !fm.isEmpty {
+                    searchResults = Array(fm.prefix(6))
                     searchMessage = nil
-                } else if !f.isEmpty {
-                    searchResults = Array(f.prefix(6))
+                } else if !ff.isEmpty {
+                    searchResults = Array(ff.prefix(6))
                     searchMessage = "沒有名稱完全相符的結果，請看清楚再選；也可以試試英文名稱。"
-                } else if nf {
+                } else if fnf {
                     searchResults = []
                     searchMessage = "搜尋需要網路，請確認連線後再試"
                 } else {
@@ -934,6 +922,93 @@ struct GpsSimHomeView: View {
                     searchMessage = "找不到「\(q)」。試試英文名稱，或長按地圖直接新增。"
                 }
             }
+        }
+    }
+
+    private static func hasCJK(_ text: String) -> Bool {
+        text.unicodeScalars.contains { $0.value >= 0x2E80 }
+    }
+
+    /// One full name search (Taiwan, then the world). nil = cleared or replaced by a newer search.
+    private func searchCore(_ q: String, normalized normalizedQuery: String,
+                            myID: UUID) async -> (matched: [MKMapItem], fallback: [MKMapItem], networkFailed: Bool)? {
+        // Taiwan first (fast, local names), then the whole world: a Taiwan-only search answered
+        // 「大英博物館」 with a street in Taitung. Results whose name or address does not contain
+        // the typed words are never listed first, and the message says so.
+        let hasCJK = Self.hasCJK(q)
+        // CJK: brackets and company suffixes removed; at most 3 Taiwan queries + 1 world query.
+        let plan = Self.namePlan(normalizedQuery)
+        let words = Self.queryWords(hasCJK ? normalizedQuery : q)
+        // list = score 2+ (listed as real matches); weak = core name only, shown first in the fallback.
+        let rank: ([MKMapItem]) -> (list: [MKMapItem], weak: [MKMapItem]) = { items in
+            let scored: [(item: MKMapItem, score: Int)] = items.map { item in
+                let name = Self.fold(item.name ?? "")
+                let hay = Self.fold((item.name ?? "") + " " + (addressText(of: item) ?? ""))
+                let legacy = Self.matches(item, words: words, address: addressText(of:)) ? 3 : 0
+                return (item, max(legacy, hasCJK ? plan.score(name: name, haystack: hay) : 0))
+            }
+            let kept = scored.enumerated().filter { $0.element.score >= 2 }
+                .sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score : $0.offset < $1.offset }
+            return (kept.map { $0.element.item }, scored.filter { $0.score == 1 }.map { $0.item })
+        }
+        let taiwanQueries = hasCJK ? plan.taiwanQueries : [q]
+        let taiwan = await Self.mapSearch(taiwanQueries[0], region: GpsTheme.taiwanRegion)
+        var pool = Self.uniqueItems(taiwan.items)
+        var networkFailed = taiwan.networkFailed
+        var ranked = rank(pool)
+        if hasCJK {
+            var next = 1
+            while ranked.list.isEmpty && next < taiwanQueries.count {
+                if await MainActor.run(body: { searchID != myID }) { return nil }
+                let extra = await Self.mapSearch(taiwanQueries[next], region: GpsTheme.taiwanRegion)
+                networkFailed = networkFailed && extra.networkFailed
+                pool = Self.uniqueItems(pool + extra.items)
+                ranked = rank(pool)
+                next += 1
+            }
+        }
+        var matched = ranked.list
+        var fallback = Self.uniqueItems(ranked.weak + pool)
+        // Chinese query: ask the world when Taiwan has no name match. English query: names come
+        // back in Chinese so they cannot be checked; ask the world when Taiwan is empty or its
+        // first answer is outside Taiwan, and merge both lists (Taiwan first, no duplicates).
+        let firstOutsideTaiwan = taiwan.items.first.map { $0.placemark.isoCountryCode != "TW" } ?? true
+        if hasCJK ? ranked.list.isEmpty : (taiwan.items.isEmpty || firstOutsideTaiwan) {
+            if await MainActor.run(body: { searchID != myID }) { return nil }
+            let world = await Self.mapSearch(hasCJK ? plan.worldQuery : q, region: GpsTheme.worldRegion)
+            networkFailed = networkFailed && world.networkFailed
+            if hasCJK {
+                let all = Self.uniqueItems(pool + world.items)
+                let worldRanked = rank(all)
+                matched = worldRanked.list
+                fallback = Self.uniqueItems(worldRanked.weak + (world.items.isEmpty ? pool : world.items))
+            } else {
+                let merged = Self.uniqueItems(taiwan.items + world.items)
+                matched = merged
+                fallback = merged
+            }
+        }
+        if await MainActor.run(body: { searchID != myID }) { return nil }
+        return (matched, fallback, networkFailed)
+    }
+
+    /// Fallback for vague names: the geocoder (addresses, districts, areas), as plain map items.
+    /// `networkFailed`: only kCLErrorNetwork; "not found" and other errors are just an empty list.
+    private static func geocode(_ query: String) async -> (items: [MKMapItem], networkFailed: Bool) {
+        do {
+            let marks = try await CLGeocoder().geocodeAddressString(query, in: nil,
+                                                                   preferredLocale: Locale(identifier: "zh_Hant_TW"))
+            let items = marks.compactMap { mark -> MKMapItem? in
+                guard mark.location != nil else { return nil }
+                let item = MKMapItem(placemark: MKPlacemark(placemark: mark))
+                item.name = mark.name ?? mark.locality ?? query
+                return item
+            }
+            return (items, false)
+        } catch {
+            NSLog("PinFly geocode failed: %@", String(describing: error))
+            if let cl = error as? CLError, cl.code == .network { return ([], true) }
+            return ([], false)
         }
     }
 

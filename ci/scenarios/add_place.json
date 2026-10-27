@@ -86,6 +86,30 @@
   "wait": 1
  },
  {
+  "type": "台北海線\n"
+ },
+ {
+  "wait": 12
+ },
+ {
+  "shot": "search_vague_fallback"
+ },
+ {
+  "tree": "search_vague_fallback"
+ },
+ {
+  "tapId": "search.clear"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 1
+ },
+ {
   "type": "35.6586, 139.7454\n"
  },
  {
