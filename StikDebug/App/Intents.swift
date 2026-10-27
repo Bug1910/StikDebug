@@ -266,7 +266,7 @@ struct StikDebugShortcuts: AppShortcutsProvider {
         // GpsSim fork actions first, in spec 2.3 order (most important first, HIG App Shortcuts).
         // An app may have only one provider. Not listed on purpose (still usable as Shortcut actions):
         // ConnectIntent (old step, no longer needed), SimulationStatusIntent, ImportProfileIntent.
-        // Total 7 here, under Apple's limit of 10.
+        // Total 10 here (8 GpsSim + 2 upstream) = Apple's limit of 10: remove one before adding another.
         AppShortcut(
             intent: StopSimulationIntent(),
             phrases: ["用\(.applicationName)停止模擬", "\(.applicationName)停止模擬"],
@@ -290,6 +290,18 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             phrases: ["\(.applicationName)快到期才續簽", "用\(.applicationName)快到期才續簽"],
             shortTitle: "剩幾天內才續簽PinFly",
             systemImageName: "calendar.badge.clock"
+        )
+        AppShortcut(
+            intent: DownloadProfileIntent(),
+            phrases: ["用\(.applicationName)下載描述檔", "\(.applicationName)下載描述檔"],
+            shortTitle: "下載PinFly描述檔",
+            systemImageName: "arrow.down.circle"
+        )
+        AppShortcut(
+            intent: InstallProfileIntent(),
+            phrases: ["用\(.applicationName)安裝描述檔", "\(.applicationName)安裝描述檔"],
+            shortTitle: "安裝PinFly描述檔",
+            systemImageName: "square.and.arrow.down"
         )
         AppShortcut(
             intent: SigningStatusIntent(),

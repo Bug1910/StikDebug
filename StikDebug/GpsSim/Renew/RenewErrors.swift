@@ -18,6 +18,10 @@ struct RenewProblem: LocalizedError, Equatable, Sendable {
         case notSignedIn, sessionExpired, signInInProgress, cancelled
         case teamMismatch, appIDMissing, certMismatch, profileNotNewer
         case tunnelRwAfc, deviceEndpointNil, needTunnel, install
+        /// Downloaded and kept, but the install half could not reach the phone (no LocalDevVPN path).
+        case pendingNeedsTunnel
+        /// 安裝PinFly描述檔 started while a download (or a whole renew) was still running.
+        case downloadInProgress
         case keychain
         case unknown
     }
@@ -119,6 +123,12 @@ enum RenewErrorTable {
                          advice: "連上 Wi-Fi 並打開 LocalDevVPN 後再試（只有 4G 不行）。")
         case .install:
             return Entry(code: nil, title: "描述檔沒有裝上", advice: "什麼都沒換掉。稍後再試。")
+        case .pendingNeedsTunnel:
+            return Entry(code: nil, title: "新描述檔已下載，還沒裝上",
+                         advice: "關掉行動數據、打開 LocalDevVPN 後，跑「安裝PinFly描述檔」或在PinFly再按一次續簽（不會重新下載，也不用再登入）。")
+        case .downloadInProgress:
+            return Entry(code: nil, title: "下載還沒完成",
+                         advice: "等「下載PinFly描述檔」跑完（約 1 分鐘內）再跑「安裝PinFly描述檔」。")
         case .keychain:
             return Entry(code: "keychain", title: "登入成功，但存不了登入資料",
                          advice: "這支手機不讓PinFly把登入資料存進鑰匙圈（Keychain）。請重新安裝PinFly後再試。")
@@ -223,13 +233,14 @@ enum RenewRetry {
         return nil
     }
 
-    static func run<T>(_ operation: () async throws -> T) async throws -> T {
+    /// `retries` false = one attempt only (Shortcut actions: iOS cuts a background action off at ~25 s).
+    static func run<T>(retries: Bool = true, _ operation: () async throws -> T) async throws -> T {
         var attempt = 0
         while true {
             do {
                 return try await operation()
             } catch {
-                guard let budget = budget(for: error), attempt < budget else { throw error }
+                guard retries, let budget = budget(for: error), attempt < budget else { throw error }
                 attempt += 1
                 RenewDiagLog.write("retry \(attempt)/\(budget): \(RenewDiagLog.describe(error))")
                 // Only the shared manager (uncapped, not-yet-provisioned path) keeps a 30 s cache.

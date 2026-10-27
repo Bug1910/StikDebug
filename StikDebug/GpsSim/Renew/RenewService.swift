@@ -6,7 +6,9 @@
 //    signIn(appleID:password:)  -> .needs2FA(prompt) or .signedIn
 //    submit2FA(code:)           -> .needs2FA(prompt with error) or .signedIn
 //    cancelSignIn() / signOut()
-//    renewNow()                 -> RenewOutcome (throws RenewProblem)
+//    renewNow()                 -> RenewOutcome (throws RenewProblem): download + install in one go
+//    downloadProfile()          -> step 1 only (internet, no tunnel): keeps the profile as pending
+//    installPendingProfile()    -> step 2 only (tunnel, no Apple): installs the pending profile
 //    status()                   -> RenewStatus
 //  The password is only held inside the running sign-in call; it is never stored or logged.
 //  GPSSIM_RENEW_MOCK=1 swaps in MockRenewBackend (separate Keychain service) for the simulator.
@@ -38,6 +40,8 @@ struct RenewStatus: Equatable, Sendable {
     var lastRenewAt: Date?
     var lastProblem: RenewProblem?
     var isMock: Bool
+    /// Expiry of a downloaded profile still waiting to be installed (RenewPendingProfile), nil when none.
+    var pendingExpiry: Date? = nil
 }
 
 @MainActor
@@ -49,8 +53,10 @@ final class RenewService: ObservableObject {
     private let backend: RenewBackend
     private var flow: RenewSignInFlow?
     private var flowTask: Task<Void, Never>?
-    /// The renewal in flight, if any. A second caller (Shortcut vs. screen) awaits this same Task.
-    private var renewTask: Task<RenewOutcome, Error>?
+    enum Job: Equatable, Sendable { case renew, download, install }
+    /// The renew / download / install in flight, if any. A second caller asking for the same operation
+    /// (Shortcut vs. screen) awaits this same Task; a different one waits for it to end first.
+    private var running: (op: Job, id: UUID, task: Task<RenewOutcome, Error>)?
     /// Unique id of the latest renewal run (stays after it ends); lets callers that joined the same run record it once.
     private(set) var renewRunID: UUID?
     var hasOpenSignIn: Bool { flow != nil }
@@ -177,42 +183,91 @@ final class RenewService: ObservableObject {
 
     // MARK: - Renew
 
+    /// `quick` (Shortcut actions): no anisette/1100 retries, so the download fits the ~25 s background
+    /// budget. The screen keeps the full retries.
     @discardableResult
-    func renewNow() async throws -> RenewOutcome {
-        // Join a renewal that is already running instead of failing: the screen and a Shortcut
+    func renewNow(quick: Bool = false) async throws -> RenewOutcome { try await perform(.renew, quick: quick) }
+
+    /// Step 1 of the 4G split (下載PinFly描述檔).
+    @discardableResult
+    func downloadProfile(quick: Bool = false) async throws -> RenewOutcome { try await perform(.download, quick: quick) }
+
+    /// Step 2 of the 4G split (安裝PinFly描述檔). Needs no sign-in: it never talks to Apple.
+    @discardableResult
+    func installPendingProfile() async throws -> RenewOutcome { try await perform(.install, quick: true) }
+
+    /// Quick local check (no decoding, no network) for the install action's "nothing to do" answer.
+    var hasPendingFile: Bool { RenewPendingProfile.exists(mock: backend is MockRenewBackend) }
+
+    /// Which job is running right now (the home card shows step 4 for an install).
+    var runningJob: Job? { running?.op }
+
+    private func perform(_ op: Job, quick: Bool) async throws -> RenewOutcome {
+        // An install must not wait behind a download (unbounded with retries, and the download half of a
+        // renew holds the same lock): answer at once, the Shortcut can try again.
+        if op == .install, let busy = running, busy.op != .install {
+            throw RenewProblem(.downloadInProgress)
+        }
+        // Join the same operation if it is already running instead of failing: the screen and a Shortcut
         // then both get the real result. The Task is not tied to the caller, so closing a screen or
         // a Shortcut timing out does not abort a half-done install.
-        if let running = renewTask { return try await running.value }
-        let task = Task { try await self.runRenew() }
-        renewTask = task
-        renewRunID = UUID()
-        defer { renewTask = nil }
+        while let busy = running {
+            if busy.op == op { return try await busy.task.value }
+            _ = try? await busy.task.value
+        }
+        let id = UUID()
+        let task = Task { () async throws -> RenewOutcome in
+            // Cleared by the task itself (on the main actor) before anyone awaiting it resumes,
+            // so the wait loop above never sees a finished task.
+            defer { if self.running?.id == id { self.running = nil } }
+            return try await self.run(op, quick: quick)
+        }
+        running = (op, id, task)
+        renewRunID = id
         return try await task.value
     }
 
-    private func runRenew() async throws -> RenewOutcome {
+    private func run(_ op: Job, quick: Bool) async throws -> RenewOutcome {
         // Not while renewing or while a sign-in / 2FA is open (that phase must not be overwritten).
-        guard current.phase == .idle else { throw RenewProblem(.signInInProgress) }
-        guard let session = RenewKeychain.loadSession(service: backend.keychainService) else {
-            current.lastProblem = RenewProblem(.notSignedIn)
-            throw RenewProblem(.notSignedIn)
+        guard current.phase == .idle else {
+            // The install action also sits in the everyday 出門改定位 Shortcut: never a failure there.
+            if op == .install {
+                return RenewOutcome(expiry: nil, message: "登入畫面還開著，這次先不安裝。", nothingToInstall: true)
+            }
+            throw RenewProblem(.signInInProgress)
         }
-        guard !session.isExpired else {
-            current.lastProblem = RenewProblem(.sessionExpired)
-            throw RenewProblem(.sessionExpired)
+        let backend = self.backend
+        let work: @Sendable () async throws -> RenewOutcome
+        if op == .install {
+            work = { try await backend.installPending() }
+        } else {
+            let session = RenewKeychain.loadSession(service: backend.keychainService)
+            let usable = (session?.isExpired ?? true) ? nil : session
+            // A waiting profile is installed without Apple, so a renew needs no valid sign-in then
+            // (the backend asks for one only if it has to download after all).
+            if usable == nil, !(op == .renew && hasPendingFile) {
+                let problem = RenewProblem(session == nil ? .notSignedIn : .sessionExpired)
+                current.lastProblem = problem
+                throw problem
+            }
+            if op == .renew {
+                work = { try await backend.renew(session: usable, quick: quick) }
+            } else if let usable {
+                work = { try await backend.download(session: usable, quick: quick) }
+            } else {
+                throw RenewProblem(.notSignedIn)   // unreachable: the guard above already threw
+            }
         }
         current.phase = .renewing
         current.lastProblem = nil
         defer { if current.phase == .renewing { current.phase = .idle } }
-        let backend = self.backend
         do {
-            let outcome = try await Task.detached(priority: .userInitiated) {
-                try await backend.renew(session: session)
-            }.value
-            if !outcome.alreadyUpToDate {
+            let outcome = try await Task.detached(priority: .userInitiated) { try await work() }.value
+            let installed = !outcome.alreadyUpToDate && !outcome.pendingOnly && !outcome.nothingToInstall
+            if installed {
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastRenewKey)
+                if backend is MockRenewBackend { mockProfileExpiry = outcome.expiry }
             }
-            if backend is MockRenewBackend { mockProfileExpiry = outcome.expiry }
             refreshStatus()
             return outcome
         } catch {
@@ -245,6 +300,7 @@ final class RenewService: ObservableObject {
         }
         let last = UserDefaults.standard.double(forKey: Self.lastRenewKey)
         current.lastRenewAt = last > 0 ? Date(timeIntervalSince1970: last) : nil
+        current.pendingExpiry = backend.pendingProfileExpiry()
     }
 }
 

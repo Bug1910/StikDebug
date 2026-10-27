@@ -37,12 +37,32 @@ struct RenewOutcome: Equatable, Sendable {
     let message: String
     /// The phone already had an equally new or newer profile: nothing was installed (not a renewal).
     var alreadyUpToDate = false
+    /// Download step only: a new profile now waits in RenewPendingProfile (nothing installed yet);
+    /// `expiry` is then the WAITING profile's expiry, not what the app runs on.
+    var pendingOnly = false
+    /// Download step only: the waiting profile was already there, so Apple was not contacted.
+    var reusedPending = false
+    /// Install step only: nothing (usable) was waiting, so nothing was done. A success, never an error:
+    /// the install action also sits in the owner's everyday 出門改定位 Shortcut, where usually nothing waits.
+    var nothingToInstall = false
 }
 
+/// Renewing is two halves (see RenewPendingProfile): download (internet, no tunnel) and install
+/// (tunnel, no internet). On 4G the phone cannot do both at once, so a Shortcut runs them separately
+/// with a cellular toggle in between; on Wi-Fi `renew` does both in one go.
 protocol RenewBackend: Sendable {
     var keychainService: String { get }
     func signIn(appleID: String, password: String, codeProvider: @escaping RenewCodeProvider) async throws -> RenewStoredSession
-    func renew(session: RenewStoredSession) async throws -> RenewOutcome
+    /// One shot: a fresh waiting profile is installed first (no Apple, `session` may be nil); otherwise
+    /// download, then install. Without a tunnel the downloaded profile is kept and
+    /// RenewProblem(.pendingNeedsTunnel) is thrown. `quick` = no retries (Shortcut time budget).
+    func renew(session: RenewStoredSession?, quick: Bool) async throws -> RenewOutcome
+    /// Step 1 (下載PinFly描述檔): never needs the tunnel. Success = pendingOnly or alreadyUpToDate.
+    func download(session: RenewStoredSession, quick: Bool) async throws -> RenewOutcome
+    /// Step 2 (安裝PinFly描述檔): never contacts Apple or anisette.
+    func installPending() async throws -> RenewOutcome
+    /// Expiry of the profile waiting to be installed, nil when nothing waits.
+    func pendingProfileExpiry() -> Date?
 }
 
 // MARK: - Live backend
@@ -60,16 +80,40 @@ struct LiveRenewBackend: RenewBackend {
         SideSignLogging.setLogging(false)
     }
 
-    // Both entry points run with SideSign's console output muted in Release (see RenewQuietOutput).
+    // All entry points run with SideSign's console output muted in Release (see RenewQuietOutput).
     func signIn(appleID: String, password: String, codeProvider: @escaping RenewCodeProvider) async throws -> RenewStoredSession {
         try await RenewQuietOutput.run {
             try await signInUnmuted(appleID: appleID, password: password, codeProvider: codeProvider)
         }
     }
 
-    func renew(session stored: RenewStoredSession) async throws -> RenewOutcome {
-        try await RenewQuietOutput.run { try await renewUnmuted(session: stored) }
+    func renew(session stored: RenewStoredSession?, quick: Bool) async throws -> RenewOutcome {
+        try await RenewQuietOutput.run { () async throws -> RenewOutcome in
+            // Downloaded earlier (e.g. on 4G) and still fresh: install that first, without Apple.
+            if RenewPendingProfile.loadFresh(mock: false) != nil {
+                let first = try await installPendingUnmuted()
+                if first.alreadyUpToDate || !first.nothingToInstall { return first }
+                // Dropped as unusable: fetch a new one below.
+            }
+            guard let stored else { throw RenewProblem(.notSignedIn) }
+            let downloaded = try await downloadUnmuted(session: stored, quick: quick)
+            if downloaded.alreadyUpToDate { return downloaded }
+            let installed = try await installPendingUnmuted()
+            // Just downloaded and checked, so "nothing usable" here is a real problem, not a no-op.
+            if installed.nothingToInstall { throw RenewProblem(.install, detail: installed.message) }
+            return installed
+        }
     }
+
+    func download(session stored: RenewStoredSession, quick: Bool) async throws -> RenewOutcome {
+        try await RenewQuietOutput.run { try await downloadUnmuted(session: stored, quick: quick) }
+    }
+
+    func installPending() async throws -> RenewOutcome {
+        try await RenewQuietOutput.run { try await installPendingUnmuted() }
+    }
+
+    func pendingProfileExpiry() -> Date? { RenewPendingProfile.expiry(mock: false) }
 
     private func signInUnmuted(appleID: String, password: String, codeProvider: @escaping RenewCodeProvider) async throws -> RenewStoredSession {
         let anisette = try await RenewAnisette.fetch()
@@ -130,19 +174,43 @@ struct LiveRenewBackend: RenewBackend {
         }
     }
 
-    private func renewUnmuted(session stored: RenewStoredSession) async throws -> RenewOutcome {
+    // MARK: Step 1 - download (internet, no tunnel)
+
+    private func downloadUnmuted(session stored: RenewStoredSession, quick: Bool) async throws -> RenewOutcome {
         do {
-            return try await renewUnmutedBody(session: stored)
+            return try await downloadBody(session: stored, quick: quick)
         } catch {
-            // Without this line a failure before the first traced step (tunnel, retries) left no trace at all.
-            RenewDiagLog.write("renew FAILED \(RenewDiagLog.describe(error))")
+            // Without this line a failure before the first traced step (retries) left no trace at all.
+            RenewDiagLog.write("download FAILED \(RenewDiagLog.describe(error))")
             throw error
         }
     }
 
-    private func renewUnmutedBody(session stored: RenewStoredSession) async throws -> RenewOutcome {
+    private func downloadBody(session stored: RenewStoredSession, quick: Bool) async throws -> RenewOutcome {
         guard let bundleID = Bundle.main.bundleIdentifier, let embedded = GpsProfileRenew.embedded() else {
             throw RenewProblem(.install, detail: "讀不到這個 App 目前的簽名（模擬器沒有）。")
+        }
+        RenewDiagLog.write("download start\(quick ? " (no retries)" : "")")
+        // A profile downloaded earlier and still fresh (≤24 h old, ≥6 days left): keep it instead of asking
+        // Apple again (every Apple call spends sign-in / rate-limit budget). Rechecked, since the phone may
+        // have been renewed another way (PC, SideStore) in the meantime.
+        if let pending = RenewPendingProfile.loadFresh(mock: false) {
+            do {
+                try Self.requireSameCertificates(newProfile: pending.profile)
+                RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); Apple not contacted")
+                return RenewOutcome(expiry: pending.expiry,
+                                    message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(pending.expiry))），等安裝。",
+                                    pendingOnly: true, reusedPending: true)
+            } catch let problem as RenewProblem where problem.kind == .profileNotNewer {
+                // The phone already has this one or newer: nothing to fetch either, so Apple is not asked.
+                RenewDiagLog.write("pending dropped: phone already as new; Apple not contacted")
+                RenewPendingProfile.delete(mock: false)
+                return RenewOutcome(expiry: GpsProfileRenew.effectiveExpiration(embedded: embedded.expiration),
+                                    message: "手機上已有同樣新或更新的描述檔，不用續簽。", alreadyUpToDate: true)
+            } catch {
+                RenewDiagLog.write("pending dropped \(RenewDiagLog.describe(error))")
+                RenewPendingProfile.delete(mock: false)
+            }
         }
         // A session made under another anisette server's identity would get Apple's 1100: drop it and the
         // old device identity (adi.pb, id), and make the user sign in again on the current server.
@@ -152,17 +220,9 @@ struct LiveRenewBackend: RenewBackend {
             throw RenewProblem(.notSignedIn)
         }
         RenewDiagLog.write("renew: session server=\(RenewAnisette.primaryHost)")
-        // Tunnel first: with no Wi-Fi + LocalDevVPN the profile could not be installed anyway,
-        // so Apple is not contacted at all (saves sign-in attempts against rate limits).
-        RenewDiagLog.write("tunnel check start")
-        do {
-            try await GpsProfileRenew.requireTunnel()
-            RenewDiagLog.write("tunnel ok")
-        } catch {
-            RenewDiagLog.write("tunnel FAILED \(RenewDiagLog.describe(error))")
-            throw error
-        }
-        let profileData = try await RenewRetry.run { () async throws -> Data in
+        // No tunnel check here any more: on 4G the tunnel only works with cellular data OFF, and then
+        // Apple cannot be reached (renew-diag 10/27). The install step checks the tunnel itself.
+        let profileData = try await RenewRetry.run(retries: !quick) { () async throws -> Data in
             RenewDiagLog.write("anisette start")
             let anisette: AnisetteData
             do {
@@ -198,11 +258,77 @@ struct LiveRenewBackend: RenewBackend {
             try Self.requireSameCertificates(newProfile: profileData)
         } catch let problem as RenewProblem where problem.kind == .profileNotNewer {
             // Not a failure: report "no renewal needed" with the date the phone already has.
+            RenewDiagLog.write("download ok; phone already up to date, nothing saved")
             return RenewOutcome(expiry: GpsProfileRenew.effectiveExpiration(embedded: embedded.expiration),
                                 message: "手機上已有同樣新或更新的描述檔，不用續簽。", alreadyUpToDate: true)
         }
-        // Every other check (team, app id, newer, devices, entitlements) + misagent install + read-back.
-        let outcome = try await GpsProfileRenew.install(profileData)
+        // requireSameCertificates just parsed it, so this cannot fail; kept as try for the type.
+        let expiry = try GpsProfileRenew.parse(profileData).expiration
+        RenewDiagLog.write("download ok")
+        try RenewPendingProfile.save(profileData, expiry: expiry, mock: false)
+        return RenewOutcome(expiry: expiry,
+                            message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(expiry))），等安裝。",
+                            pendingOnly: true)
+    }
+
+    // MARK: Step 2 - install the waiting profile (tunnel, no internet)
+
+    private func installPendingUnmuted() async throws -> RenewOutcome {
+        do {
+            return try await installPendingBody()
+        } catch {
+            RenewDiagLog.write("install FAILED \(RenewDiagLog.describe(error))")
+            throw error
+        }
+    }
+
+    private func installPendingBody() async throws -> RenewOutcome {
+        RenewDiagLog.write("install start")
+        // Nothing waiting = the normal case in the everyday 出門改定位 Shortcut: a quick no-op, never an
+        // error (it must not stop that Shortcut). A failed download is reported by the download step itself.
+        guard let pending = RenewPendingProfile.load(mock: false) else {
+            RenewDiagLog.write("install: nothing pending, nothing to do")
+            return RenewOutcome(expiry: nil, message: "沒有等待安裝的描述檔，不用安裝。", nothingToInstall: true)
+        }
+        // Recheck before touching the phone: it may have been renewed another way since the download
+        // (no longer newer), or the profile cannot be used (other certificate / entitlements). Either way
+        // retrying would never help: drop it and finish as a no-op; the next download fetches a fresh one.
+        do {
+            try Self.requireSameCertificates(newProfile: pending.profile)
+            _ = try GpsProfileRenew.validate(pending.profile)
+        } catch {
+            RenewDiagLog.write("install: pending not usable \(RenewDiagLog.describe(error)); dropped")
+            RenewPendingProfile.delete(mock: false)
+            let notNewer = (error as? RenewProblem)?.kind == .profileNotNewer
+            // alreadyUpToDate too when not newer, so a one-shot renew stops there instead of asking Apple.
+            return RenewOutcome(expiry: nil,
+                                message: notNewer ? "手機上已有同樣新或更新的描述檔，不用安裝。" : "下載的描述檔不能用，已丟掉，不用安裝。",
+                                alreadyUpToDate: notNewer, nothingToInstall: true)
+        }
+        RenewDiagLog.write("tunnel check start")
+        do {
+            try await GpsProfileRenew.requireTunnel()
+            RenewDiagLog.write("tunnel ok")
+        } catch {
+            RenewDiagLog.write("tunnel FAILED \(RenewDiagLog.describe(error))")
+            throw RenewProblem(.pendingNeedsTunnel)   // the profile stays saved for the next try
+        }
+        let outcome: GpsProfileRenew.InstallOutcome
+        do {
+            // Every other check (team, app id, newer, devices, entitlements) + misagent install + read-back.
+            outcome = try await GpsProfileRenew.install(pending.profile)
+        } catch {
+            let tunnelKinds: [RenewProblem.Kind] = [.needTunnel, .tunnelRwAfc, .deviceEndpointNil]
+            if tunnelKinds.contains(RenewErrorClassifier.explain(error).kind) {
+                RenewDiagLog.write("install: tunnel dropped \(RenewDiagLog.describe(error))")
+                throw RenewProblem(.pendingNeedsTunnel)
+            }
+            throw error   // pending kept: a phone-side hiccup is worth another try without re-downloading
+        }
+        RenewDiagLog.write(outcome.alreadyUpToDate
+                           ? "install ok; phone already had an equal or newer profile"
+                           : "install ok (expiry \(outcome.expiry.map(GpsProfileRenew.expiryText) ?? "read-back failed"))")
+        RenewPendingProfile.delete(mock: false)
         return RenewOutcome(expiry: outcome.expiry, message: outcome.message, alreadyUpToDate: outcome.alreadyUpToDate)
     }
 
@@ -231,10 +357,11 @@ struct LiveRenewBackend: RenewBackend {
 // MARK: - Mock backend (simulator / CI)
 
 /// GPSSIM_RENEW_MOCK=1 (or launch argument `-GPSSIM_RENEW_MOCK 1`). Scenario comes from the env value
-/// (`mismatch` / `network`) or from the Apple ID typed in (contains "mismatch" / "network").
+/// (`mismatch` / `network` / `notunnel`) or from the Apple ID typed in (contains "mismatch" / "network").
+/// Download keeps a fake pending profile (separate file from the live one); install deletes it.
 /// Password "wrong" -> wrong password; 2FA code "123456" -> accepted, anything else -> "wrong code".
 struct MockRenewBackend: RenewBackend {
-    enum Scenario: String, Sendable { case success, mismatch, network }
+    enum Scenario: String, Sendable { case success, mismatch, network, notunnel }
 
     var keychainService: String { RenewKeychain.mockService }
 
@@ -275,16 +402,66 @@ struct MockRenewBackend: RenewBackend {
         }
     }
 
-    func renew(session: RenewStoredSession) async throws -> RenewOutcome {
-        try await Task.sleep(nanoseconds: 900_000_000)
+    /// No LocalDevVPN in the simulator: `GPSSIM_RENEW_MOCK=notunnel` (or launch argument
+    /// `-GPSSIM_RENEW_MOCK_NOTUNNEL 1`) makes the install step fail like 4G with cellular data on.
+    static var tunnelMissing: Bool {
+        let env = (ProcessInfo.processInfo.environment["GPSSIM_RENEW_MOCK"] ?? "").lowercased()
+        return env == "notunnel" || UserDefaults.standard.bool(forKey: "GPSSIM_RENEW_MOCK_NOTUNNEL")
+    }
+
+    func renew(session: RenewStoredSession?, quick: Bool) async throws -> RenewOutcome {
+        if RenewPendingProfile.loadFresh(mock: true) != nil {
+            let first = try await installPending()
+            if first.alreadyUpToDate || !first.nothingToInstall { return first }
+        }
+        guard let session else { throw RenewProblem(.notSignedIn) }
+        let downloaded = try await download(session: session, quick: quick)
+        if downloaded.alreadyUpToDate { return downloaded }
+        return try await installPending()
+    }
+
+    func download(session: RenewStoredSession, quick: Bool) async throws -> RenewOutcome {
+        RenewDiagLog.write("download start (mock)\(quick ? " (no retries)" : "")")
+        if let pending = RenewPendingProfile.loadFresh(mock: true) {
+            RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); Apple not contacted (mock)")
+            return RenewOutcome(expiry: pending.expiry,
+                                message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(pending.expiry))），等安裝。（模擬）",
+                                pendingOnly: true, reusedPending: true)
+        }
+        try await Task.sleep(nanoseconds: 600_000_000)
         switch Self.scenario(appleID: session.appleID) {
-        case .success:
+        case .success, .notunnel:
             let expiry = Date().addingTimeInterval(7 * 86_400)
-            return RenewOutcome(expiry: expiry, message: "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(expiry))（模擬）")
+            RenewDiagLog.write("download ok (mock)")
+            try RenewPendingProfile.save(Data("mock-profile".utf8), expiry: expiry, mock: true)
+            return RenewOutcome(expiry: expiry,
+                                message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(expiry))），等安裝。（模擬）",
+                                pendingOnly: true)
         case .mismatch:
+            RenewDiagLog.write("download FAILED certMismatch (mock)")
             throw RenewProblem(.certMismatch)
         case .network:
+            RenewDiagLog.write("download FAILED network (mock)")
             throw RenewProblem(.network)
         }
     }
+
+    func installPending() async throws -> RenewOutcome {
+        RenewDiagLog.write("install start (mock)")
+        guard let pending = RenewPendingProfile.load(mock: true) else {
+            RenewDiagLog.write("install: nothing pending, nothing to do (mock)")
+            return RenewOutcome(expiry: nil, message: "沒有等待安裝的描述檔，不用安裝。（模擬）", nothingToInstall: true)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        guard !Self.tunnelMissing else {
+            RenewDiagLog.write("tunnel FAILED (mock)")
+            throw RenewProblem(.pendingNeedsTunnel)
+        }
+        RenewDiagLog.write("tunnel ok (mock)")
+        RenewDiagLog.write("install ok (expiry \(GpsProfileRenew.expiryText(pending.expiry))) (mock)")
+        RenewPendingProfile.delete(mock: true)
+        return RenewOutcome(expiry: pending.expiry, message: "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(pending.expiry))（模擬）")
+    }
+
+    func pendingProfileExpiry() -> Date? { RenewPendingProfile.expiry(mock: true) }
 }

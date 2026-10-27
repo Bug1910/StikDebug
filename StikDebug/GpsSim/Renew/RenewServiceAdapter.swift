@@ -59,7 +59,8 @@ final class RenewServiceAdapter: RenewServicing {
     // MARK: Renew
 
     func renewNow(progress: @escaping (RenewStep) -> Void) async throws -> Date? {
-        progress(.anisette)
+        // A downloaded profile still waiting (e.g. 4G earlier): the engine installs it without asking Apple again.
+        progress(core.current.pendingExpiry != nil ? .install : .anisette)
         do {
             let outcome = try await core.renewNow()
             if outcome.alreadyUpToDate { throw RenewFailure.notNeeded }
@@ -74,7 +75,7 @@ final class RenewServiceAdapter: RenewServicing {
         let status = await core.status()
         // The engine only keeps a masked Apple ID, so there is nothing to pre-fill the form with.
         return RenewServiceStatus(signedIn: status.isSignedIn, appleID: nil, maskedAppleID: status.maskedAppleID,
-                                  lastSuccess: status.lastRenewAt, pendingInstall: false)
+                                  lastSuccess: status.lastRenewAt, pendingInstall: status.pendingExpiry != nil)
     }
 
     // MARK: Account
@@ -106,10 +107,11 @@ final class RenewServiceAdapter: RenewServicing {
         case .anisetteUnavailable: return RenewFailure.anisetteUnavailable
         case .network: return RenewFailure.noNetwork
         case .signInInProgress: return RenewFailure.signInBusy
+        case .downloadInProgress: return RenewFailure.other(code: problem.kind.rawValue)   // Shortcut-only
         case .teamMismatch: return RenewFailure.accountMismatch
         case .appIDMissing, .certMismatch: return RenewFailure.needsComputer(code: problem.kind.rawValue)
         case .profileNotNewer: return RenewFailure.notNeeded
-        case .tunnelRwAfc, .deviceEndpointNil, .needTunnel: return RenewFailure.installUnreachable
+        case .tunnelRwAfc, .deviceEndpointNil, .needTunnel, .pendingNeedsTunnel: return RenewFailure.installUnreachable
         case .keychain: return RenewFailure.keychain
         case .install, .unknown:
             // Leave a trace so a CI log shows what the unmapped error really was (the screen only says the kind).

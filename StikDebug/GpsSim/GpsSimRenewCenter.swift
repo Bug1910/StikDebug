@@ -239,7 +239,7 @@ struct RenewFailureText {
             primary = .retry
         case .installUnreachable:
             title = "新簽名拿到了，還沒裝上"
-            detail = "要先連 LocalDevVPN。有 Wi-Fi：打開 LocalDevVPN 再按「裝上」；只有 4G：照 設定 › 進階 › 連不上手機時 的 5 步。新簽名已存在手機，不用重新登入。" + keep
+            detail = "要先連 LocalDevVPN。有 Wi-Fi：打開 LocalDevVPN 再按「裝上」；只有 4G：關掉行動數據、打開 LocalDevVPN 再按「裝上」（裝好再開回行動數據）。新簽名已存在手機，不會重新下載，也不用重新登入。" + keep
             primary = .install
         case .appIDLimit(let again):
             title = "這週 Apple 帳號能簽的數量用完了"
@@ -394,7 +394,9 @@ final class GpsRenewCenter: ObservableObject {
         if corePhase == .renewing, case .idle = phase {
             mirroringExternal = true
             let now = Date()
-            phase = .running(step: .anisette, startedAt: now, stepStartedAt: now, durations: [:])
+            // An install-only run (安裝PinFly描述檔) never talks to the server: show step 4, not step 1.
+            let step: RenewStep = RenewService.shared.runningJob == .install ? .install : .anisette
+            phase = .running(step: step, startedAt: now, stepStartedAt: now, durations: [:])
         } else if corePhase != .renewing, mirroringExternal {
             mirroringExternal = false
             if case .running = phase { phase = .idle }
@@ -406,12 +408,14 @@ final class GpsRenewCenter: ObservableObject {
     /// A Shortcut action finished a renewal on its own (success, failure, or after its time limit).
     /// Writes the 續簽紀錄 and reminders the screens would have written. Skipped when this center's own
     /// task is waiting on the same renewal: that task records it.
-    func externalRenewFinished(expiry: Date?, failure: Error?, alreadyUpToDate: Bool = false) {
+    /// `nothingInstalled`: a download / install step that installed nothing (kept for later, nothing to do,
+    /// or failed); none of these is a renewal, so no 續簽紀錄 is written.
+    func externalRenewFinished(expiry: Date?, failure: Error?, alreadyUpToDate: Bool = false, nothingInstalled: Bool = false) {
         if isRunning, !mirroringExternal { return }
         mirroringExternal = false
         if case .running = phase { phase = .idle }
         signTick += 1
-        if alreadyUpToDate { Task { await refreshStatus() }; return }
+        if alreadyUpToDate || nothingInstalled { Task { await refreshStatus() }; return }
         // Each renewal Task has a unique id; the center's own task may have recorded this very run already.
         if let runID = RenewService.shared.renewRunID {
             if runID == recordedRunID { return }
@@ -450,7 +454,8 @@ final class GpsRenewCenter: ObservableObject {
     @discardableResult
     func renewNow() -> Bool {
         guard !isRunning else { return true }
-        guard status.signedIn else { return false }
+        // A downloaded profile waiting to be installed needs no sign-in (「裝上」 works signed out).
+        guard status.signedIn || status.pendingInstall else { return false }
         let id = UUID()
         attemptID = id
         let start = Date()
@@ -578,20 +583,65 @@ final class GpsRenewCenter: ObservableObject {
     // MARK: Automatic renewal (foreground only)
 
     /// Called when the app comes to the front. Renews once when 3 days or less are left, nothing
-    /// was tried in the last 6 hours, and Apple is not blocking. No background schedule: the
-    /// owner's network is a phone hotspot, so timed network jobs are unreliable.
+    /// was tried in the last 6 hours, and Apple is not blocking. No timed renew: the owner's network is
+    /// a phone hotspot. (RenewBackgroundDownload only downloads, whenever iOS lets it; the waiting
+    /// profile is then installed here, see autoInstallPending.)
     func appBecameActive(now: Date = Date()) {
         guard !Self.isDemo else { return }
         signTick += 1
         GpsRenewReminders.reschedule(expiry: GpsSigning.expiration)
         Task {
             await refreshStatus()
+            // A profile downloaded earlier (4G Shortcut, background download) is installed silently;
+            // the usual auto-renew below would only ask Apple again.
+            if status.pendingInstall {
+                await autoInstallPending(now: now)
+                return
+            }
             guard autoRenew, status.signedIn, !isRunning,
                   let hours = GpsSigning.hoursLeft(now: now), hours <= 72 else { return }
             if let paused = UserDefaults.standard.object(forKey: Self.pausedKey) as? Date, paused > now { return }
             if let last = UserDefaults.standard.object(forKey: Self.lastAttemptKey) as? Date,
                now.timeIntervalSince(last) < 6 * 3_600 { return }
             renewNow()
+        }
+    }
+
+    private static let autoInstallKey = "gpssim.autoInstallAt"
+
+    /// Installs a waiting profile when the app comes to the front: no Apple, at most once per 2 minutes,
+    /// waits at most 3 s for LocalDevVPN (the screen starts the tunnel on activation). Without a tunnel,
+    /// or on any failure, nothing is shown and the profile stays for the next try / 安裝PinFly描述檔.
+    private func autoInstallPending(now: Date) async {
+        guard service is RenewServiceAdapter, !isRunning,
+              RenewService.shared.runningJob == nil, RenewService.shared.current.phase == .idle else { return }
+        if let last = UserDefaults.standard.object(forKey: Self.autoInstallKey) as? Date,
+           now.timeIntervalSince(last) < 120 { return }
+        UserDefaults.standard.set(now, forKey: Self.autoInstallKey)
+        RenewDiagLog.write("auto-install attempt (app active)")
+        // The mock has no tunnel; its install decides by itself (GPSSIM_RENEW_MOCK=notunnel).
+        if !RenewService.shared.current.isMock {
+            let tunnel = TunnelManager.shared
+            for _ in 0..<12 where !tunnel.isConnected { try? await Task.sleep(nanoseconds: 250_000_000) }
+            guard tunnel.isConnected else {
+                RenewDiagLog.write("auto-install skipped: no tunnel within 3 s (pending kept)")
+                return
+            }
+        }
+        do {
+            let outcome = try await RenewService.shared.installPendingProfile()
+            let installed = !outcome.alreadyUpToDate && !outcome.nothingToInstall
+            RenewDiagLog.write("auto-install \(installed ? "ok" : "nothing installed")")
+            externalRenewFinished(expiry: outcome.expiry, failure: nil, alreadyUpToDate: outcome.alreadyUpToDate,
+                                  nothingInstalled: !installed)
+            if installed {
+                let text = outcome.expiry.map { "新簽名已裝好，到 \(GpsRenewCopy.dateTime($0))" } ?? "新簽名已裝好"
+                successToast = text
+                AccessibilityAnnouncer.announce(text)
+            }
+        } catch {
+            RenewDiagLog.write("auto-install FAILED \(RenewDiagLog.describe(error)) (silent)")
+            externalRenewFinished(expiry: nil, failure: error, nothingInstalled: true)
         }
     }
 
@@ -792,6 +842,21 @@ enum GpsRenewReminders {
                 let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fire.timeIntervalSince(now), repeats: false)
                 center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
             }
+        }
+    }
+
+    /// After a background download (RenewBackgroundDownload): tells him the new signature only needs the
+    /// app to be opened (or 出門改定位 to run) to be installed. Does nothing without permission.
+    static func notifyDownloaded() {
+        guard !GpsRenewCenter.isDemo else { return }
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "新簽名已下載"
+            content.body = "新簽名已下載，下次打開 \(GpsRenewCopy.appName) 或跑出門改定位時會自動裝好"
+            content.sound = .default
+            center.add(UNNotificationRequest(identifier: "gpssim.sign.downloaded", content: content, trigger: nil))
         }
     }
 

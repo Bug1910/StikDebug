@@ -14,6 +14,8 @@ struct StikDebugApp: App {
 
     init() {
         AppBootstrapper.configure()
+        // PinFly: background download of the new 7-day profile (must be registered during launch).
+        if !GpsRenewCenter.isDemo { RenewBackgroundDownload.register() }
     }
 
     var body: some Scene {
