@@ -77,7 +77,11 @@ final class RenewServiceAdapter: RenewServicing {
         progress(.install)
         do {
             let outcome = try await core.installPendingProfile()
-            if outcome.alreadyUpToDate || outcome.nothingToInstall { throw RenewFailure.notNeeded }
+            if outcome.alreadyUpToDate { throw RenewFailure.notNeeded }
+            if outcome.droppedUnusable { throw RenewFailure.pendingUnusable }
+            if outcome.skippedBusy { throw RenewFailure.signInBusy }
+            // The file was gone by the time it ran (usually auto-install just installed it): nothing to do.
+            if outcome.nothingToInstall { throw RenewFailure.notNeeded }
             return outcome.expiry
         } catch {
             throw Self.translate(error)
@@ -120,7 +124,7 @@ final class RenewServiceAdapter: RenewServicing {
         case .anisetteUnavailable: return RenewFailure.anisetteUnavailable
         case .network: return RenewFailure.noNetwork
         case .signInInProgress: return RenewFailure.signInBusy
-        case .downloadInProgress: return RenewFailure.other(code: problem.kind.rawValue)   // Shortcut-only
+        case .downloadInProgress: return RenewFailure.downloadBusy
         case .teamMismatch: return RenewFailure.accountMismatch
         case .appIDMissing, .certMismatch: return RenewFailure.needsComputer(code: problem.kind.rawValue)
         case .profileNotNewer: return RenewFailure.notNeeded

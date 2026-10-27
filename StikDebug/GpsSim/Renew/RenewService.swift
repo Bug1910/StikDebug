@@ -232,7 +232,8 @@ final class RenewService: ObservableObject {
         guard current.phase == .idle else {
             // The install action also sits in the everyday 出門改定位 Shortcut: never a failure there.
             if op == .install {
-                return RenewOutcome(expiry: nil, message: "登入畫面還開著，這次先不安裝。", nothingToInstall: true)
+                return RenewOutcome(expiry: nil, message: "登入畫面還開著，這次先不安裝。", nothingToInstall: true,
+                                    skippedBusy: true)
             }
             throw RenewProblem(.signInInProgress)
         }

@@ -82,6 +82,10 @@ enum RenewFailure: Error, Equatable {
     case notNeeded
     /// Signed in, but the Keychain refused to save the login (e.g. -34018, missing entitlement).
     case keychain
+    /// 「裝上」: the downloaded signature failed the safety checks and was deleted.
+    case pendingUnusable
+    /// 「裝上」 while a download (Shortcut / background) is still running.
+    case downloadBusy
 }
 
 struct RenewServiceStatus: Equatable {
@@ -298,6 +302,15 @@ struct RenewFailureText {
         case .unavailable:
             title = "這個版本還不能在手機上續簽"
             detail = "請打開 SideStore 按 Refresh All，或接電腦按「\(GpsRenewCopy.pcRenewName)」。" + keep
+            primary = .acknowledge
+        case .pendingUnusable:
+            title = "下載的簽名不能用，已刪掉"
+            // 再試一次 = a normal renew now that nothing waits (needs internet).
+            detail = "請按「續簽」重新拿一份。" + keep
+            primary = .retry
+        case .downloadBusy:
+            title = "下載還沒完成"
+            detail = "等一下再按「裝上」。" + keep
             primary = .acknowledge
         }
     }

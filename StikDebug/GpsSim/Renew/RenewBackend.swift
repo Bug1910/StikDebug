@@ -45,6 +45,10 @@ struct RenewOutcome: Equatable, Sendable {
     /// Install step only: nothing (usable) was waiting, so nothing was done. A success, never an error:
     /// the install action also sits in the owner's everyday 出門改定位 Shortcut, where usually nothing waits.
     var nothingToInstall = false
+    /// With nothingToInstall: the waiting profile failed the checks and was deleted (the app's 「裝上」 says so).
+    var droppedUnusable = false
+    /// With nothingToInstall: skipped because a sign-in / 2FA screen was open.
+    var skippedBusy = false
 }
 
 /// Renewing is two halves (see RenewPendingProfile): download (internet, no tunnel) and install
@@ -342,7 +346,7 @@ struct LiveRenewBackend: RenewBackend {
             // alreadyUpToDate too when not newer, so a one-shot renew stops there instead of asking Apple.
             return RenewOutcome(expiry: nil,
                                 message: notNewer ? "手機上已有同樣新或更新的描述檔，不用安裝。" : "下載的描述檔不能用，已丟掉，不用安裝。",
-                                alreadyUpToDate: notNewer, nothingToInstall: true)
+                                alreadyUpToDate: notNewer, nothingToInstall: true, droppedUnusable: !notNewer)
         }
         RenewDiagLog.write("tunnel check start")
         do {
