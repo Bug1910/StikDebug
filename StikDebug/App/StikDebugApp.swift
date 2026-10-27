@@ -14,8 +14,9 @@ struct StikDebugApp: App {
 
     init() {
         AppBootstrapper.configure()
-        // PinFly: background download of the new 7-day profile (must be registered during launch).
-        if !GpsRenewCenter.isDemo { RenewBackgroundDownload.register() }
+        // PinFly: background download of the new 7-day profile (must be registered during launch;
+        // skipped when this process was launched in the background, see registerAtLaunch).
+        if !GpsRenewCenter.isDemo { RenewBackgroundDownload.registerAtLaunch() }
     }
 
     var body: some Scene {
@@ -35,6 +36,8 @@ struct StikDebugApp: App {
         case .background:
             shouldAttemptTunnelReconnect = true
         case .active:
+            // Keeps one background-download request planned (no-op if this process did not register).
+            if !GpsRenewCenter.isDemo { RenewBackgroundDownload.appBecameActive() }
             if shouldAttemptTunnelReconnect {
                 shouldAttemptTunnelReconnect = false
                 startTunnelInBackground(showErrorUI: false)

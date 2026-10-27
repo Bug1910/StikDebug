@@ -1,0 +1,222 @@
+[
+ {
+  "persona": "出門玩的人臨時加新地點",
+  "situation": "旅途中發現想記下的地方：長按地圖丟圖釘、搜尋店名、貼座標，存好後改名、刪錯復原、重開 App 還在不在、點一下飛過去",
+  "note": "addplace, iPhone 16 393x852: long-press map -> draft card -> save default name; search 'Taipei 101' (geocoding needs network; whatever error/result shows is captured); type '35.6586, 139.7454' -> draft; rename; delete + undo; relaunch without demo args and check places persist; tap a new place to send."
+ },
+ {
+  "tree": "start"
+ },
+ {
+  "shot": "start"
+ },
+ {
+  "longPress": [
+   196,
+   400
+  ]
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "longpress_draft"
+ },
+ {
+  "tree": "longpress_draft"
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "saved_default_name"
+ },
+ {
+  "tree": "saved_default_name"
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "type": "Taipei 101\n"
+ },
+ {
+  "wait": 5
+ },
+ {
+  "shot": "search_taipei101"
+ },
+ {
+  "tree": "search_taipei101"
+ },
+ {
+  "tapId": "search.result.0"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "search_draft"
+ },
+ {
+  "tree": "search_draft"
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "saved_search"
+ },
+ {
+  "tree": "saved_search"
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "type": "35.6586, 139.7454\n"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "coord_draft"
+ },
+ {
+  "tree": "coord_draft"
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "saved_coord"
+ },
+ {
+  "tree": "saved_coord"
+ },
+ {
+  "tapId": "btn.editPlaces"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tap": "新地點"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "rename_sheet"
+ },
+ {
+  "tree": "rename_sheet"
+ },
+ {
+  "tapId": "edit.name"
+ },
+ {
+  "selectAll": true
+ },
+ {
+  "type": "我的民宿"
+ },
+ {
+  "tap": "完成"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "renamed"
+ },
+ {
+  "tree": "renamed"
+ },
+ {
+  "tap": "35.65860, 139.74540"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   250
+  ]
+ },
+ {
+  "tapId": "edit.delete"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "deleted_toast"
+ },
+ {
+  "tree": "deleted_toast"
+ },
+ {
+  "tapId": "toast.action"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "undo"
+ },
+ {
+  "tree": "undo"
+ },
+ {
+  "tapId": "btn.editDone"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "manage_closed"
+ },
+ {
+  "relaunch": []
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "after_relaunch"
+ },
+ {
+  "tree": "after_relaunch"
+ },
+ {
+  "tap": "我的民宿"
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "send_new_place"
+ },
+ {
+  "tree": "send_new_place"
+ }
+]

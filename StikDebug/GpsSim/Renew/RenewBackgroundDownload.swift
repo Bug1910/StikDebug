@@ -11,6 +11,7 @@
 
 import BackgroundTasks
 import Foundation
+import UIKit
 
 enum RenewBackgroundDownload {
     /// Must match Info.plist BGTaskSchedulerPermittedIdentifiers.
@@ -18,18 +19,50 @@ enum RenewBackgroundDownload {
     static let interval: TimeInterval = 6 * 3_600
     static let withinDays: Double = 3
 
-    /// Called from the App's init (iOS requires registration before launch finishes).
-    static func register() {
-        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
+    /// Set once per process (main thread only): registering twice is not allowed.
+    private static var registered = false
+    private static var attempted = false
+    /// "foreground" / "background": how this process was launched, for the log lines.
+    private static var launchContext = "unknown"
+
+    /// Called from the App's init. iOS only accepts registration before launch finishes, and a process
+    /// launched in the background (a locked-phone Shortcut running an intent) got register = false and
+    /// submit code 3 (notPermitted) on the phone (renew-diag 10/27). So in a background launch nothing is
+    /// registered: registering later (on the first .active) is not attempted either, because BGTaskScheduler
+    /// raises an exception for launch handlers registered after launch. The next foreground launch registers.
+    @MainActor
+    @discardableResult
+    static func registerAtLaunch() -> Bool {
+        guard !attempted else { return registered }
+        attempted = true
+        let background = UIApplication.shared.applicationState == .background
+        launchContext = background ? "background" : "foreground"
+        guard !background else {
+            RenewDiagLog.write("bg download: not registered (launch=background); the next foreground launch registers")
+            return false
+        }
+        registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             guard let refresh = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
                 return
             }
             handle(refresh)
         }
-        if !registered { RenewDiagLog.write("bg download: register failed") }
-        // Only when nothing is planned yet: submitting replaces the request, so doing it on every launch
-        // would push earliestBeginDate 6 h ahead each time and the task might never run.
+        RenewDiagLog.write("bg download: register \(registered ? "ok" : "failed") (launch=\(launchContext))")
+        if registered { scheduleIfNone() }
+        return registered
+    }
+
+    /// Each scenePhase .active: make sure one request is planned (only in a process that registered).
+    @MainActor
+    static func appBecameActive() {
+        guard registered else { return }
+        scheduleIfNone()
+    }
+
+    /// Only when nothing is planned yet: submitting replaces the request, so doing it on every launch /
+    /// activation would push earliestBeginDate 6 h ahead each time and the task might never run.
+    private static func scheduleIfNone() {
         BGTaskScheduler.shared.getPendingTaskRequests { requests in
             if !requests.contains(where: { $0.identifier == identifier }) { schedule() }
         }
@@ -42,7 +75,7 @@ enum RenewBackgroundDownload {
             try BGTaskScheduler.shared.submit(request)
         } catch {
             // Simulator / background refresh switched off: nothing to do, the foreground paths still work.
-            RenewDiagLog.write("bg download: schedule failed code=\((error as NSError).code)")
+            RenewDiagLog.write("bg download: schedule failed code=\((error as NSError).code) (launch=\(launchContext))")
         }
     }
 

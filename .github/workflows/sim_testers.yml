@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: "All 7 testers (default: quick = novice, offline, ipad)"
+        description: "All 8 testers (default: quick = novice, offline, ipad)"
         type: boolean
         default: false
       only:
@@ -69,7 +69,7 @@ jobs:
           path: sim-app.zip
           retention-days: 1
 
-  # Picks the tester list: `only` (names) wins, else full / v* tag = all 7, else the quick 3.
+  # Picks the tester list: `only` (names) wins, else full / v* tag = all 8, else the quick 3.
   # TESTLOG rule: retest only what changed, so `only` lets a manual run skip the rest.
   plan:
     name: Pick testers
@@ -82,7 +82,7 @@ jobs:
           ONLY: ${{ inputs.only }}
           FULL: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.full }}
         run: |
-          all='[{"tester":"novice","scenario":"novice","devices":"iPhone SE (3rd generation)"},{"tester":"rushed","scenario":"rushed","devices":"iPhone 16e;iPhone 13 mini"},{"tester":"careless","scenario":"careless","devices":"iPhone 16"},{"tester":"offline","scenario":"offline","devices":"iPhone 13 Pro Max;iPhone 17 Pro Max"},{"tester":"advanced","scenario":"advanced","devices":"iPhone 16 Pro Max"},{"tester":"ipad","scenario":"ipad","devices":"iPad Pro 13-inch (M5);iPad Pro 13-inch (M4);iPad Pro 13-inch (M3)"},{"tester":"pending","scenario":"renew_pending","devices":"iPhone SE (3rd generation)"}]'
+          all='[{"tester":"novice","scenario":"novice","devices":"iPhone SE (3rd generation)"},{"tester":"rushed","scenario":"rushed","devices":"iPhone 16e;iPhone 13 mini"},{"tester":"careless","scenario":"careless","devices":"iPhone 16"},{"tester":"offline","scenario":"offline","devices":"iPhone 13 Pro Max;iPhone 17 Pro Max"},{"tester":"advanced","scenario":"advanced","devices":"iPhone 16 Pro Max"},{"tester":"ipad","scenario":"ipad","devices":"iPad Pro 13-inch (M5);iPad Pro 13-inch (M4);iPad Pro 13-inch (M3)"},{"tester":"pending","scenario":"renew_pending","devices":"iPhone SE (3rd generation)"},{"tester":"addplace","scenario":"add_place","devices":"iPhone 16"}]'
           if [ -n "$ONLY" ]; then
             m=$(jq -c --arg only ",$ONLY," '[.[] | select(.tester as $t | $only | contains(","+$t+","))]' <<<"$all")
           elif [ "$FULL" = "true" ]; then
