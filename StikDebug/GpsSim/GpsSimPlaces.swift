@@ -184,18 +184,29 @@ enum GpsGeo {
         case outOfRange(String)
     }
 
-    /// "lat, lon" (half- or full-width comma, or whitespace). If the first number can't be a
+    /// Characters a typed coordinate number may contain; one letter or Chinese character and the
+    /// whole text is a place name (「Taipei 101」「7-11 台中」), never a broken coordinate.
+    private static let coordinateChars = CharacterSet(charactersIn: "0123456789+-.°")
+
+    /// The two parts of a 「lat, lon」 paste, or nil when the text is not shaped like one.
+    /// Full-width digits and punctuation become half-width; comma, 、, ;, space and new line separate.
+    /// A trailing 「°」 is dropped. Shared by both coordinate parsers so they always agree.
+    static func coordinateParts(_ text: String) -> [String]? {
+        let half = text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text
+        let parts = half
+            .replacingOccurrences(of: "、", with: ",")
+            .split(whereSeparator: { $0 == "," || $0 == ";" || $0.isWhitespace })
+            .map { String($0) }
+            .filter { !$0.isEmpty }
+        guard parts.count == 2,
+              parts.allSatisfy({ $0.unicodeScalars.allSatisfy { coordinateChars.contains($0) } }) else { return nil }
+        return parts.map { $0.hasSuffix("°") ? String($0.dropLast()) : $0 }
+    }
+
+    /// "lat, lon" (see coordinateParts). If the first number can't be a
     /// latitude but the second can (e.g. "139.74, 35.65" pasted lon-first), they are swapped.
     static func parseCoordinateResult(_ text: String) -> CoordinateParse {
-        let normalized = text
-            .replacingOccurrences(of: "，", with: ",")
-            .replacingOccurrences(of: "、", with: ",")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = normalized
-            .split(whereSeparator: { $0 == "," || $0 == " " })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard parts.count == 2, var lat = Double(parts[0]), var lon = Double(parts[1]),
+        guard let parts = coordinateParts(text), var lat = Double(parts[0]), var lon = Double(parts[1]),
               lat.isFinite, lon.isFinite else { return .notCoordinate }
         if abs(lat) > 90 && abs(lon) <= 90 { swap(&lat, &lon) }
         guard (-90.0...90.0).contains(lat) else { return .outOfRange("緯度必須在 -90 到 90 之間") }

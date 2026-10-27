@@ -100,7 +100,7 @@ for n, step in enumerate(steps, 1):
                 r = sh("axe", "tap", "-x", val[0], "-y", val[1], "--udid", udid, check=False)
             ok, detail = r.returncode == 0, r.stderr.strip()[:200]
         elif kind == "longPress":  # touch down, hold 1 s, up (AXe `touch --down --up --delay`)
-            r = sh("axe", "touch", "-x", val[0], "-y", val[1], "--down", "--up", "--delay", "1.0",
+            r = sh("axe", "touch", "-x", val[0], "-y", val[1], "--down", "--up", "--delay", str(val[2] if len(val) > 2 else 1.0),
                    "--udid", udid, check=False)
             ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
         elif kind == "type":

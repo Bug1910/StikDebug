@@ -160,24 +160,17 @@ private enum GpsCoordinateInput {
     case valid(CLLocationCoordinate2D)
     /// `swapped` is the lat/lon-reversed pair when that would be valid (the UI can offer 「對調」).
     case outOfRange(swapped: CLLocationCoordinate2D?)
-    /// Two parts where one is a number and the other is not; never sent to MKLocalSearch.
+    /// Two parts made only of digits, signs, dots and 「°」, but one is not a real number
+    /// (「25..03, 121」); never sent to MKLocalSearch. Any letter or Chinese = a place name instead.
     case malformed(String)
     case notCoordinate
 
     static func parse(_ text: String) -> GpsCoordinateInput {
-        let normalized = text
-            .replacingOccurrences(of: "，", with: ",")
-            .replacingOccurrences(of: "、", with: ",")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = normalized
-            .split(whereSeparator: { $0 == "," || $0 == " " })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard parts.count == 2 else { return .notCoordinate }
+        // Same splitting as GpsGeo.parseCoordinateResult, so 「Taipei 101」 is a name in both.
+        guard let parts = GpsGeo.coordinateParts(text) else { return .notCoordinate }
         let first = Double(parts[0])
         let second = Double(parts[1])
         guard let lat = first, let lon = second else {
-            if first == nil && second == nil { return .notCoordinate }
             let which = first == nil ? "緯度" : "經度"
             return .malformed("座標格式不對：\(which)不是數字（範例：48.8584, 2.2945）")
         }
