@@ -24,15 +24,19 @@ import AppIntents
 import Foundation
 import UIKit
 
-// MARK: - 續簽PinFly
+// MARK: - 兩個續簽動作
+//
+// 續簽PinFly (RenewNowIntent): always renews.
+// 剩幾天內才續簽PinFly (RenewSigningIntent): renews only when N days or fewer are left. The type name
+// RenewSigningIntent is unchanged on purpose: saved Shortcuts find actions by type name, so the
+// owner's existing automations keep working (they now read as the 「剩幾天內才…」 action).
 
 struct RenewSigningIntent: AppIntent {
-    static var title: LocalizedStringResource = "續簽PinFly"
-    static var description = IntentDescription("換新的 7 天簽名，不用接電腦。要先在PinFly › 設定 › 簽名登入 Apple 一次（捷徑裡不能登入，驗證碼要人輸入）。預設最多等 20 秒；失敗時預設不會讓捷徑停下來，請用「如果 結果 是 失敗」判斷。只有 4G 時，裝上新簽名那一步需要 LocalDevVPN。")
+    static var title: LocalizedStringResource = "剩幾天內才續簽PinFly"
+    static var description = IntentDescription("剩下的天數小於等於設定值時才續簽，還夠用就什麼都不做，所以每天固定跑也沒關係。換新的 7 天簽名，不用接電腦。要先在PinFly › 設定 › 簽名登入 Apple 一次（捷徑裡不能登入，驗證碼要人輸入）。預設最多等 20 秒；失敗時預設不會讓捷徑停下來，請用「如果 結果 是 失敗」判斷。只有 4G 時，裝上新簽名那一步需要 LocalDevVPN。")
     static var openAppWhenRun: Bool = false
 
-    /// 0 = renew no matter how many days are left.
-    @Parameter(title: "只在剩幾天內才續簽", default: 3, inclusiveRange: (0, 7))
+    @Parameter(title: "只在剩幾天內才續簽", default: 3, inclusiveRange: (1, 7))
     var withinDays: Int
 
     @Parameter(title: "失敗時停止捷徑", default: false)
@@ -42,7 +46,7 @@ struct RenewSigningIntent: AppIntent {
     var maxSeconds: Int
 
     static var parameterSummary: some ParameterSummary {
-        Summary("續簽PinFly（剩 \(\.$withinDays) 天內才續簽）") {
+        Summary("剩 \(\.$withinDays) 天內才續簽PinFly") {
             \.$stopOnFailure
             \.$maxSeconds
         }
@@ -50,30 +54,69 @@ struct RenewSigningIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        let answer = try await GpsRenewIntentRunner.run(withinDays: withinDays <= 0 ? nil : withinDays,  // old automations saved 0 = "always renew"
+                                                        stopOnFailure: stopOnFailure,
+                                                        maxSeconds: maxSeconds)
+        return .result(value: answer.value, dialog: "\(answer.dialog)")
+    }
+}
+
+struct RenewNowIntent: AppIntent {
+    static var title: LocalizedStringResource = "續簽PinFly"
+    static var description = IntentDescription("不管還剩幾天，馬上換新的 7 天簽名，不用接電腦。要先在PinFly › 設定 › 簽名登入 Apple 一次（捷徑裡不能登入，驗證碼要人輸入）。預設最多等 20 秒；失敗時預設不會讓捷徑停下來，請用「如果 結果 是 失敗」判斷。只有 4G 時，裝上新簽名那一步需要 LocalDevVPN。")
+    static var openAppWhenRun: Bool = false
+
+    @Parameter(title: "失敗時停止捷徑", default: false)
+    var stopOnFailure: Bool
+
+    @Parameter(title: "最多等幾秒", default: 20, inclusiveRange: (10, 25))
+    var maxSeconds: Int
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("續簽PinFly") {
+            \.$stopOnFailure
+            \.$maxSeconds
+        }
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        let answer = try await GpsRenewIntentRunner.run(withinDays: nil, stopOnFailure: stopOnFailure,
+                                                        maxSeconds: maxSeconds)
+        return .result(value: answer.value, dialog: "\(answer.dialog)")
+    }
+}
+
+/// The one body both actions share. `withinDays` nil = always renew.
+@MainActor
+enum GpsRenewIntentRunner {
+    static func run(withinDays: Int?, stopOnFailure: Bool, maxSeconds: Int) async throws -> (value: GpsSimStatusEntity, dialog: String) {
+        RenewDiagLog.write("intent start withinDays=\(withinDays.map(String.init) ?? "always") maxSeconds=\(maxSeconds) stopOnFailure=\(stopOnFailure)")
         await GpsProfileRenew.refreshFromPhone()
         let before = await RenewService.shared.status()
         let reason: String
         if !before.isSignedIn {
             reason = "還沒登入 Apple。請打開PinFly › 設定 › 簽名，登入一次。"
         } else {
-            if withinDays > 0, let expiry = before.profileExpiry,
+            if let withinDays, let expiry = before.profileExpiry,
                expiry.timeIntervalSinceNow > Double(withinDays) * 86_400 {
                 let value = await GpsSimIntentStatus.make(.notNeeded)
-                return .result(value: value, dialog: "簽名還有 \(value.daysLeft ?? withinDays) 天，不用續簽")
+                return (value, "簽名還有 \(value.daysLeft ?? withinDays) 天，不用續簽")
             }
             switch await GpsRenewRace.run(seconds: min(max(maxSeconds, 10), 25)) {
             case .done(let outcome) where outcome.alreadyUpToDate:
                 let value = await GpsSimIntentStatus.make(.notNeeded)
-                return .result(value: value, dialog: "簽名已經是最新的，不用續簽")
+                return (value, "簽名已經是最新的，不用續簽")
             case .done(let outcome):
                 let value = await GpsSimIntentStatus.make(.renewed, signingExpiry: outcome.expiry)
                 let until = value.signingExpiry.map { "，簽名到 \(GpsProfileRenew.expiryText($0))" } ?? ""
-                return .result(value: value, dialog: "已續簽\(until)")
+                return (value, "已續簽\(until)")
             case .failed(let error):
                 let problem = (error as? RenewProblem) ?? RenewErrorClassifier.explain(error)
                 let code = problem.code.map { "（代碼 \($0)）" } ?? ""
                 reason = "\(problem.title)。\(problem.advice)\(code)"
             case .timedOut(let seconds):
+                RenewDiagLog.write("intent timeout \(seconds)s (renew keeps running in background)")
                 reason = "驗證伺服器太慢（等了 \(seconds) 秒）。續簽還在背景繼續，過 1 分鐘再用「查簽名剩幾天」確認。"
             }
         }
@@ -85,7 +128,7 @@ struct RenewSigningIntent: AppIntent {
         value.reason = safe.isEmpty ? reason : "\(reason)\(safe)"
         let message = "沒續簽成功：\(value.reason)"
         if stopOnFailure { throw GpsSimIntentError.failed(message) }
-        return .result(value: value, dialog: "\(message)")
+        return (value, message)
     }
 }
 
@@ -120,6 +163,7 @@ enum GpsRenewRace {
     static func run(seconds: Int) async -> Finish {
         let state = State()
         state.backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "GpsSimRenewIntent") {
+            RenewDiagLog.write("bgtask expired")
             MainActor.assumeIsolated { state.endBackgroundTask() }
         }
         return await withCheckedContinuation { continuation in

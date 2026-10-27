@@ -231,6 +231,7 @@ enum RenewRetry {
             } catch {
                 guard let budget = budget(for: error), attempt < budget else { throw error }
                 attempt += 1
+                RenewDiagLog.write("retry \(attempt)/\(budget): \(RenewDiagLog.describe(error))")
                 // Only the shared manager (uncapped, not-yet-provisioned path) keeps a 30 s cache.
                 // The capped path uses a new AnisetteDataManager per request, so it has no cache to clear.
                 RenewAnisette.clearCaches()

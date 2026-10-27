@@ -38,7 +38,7 @@ struct GpsSimDailyRenewGuideView: View {
         "打開「捷徑」→ 下方「自動化」→ 右上「＋」",
         "選「鬧鐘」→「被停止時」→ 選你平日早上的鬧鐘 →「立即執行」",
         "加動作「LocalDevVPN：Enable」",
-        "加動作「PinFly：續簽PinFly」（只在剩 3 天內才續簽）",
+        "加動作「PinFly：剩幾天內才續簽PinFly」（天數填 3，剩 3 天內才續簽）",
         "加動作「如果」：結果 是 失敗",
         "在「如果」裡加「顯示通知」：內容選「原因」",
     ]

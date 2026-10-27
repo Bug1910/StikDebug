@@ -239,7 +239,7 @@ struct RenewFailureText {
             primary = .retry
         case .installUnreachable:
             title = "新簽名拿到了，還沒裝上"
-            detail = "要先連 LocalDevVPN。有 Wi-Fi：打開 LocalDevVPN 再按「裝上」；只有 4G：照「只有 4G 的 5 步」。新簽名已存在手機，不用重新登入。" + keep
+            detail = "要先連 LocalDevVPN。有 Wi-Fi：打開 LocalDevVPN 再按「裝上」；只有 4G：照 設定 › 進階 › 連不上手機時 的 5 步。新簽名已存在手機，不用重新登入。" + keep
             primary = .install
         case .appIDLimit(let again):
             title = "這週 Apple 帳號能簽的數量用完了"

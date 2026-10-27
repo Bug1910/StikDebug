@@ -91,9 +91,9 @@ struct LiveRenewBackend: RenewBackend {
         let (path, server) = RenewDiagLog.lastPath()
         do {
             let teams = try await portal.fetchTeams(for: auth.account, session: auth.session)
-            RenewDiagLog.write("signIn ok; fetchTeams ok (\(teams.count) teams); anisetteHash=\(signInHash); path=\(path); server=\(server)")
+            RenewDiagLog.write("signIn ok; fetchTeams ok (\(teams.count) teams); anisetteHash=\(signInHash.prefix(8)); path=\(path); server=\(server)")
         } catch {
-            RenewDiagLog.write("signIn ok; fetchTeams FAILED \(RenewDiagLog.describe(error)); anisetteHash=\(signInHash); path=\(path); server=\(server)")
+            RenewDiagLog.write("signIn ok; fetchTeams FAILED \(RenewDiagLog.describe(error)); anisetteHash=\(signInHash.prefix(8)); path=\(path); server=\(server)")
         }
         return RenewStoredSession(
             appleID: auth.account.appleID.isEmpty ? appleID : auth.account.appleID,
@@ -131,6 +131,16 @@ struct LiveRenewBackend: RenewBackend {
     }
 
     private func renewUnmuted(session stored: RenewStoredSession) async throws -> RenewOutcome {
+        do {
+            return try await renewUnmutedBody(session: stored)
+        } catch {
+            // Without this line a failure before the first traced step (tunnel, retries) left no trace at all.
+            RenewDiagLog.write("renew FAILED \(RenewDiagLog.describe(error))")
+            throw error
+        }
+    }
+
+    private func renewUnmutedBody(session stored: RenewStoredSession) async throws -> RenewOutcome {
         guard let bundleID = Bundle.main.bundleIdentifier, let embedded = GpsProfileRenew.embedded() else {
             throw RenewProblem(.install, detail: "讀不到這個 App 目前的簽名（模擬器沒有）。")
         }
@@ -144,16 +154,31 @@ struct LiveRenewBackend: RenewBackend {
         RenewDiagLog.write("renew: session server=\(RenewAnisette.primaryHost)")
         // Tunnel first: with no Wi-Fi + LocalDevVPN the profile could not be installed anyway,
         // so Apple is not contacted at all (saves sign-in attempts against rate limits).
-        try await GpsProfileRenew.requireTunnel()
+        RenewDiagLog.write("tunnel check start")
+        do {
+            try await GpsProfileRenew.requireTunnel()
+            RenewDiagLog.write("tunnel ok")
+        } catch {
+            RenewDiagLog.write("tunnel FAILED \(RenewDiagLog.describe(error))")
+            throw error
+        }
         let profileData = try await RenewRetry.run { () async throws -> Data in
-            let anisette = try await RenewAnisette.fetch()
+            RenewDiagLog.write("anisette start")
+            let anisette: AnisetteData
+            do {
+                anisette = try await RenewAnisette.fetch()
+                RenewDiagLog.write("anisette ok")
+            } catch {
+                RenewDiagLog.write("anisette FAILED \(RenewDiagLog.describe(error))")
+                throw error
+            }
             let session = SideSign.Session(dsid: stored.dsid, authToken: stored.authToken,
                                   anisetteData: anisette, xcodeVersion: stored.xcodeVersion)
             let account = SideSign.Account(appleID: stored.appleID, identifier: stored.dsid)
             let nowHash = RenewAnisette.machineIDHash(anisette)
             let (path, server) = RenewDiagLog.lastPath()
             let sameIdentity = stored.anisetteHash.map { $0 == nowHash ? "same" : "DIFFERENT" } ?? "unknown"
-            let context = "sessionHash=\(stored.anisetteHash ?? "-"); nowHash=\(nowHash); machineID \(sameIdentity); path=\(path); server=\(server)"
+            let context = "sessionHash=\((stored.anisetteHash ?? "-").prefix(8)); nowHash=\(nowHash.prefix(8)); machineID \(sameIdentity); path=\(path); server=\(server)"
             let teams = try await RenewDiagLog.trace("renew fetchTeams", context: context) {
                 try await portal.fetchTeams(for: account, session: session)
             }

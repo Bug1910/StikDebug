@@ -280,10 +280,16 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             systemImageName: "location.fill"
         )
         AppShortcut(
-            intent: RenewSigningIntent(),
+            intent: RenewNowIntent(),
             phrases: ["用\(.applicationName)續簽", "\(.applicationName)續簽"],
             shortTitle: "續簽PinFly",
             systemImageName: "signature"
+        )
+        AppShortcut(
+            intent: RenewSigningIntent(),
+            phrases: ["\(.applicationName)快到期才續簽", "用\(.applicationName)快到期才續簽"],
+            shortTitle: "剩幾天內才續簽PinFly",
+            systemImageName: "calendar.badge.clock"
         )
         AppShortcut(
             intent: SigningStatusIntent(),

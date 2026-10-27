@@ -85,6 +85,9 @@
   "tapId": "search.clear"
  },
  {
+  "tapId": "search.cancel"
+ },
+ {
   "tapId": "search.field"
  },
  {
@@ -98,6 +101,9 @@
  },
  {
   "tapId": "search.clear"
+ },
+ {
+  "tapId": "search.cancel"
  },
  {
   "tapId": "place.edit.5"

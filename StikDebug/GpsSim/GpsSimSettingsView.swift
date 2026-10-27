@@ -12,6 +12,8 @@ import SwiftUI
 
 struct GpsSimSettingsView: View {
     /// Places import is presented by the home screen (one fileImporter per view level).
+    /// Opens with 進階 expanded (the home 4G banner 「步驟」 button).
+    var startAdvancedOpen = false
     let onImportPlaces: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -84,7 +86,12 @@ struct GpsSimSettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("PinFly 要透過 LocalDevVPN（裝 PinFly 時一起裝的 App）才能改定位。")
                         Text("有 Wi-Fi：打開 LocalDevVPN 按連線，回 PinFly 按「重試」。")
-                        Text("只有行動網路（4G／5G）時，LocalDevVPN 連不上。先開飛航模式切斷行動網路，再單獨打開 Wi-Fi，改完定位後關飛航，假定位會保留。")
+                        Text("只有 4G：照這 5 步")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.top, 4)
+                        ForEach(Array(GpsSimNetwork.fourGStepList.enumerated()), id: \.offset) { index, step in
+                            Text("\(index + 1). \(step)")
+                        }
                     }
                     .padding(.vertical, 4)
                     if let url = GpsSimNetwork.shortcutURL {
@@ -176,6 +183,7 @@ struct GpsSimSettingsView: View {
                 }
             }
             .navigationTitle("設定")
+            .onAppear { if startAdvancedOpen { advancedOpen = true } }
             .navigationDestination(isPresented: $showRenewAdvanced) {
                 GpsRenewAdvancedPage()
             }

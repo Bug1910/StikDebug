@@ -217,6 +217,8 @@ struct GpsSimHomeView: View {
     @State private var editing: GpsPlace?
     @State private var managing = false
     @State private var showSettings = false
+    /// Set by the 4G banner 「步驟」 so Settings opens with 進階 already expanded.
+    @State private var settingsAdvanced = false
     @State private var showPairingImporter = false
     @State private var pairingCardDismissed = false
     @State private var showPlacesImporter = false
@@ -250,6 +252,9 @@ struct GpsSimHomeView: View {
     /// Ticks every second so pins and the place card re-evaluate freshness together with the status line.
     @State private var now = Date()
     @FocusState private var searchFocused: Bool
+    /// Full-screen search page (like Google Maps). Stays open until 取消 or a pick, so runSearch
+    /// dropping the keyboard focus never flickers the page away.
+    @State private var searchMode = false
     @FocusState private var draftNameFocused: Bool
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
@@ -310,9 +315,6 @@ struct GpsSimHomeView: View {
         return CGFloat(v)
     }
 
-    /// Only the results list needs the room; a one-line search message leaves the map tools in place.
-    private var searchOpen: Bool { !searchResults.isEmpty }
-
     /// Floating controls never stretch wider than this (iPad keeps the map full width).
     private static let controlWidth: CGFloat = 520
 
@@ -350,21 +352,17 @@ struct GpsSimHomeView: View {
                         .layoutPriority(1)
                     // While search results or a search message are open they get the room
                     // (on an iPhone SE the map area is short; the list was squeezed to nothing).
-                    if !searchOpen {
-                        HStack {
-                            Spacer()
-                            mapTools
-                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { toolsFrame = $0 }
-                        }
-                        .frame(maxWidth: Self.controlWidth)
+                    HStack {
+                        Spacer()
+                        mapTools
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { toolsFrame = $0 }
                     }
+                    .frame(maxWidth: Self.controlWidth)
                     Spacer(minLength: 0)
-                    if !searchOpen {
-                        toastView
-                            .frame(maxWidth: Self.controlWidth)
-                            // Apple Maps logo and Legal link sit in the bottom ~26 pt; they must stay visible.
-                            .padding(.bottom, Self.legalClearance)
-                    }
+                    toastView
+                        .frame(maxWidth: Self.controlWidth)
+                        // Apple Maps logo and Legal link sit in the bottom ~26 pt; they must stay visible.
+                        .padding(.bottom, Self.legalClearance)
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
@@ -376,7 +374,7 @@ struct GpsSimHomeView: View {
                 .clipped()
             }
             .frame(minHeight: 0, maxHeight: .infinity)
-            if !searchOpen && !orderedBanners.isEmpty {
+            if !orderedBanners.isEmpty {
                 bannerStack
                     .frame(maxWidth: Self.controlWidth)
                     .padding(.horizontal, 12)
@@ -394,6 +392,13 @@ struct GpsSimHomeView: View {
         }
         .dynamicTypeSize(...Self.maxTypeSize)
         .background(GpsTheme.background.ignoresSafeArea())
+        .accessibilityHidden(searchMode)
+        .overlay {
+            if searchMode {
+                searchPage.transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: searchMode)
         .preferredColorScheme(.dark)
         .tint(GpsTheme.mint)
         .onReceive(Self.secondTick) { d in if isSimulating { now = d } }
@@ -437,8 +442,8 @@ struct GpsSimHomeView: View {
         // again in the new open area, unless the person moved the map themselves.
         .onChange(of: [mapInsets.top, mapInsets.bottom, mapInsets.trailing,
                        mapFrame.width.rounded(), mapFrame.height.rounded()]) { _, _ in
-            // While search is open the right buttons and banners are hidden, so their readings are stale.
-            guard !searchOpen, let framing = lastFraming, !position.positionedByUser else { return }
+            // While the search page covers the map its readings (keyboard resize) are stale.
+            guard !searchMode, let framing = lastFraming, !position.positionedByUser else { return }
             apply(framing, animated: true)
         }
         .onChange(of: renew.successToast) { _, text in
@@ -478,8 +483,8 @@ struct GpsSimHomeView: View {
             // so in light system appearance it came up white-on-white.
             .preferredColorScheme(.dark)
         }
-        .sheet(isPresented: $showSettings, onDismiss: { refreshFromDisk(startTunnel: true) }) {
-            GpsSimSettingsView(onImportPlaces: {
+        .sheet(isPresented: $showSettings, onDismiss: { settingsAdvanced = false; refreshFromDisk(startTunnel: true) }) {
+            GpsSimSettingsView(startAdvancedOpen: settingsAdvanced, onImportPlaces: {
                 showSettings = false
                 // Let the settings sheet finish dismissing before presenting the picker.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showPlacesImporter = true }
@@ -530,12 +535,6 @@ struct GpsSimHomeView: View {
             }
             searchBar
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { topBarFrame = $0 }
-            if let msg = searchMessage {
-                searchMessageRow(msg)
-            }
-            if !searchResults.isEmpty {
-                searchResultsList
-            }
         }
         .frame(maxWidth: Self.controlWidth)
         .padding(.top, 2)
@@ -636,36 +635,108 @@ struct GpsSimHomeView: View {
         engine.activeName != nil && !fresh ? "・連線中斷" : nil
     }
 
+    /// Home version: looks like a search field but is a button that opens the full-screen page.
     private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(GpsTheme.sub)
-            TextField("搜尋地點或貼上座標", text: $searchText)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .focused($searchFocused)
-                .onSubmit(runSearch)
-                .accessibilityLabel("搜尋地點")
-                .accessibilityIdentifier("search.field")
-            if isSearching { ProgressView().controlSize(.small) }
-            if !searchText.isEmpty {
-                Button {
-                    clearSearch()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(GpsTheme.sub)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("清除搜尋")
-                .accessibilityIdentifier("search.clear")
+        Button {
+            openSearch()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(GpsTheme.sub)
+                Text("搜尋地點或貼上座標")
+                    .foregroundStyle(GpsTheme.sub)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(GpsTheme.card.opacity(0.94), in: Capsule())
+            .overlay(Capsule().stroke(GpsTheme.line, lineWidth: 1))
+            .contentShape(Capsule())
         }
-        .padding(.leading, 14)
-        .frame(minHeight: 44)
-        .background(GpsTheme.card.opacity(0.94), in: Capsule())
-        .overlay(Capsule().stroke(GpsTheme.line, lineWidth: 1))
+        .buttonStyle(.plain)
+        .accessibilityLabel("搜尋地點")
+        .accessibilityIdentifier("search.field")
+    }
+
+    private func openSearch() {
+        searchMode = true
+        // Focus after the page exists; setting it in the same pass is ignored by SwiftUI.
+        DispatchQueue.main.async { searchFocused = true }
+    }
+
+    private func closeSearch() {
+        clearSearch()
+        searchFocused = false
+        searchMode = false
+    }
+
+    /// Full-screen search: field + 取消 on top (inside the safe area), the one-line simulation row,
+    /// then messages / results filling everything above the keyboard.
+    private var searchPage: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(GpsTheme.sub)
+                    TextField("搜尋地點或貼上座標", text: $searchText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        .focused($searchFocused)
+                        .onAppear { searchFocused = true }
+                        .onSubmit(runSearch)
+                        .accessibilityLabel("搜尋地點")
+                        .accessibilityIdentifier("search.field")
+                    if isSearching { ProgressView().controlSize(.small) }
+                    if !searchText.isEmpty {
+                        Button {
+                            clearSearch()
+                            searchFocused = true
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(GpsTheme.sub)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("清除搜尋")
+                        .accessibilityIdentifier("search.clear")
+                    }
+                }
+                .padding(.leading, 14)
+                .frame(minHeight: 44)
+                .background(GpsTheme.card, in: Capsule())
+                .overlay(Capsule().stroke(GpsTheme.line, lineWidth: 1))
+                Button("取消") { closeSearch() }
+                    .foregroundStyle(GpsTheme.mint)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("search.cancel")
+            }
+            if let name = engine.activeName {
+                HStack(spacing: 8) {
+                    Text("模擬中：\(name)")
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    stopButton(fullWidth: false)
+                }
+            }
+            if let msg = searchMessage {
+                searchMessageRow(msg)
+            }
+            if !searchResults.isEmpty {
+                searchResultsList
+            }
+            Spacer(minLength: 0)
+            toastView
+                .frame(maxWidth: Self.controlWidth)
+        }
+        .frame(maxWidth: Self.controlWidth)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .dynamicTypeSize(...Self.maxTypeSize)
+        .accessibilityAddTraits(.isModal)
+        .background(GpsTheme.background.ignoresSafeArea())
     }
 
     private func searchMessageRow(_ msg: String) -> some View {
@@ -705,6 +776,7 @@ struct GpsSimHomeView: View {
                         // The pick moves into the new-place card; an empty field is ready for the next search.
                         clearSearch()
                         searchFocused = false
+                        searchMode = false
                         startDraft(at: c, name: item.name ?? String(format: "%.5f, %.5f", c.latitude, c.longitude),
                                    address: addressText(of: item))
                     } label: {
@@ -732,8 +804,8 @@ struct GpsSimHomeView: View {
                 }
             }
         }
-        .frame(maxHeight: 260)
-        .fixedSize(horizontal: false, vertical: true)
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollDismissesKeyboard(.immediately)
         .background(GpsTheme.card.opacity(0.97), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -770,6 +842,12 @@ struct GpsSimHomeView: View {
         case .notCoordinate:
             break
         }
+        let normalizedQuery = Self.normalizeQuery(q)
+        guard !normalizedQuery.isEmpty else {
+            searchResults = []
+            searchMessage = "找不到「\(q)」。試試英文名稱，或長按地圖直接新增。"
+            return
+        }
         searchFocused = false
         isSearching = true
         let myID = UUID()
@@ -778,28 +856,55 @@ struct GpsSimHomeView: View {
             // Taiwan first (fast, local names), then the whole world: a Taiwan-only search answered
             // 「大英博物館」 with a street in Taitung. Results whose name or address does not contain
             // the typed words are never listed first, and the message says so.
-            let words = Self.queryWords(q)
             let hasCJK = q.unicodeScalars.contains { $0.value >= 0x2E80 }
-            let taiwan = await Self.mapSearch(q, region: GpsTheme.taiwanRegion)
-            var matched = taiwan.items.filter { Self.matches($0, words: words, address: addressText(of:)) }
-            var fallback = taiwan.items
+            // CJK: brackets and company suffixes removed; at most 3 Taiwan queries + 1 world query.
+            let plan = Self.namePlan(normalizedQuery)
+            let words = Self.queryWords(hasCJK ? normalizedQuery : q)
+            // list = score 2+ (listed as real matches); weak = core name only, shown first in the fallback.
+            let rank: ([MKMapItem]) -> (list: [MKMapItem], weak: [MKMapItem]) = { items in
+                let scored: [(item: MKMapItem, score: Int)] = items.map { item in
+                    let name = Self.fold(item.name ?? "")
+                    let hay = Self.fold((item.name ?? "") + " " + (addressText(of: item) ?? ""))
+                    let legacy = Self.matches(item, words: words, address: addressText(of:)) ? 3 : 0
+                    return (item, max(legacy, hasCJK ? plan.score(name: name, haystack: hay) : 0))
+                }
+                let kept = scored.enumerated().filter { $0.element.score >= 2 }
+                    .sorted { $0.element.score != $1.element.score ? $0.element.score > $1.element.score : $0.offset < $1.offset }
+                return (kept.map { $0.element.item }, scored.filter { $0.score == 1 }.map { $0.item })
+            }
+            let taiwanQueries = hasCJK ? plan.taiwanQueries : [q]
+            let taiwan = await Self.mapSearch(taiwanQueries[0], region: GpsTheme.taiwanRegion)
+            var pool = Self.uniqueItems(taiwan.items)
             var networkFailed = taiwan.networkFailed
+            var ranked = rank(pool)
+            if hasCJK {
+                var next = 1
+                while ranked.list.isEmpty && next < taiwanQueries.count {
+                    if await MainActor.run(body: { searchID != myID }) { return }
+                    let extra = await Self.mapSearch(taiwanQueries[next], region: GpsTheme.taiwanRegion)
+                    networkFailed = networkFailed && extra.networkFailed
+                    pool = Self.uniqueItems(pool + extra.items)
+                    ranked = rank(pool)
+                    next += 1
+                }
+            }
+            var matched = ranked.list
+            var fallback = Self.uniqueItems(ranked.weak + pool)
             // Chinese query: ask the world when Taiwan has no name match. English query: names come
             // back in Chinese so they cannot be checked; ask the world when Taiwan is empty or its
             // first answer is outside Taiwan, and merge both lists (Taiwan first, no duplicates).
             let firstOutsideTaiwan = taiwan.items.first.map { $0.placemark.isoCountryCode != "TW" } ?? true
-            if hasCJK ? matched.isEmpty : (taiwan.items.isEmpty || firstOutsideTaiwan) {
-                let world = await Self.mapSearch(q, region: GpsTheme.worldRegion)
+            if hasCJK ? ranked.list.isEmpty : (taiwan.items.isEmpty || firstOutsideTaiwan) {
+                if await MainActor.run(body: { searchID != myID }) { return }
+                let world = await Self.mapSearch(hasCJK ? plan.worldQuery : q, region: GpsTheme.worldRegion)
                 networkFailed = networkFailed && world.networkFailed
                 if hasCJK {
-                    matched = world.items.filter { Self.matches($0, words: words, address: addressText(of:)) }
-                    fallback = world.items.isEmpty ? taiwan.items : world.items
+                    let all = Self.uniqueItems(pool + world.items)
+                    let worldRanked = rank(all)
+                    matched = worldRanked.list
+                    fallback = Self.uniqueItems(worldRanked.weak + (world.items.isEmpty ? pool : world.items))
                 } else {
-                    var seen = Set<String>()
-                    let merged = (taiwan.items + world.items).filter {
-                        let c = $0.placemark.coordinate
-                        return seen.insert("\($0.name ?? "")|\(Int(c.latitude * 1000))|\(Int(c.longitude * 1000))").inserted
-                    }
+                    let merged = Self.uniqueItems(taiwan.items + world.items)
                     matched = merged
                     fallback = merged
                 }
@@ -849,6 +954,81 @@ struct GpsSimHomeView: View {
         let folded = hant.folding(options: [.caseInsensitive, .widthInsensitive, .diacriticInsensitive], locale: nil)
             .replacingOccurrences(of: "台", with: "臺")
         return String(folded.unicodeScalars.filter { !foldDropped.contains($0) })
+    }
+
+    // Brackets and separators that Google Maps names carry (the full-width brackets around a branch name), turned into spaces.
+    private static let queryPunctuation = CharacterSet(charactersIn: "【】「」『』()（）[]［］、,，;；:：·・｜|")
+
+    static func normalizeQuery(_ query: String) -> String {
+        let spaced = String(query.unicodeScalars.map { queryPunctuation.contains($0) ? Character(" ") : Character($0) })
+        return spaced.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    // Longest first so 股份有限公司 is not left as 股份有限 after dropping 公司.
+    private static let companySuffixes = ["股份有限公司", "有限公司", "企業社", "分公司", "公司"]
+    private static let branchTails = ["分公司", "營業所", "園區", "分廠", "廠", "分行", "門市", "分店", "店"]
+
+    /// Same place seen twice (two queries) shows once; Apple hands out new objects per request, so compare by name and spot.
+    static func uniqueItems(_ items: [MKMapItem]) -> [MKMapItem] {
+        var seen = Set<String>()
+        return items.filter {
+            let c = $0.placemark.coordinate
+            return seen.insert("\($0.name ?? "")|\(Int(c.latitude * 1000))|\(Int(c.longitude * 1000))").inserted
+        }
+    }
+
+    /// What to ask Apple and how to judge answers: 台灣糖業股份有限公司【虎尾糖廠】 becomes
+    /// core 台灣糖業, branch 虎尾糖廠 (stem 虎尾糖). Queries: normalized, 台灣 虎尾糖, 台灣糖業 (Apple may
+    /// name the POI differently from Google Maps), and 台灣糖業 虎尾糖廠 as the one world query.
+    struct NamePlan {
+        let taiwanQueries: [String]
+        let worldQuery: String
+        let core: String
+        let shortCore: String
+        let stem: String
+        /// More than two pieces typed (core, branch, something else): never better than 2 unless every word matched.
+        let extraPieces: Bool
+
+        /// 3 = core and branch stem found, 2 = stem plus short core in the NAME, 1 = core only although a branch was typed, 0 = no.
+        /// Stem and short core are checked against the name only: addresses carry 臺灣 / road names and would match anything.
+        func score(name: String, haystack: String) -> Int {
+            guard !core.isEmpty else { return 0 }
+            let hasCore = haystack.contains(core)
+            var result = 0
+            if stem.isEmpty {
+                result = hasCore ? 3 : 0
+            } else {
+                let stemInName = name.contains(stem)
+                if hasCore && stemInName { result = 3 }
+                else if stemInName && name.contains(shortCore) { result = 2 }
+                else if hasCore { result = 1 }
+            }
+            return extraPieces ? min(result, 2) : result
+        }
+    }
+
+    static func namePlan(_ normalized: String) -> NamePlan {
+        var stripped = normalized
+        for suffix in companySuffixes { stripped = stripped.replacingOccurrences(of: suffix, with: " ") }
+        let pieces = stripped.split(separator: " ").map(String.init)
+        guard let core = pieces.first else {
+            return NamePlan(taiwanQueries: [normalized], worldQuery: normalized, core: "", shortCore: "", stem: "", extraPieces: false)
+        }
+        let branch = pieces.count > 1 ? pieces[1] : ""
+        var stem = branch
+        if let tail = branchTails.first(where: { branch.hasSuffix($0) && branch.count > $0.count }) {
+            stem = String(branch.dropLast(tail.count))
+        }
+        let shortCore = core.count >= 4 ? String(core.prefix(2)) : core
+        var queries = [normalized]
+        let candidates = [branch.isEmpty ? "" : "\(shortCore) \(stem)", core, branch.isEmpty ? "" : "\(core) \(branch)"]
+        for candidate in candidates where !candidate.isEmpty && !queries.contains(candidate) {
+            queries.append(candidate)
+        }
+        let world = queries.last ?? normalized
+        let taiwan = (!branch.isEmpty && queries.count > 1) ? Array(queries.dropLast()) : queries
+        return NamePlan(taiwanQueries: taiwan, worldQuery: world, core: fold(core), shortCore: fold(shortCore),
+                        stem: fold(stem), extraPieces: pieces.count > 2)
     }
 
     /// The typed words, folded once per search (not once per result).
@@ -1267,7 +1447,7 @@ struct GpsSimHomeView: View {
     private func shortReason(_ code: Int32) -> String {
         switch GpsSimIssue.from(code: code).kind {
         case .pairing: return "沒有配對檔"
-        case .tunnel: return network.onWiFi ? "連不到手機" : "只有 4G，照提示的 5 步"
+        case .tunnel: return network.onWiFi ? "連不到手機" : "未連線（只有 4G）"
         case .ddi: return "DDI 還沒掛載"
         case .other: return "錯誤 \(code)"
         }
@@ -1636,6 +1816,7 @@ struct GpsSimHomeView: View {
 
     private func startDraft(at c: CLLocationCoordinate2D, name: String?, address: String? = nil) {
         clearToast()
+        searchMode = false
         managing = false
         draft = GpsDraft(coordinate: c, name: name ?? defaultDraftName, nameEdited: name != nil, address: address)
         focus(on: c, radius: GpsSize.small.meters)
@@ -1822,14 +2003,17 @@ struct GpsSimHomeView: View {
                     action: { retryTunnel() }
                 )
                 if !network.onWiFi {
-                    // A long grey sentence was unreadable (review 1.0.6): short numbered steps + the shortcut.
-                    banner.title = engine.activeName != nil ? "只有 4G：換地點照這 5 步" : "只有 4G：照這 5 步"
-                    banner.steps = GpsSimNetwork.fourGStepList
-                    banner.linkTitle = "用捷徑「\(GpsSimNetwork.shortcutName)」一鍵完成"
-                    banner.linkURL = GpsSimNetwork.shortcutURL
-                    banner.onLinkFailed = {
-                        showToast("找不到捷徑「\(GpsSimNetwork.shortcutName)」", autoClear: true, duration: 4)
-                    }
+                    // Owner 2026-10-27: the big 5-step card kept popping up. Home only says "not connected";
+                    // the numbered 4G steps + shortcut live in Settings › 進階 › 連不上手機時.
+                    banner = GpsBanner(
+                        id: "tunnel", color: GpsTheme.orange,
+                        title: "未連線（只有 4G）",
+                        detail: engine.activeName != nil ? "假定位仍保留。" : "",
+                        buttonTitle: "重試",
+                        action: { retryTunnel() },
+                        secondaryTitle: "步驟",
+                        secondaryAction: { settingsAdvanced = true; showSettings = true }
+                    )
                 }
                 list.append(banner)
             }
@@ -1991,6 +2175,7 @@ struct GpsSimHomeView: View {
             case "settings":
                 showSettings = true
             case "search":
+                searchMode = true
                 searchText = "艾菲爾"
                 runSearch()
             case "undoToast":

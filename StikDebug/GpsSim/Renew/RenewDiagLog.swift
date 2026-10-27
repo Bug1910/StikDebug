@@ -50,12 +50,16 @@ enum RenewDiagLog {
         }
         if let size = (try? manager.attributesOfItem(atPath: url.path)[.size]) as? Int, size > maxBytes,
            let old = try? Data(contentsOf: url) {
-            try? old.suffix(maxBytes / 2).write(to: url)
+            var tail = old.suffix(maxBytes / 2)
+            if let newline = tail.firstIndex(of: 0x0A) { tail = tail[tail.index(after: newline)...] }  // drop the cut-in-half first line
+            try? Data(tail).write(to: url)
         }
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         defer { try? handle.close() }
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: data)
+        // Flush now: a background intent can be killed by iOS at any moment and unflushed lines would be lost.
+        try? handle.synchronize()
     }
 
     /// Error code and Apple's own short message when it is a server error; otherwise just the kind of error.
