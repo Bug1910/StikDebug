@@ -1172,9 +1172,11 @@ struct GpsSimHomeView: View {
                 }
                 // Dark band under the Apple Maps logo and Legal link, drawn as map content so it sits
                 // beneath them (a SwiftUI overlay sat on top and dimmed the label itself, v1.0.13).
+                // Above map labels and opaque: place names showed through and collided with "Maps".
                 if legalScrim.count == 4 {
                     MapPolygon(coordinates: legalScrim)
-                        .foregroundStyle(Color.black.opacity(0.88))
+                        .foregroundStyle(Color.black)
+                        .mapOverlayLevel(level: .aboveLabels)
                 }
                 if let point = simulatedPoint, isSimulating {
                     Annotation("模擬位置", coordinate: point) {
