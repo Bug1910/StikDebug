@@ -84,7 +84,7 @@ jobs:
         run: |
           all='[{"tester":"novice","scenario":"novice","devices":"iPhone SE (3rd generation)"},{"tester":"rushed","scenario":"rushed","devices":"iPhone 16e;iPhone 13 mini"},{"tester":"careless","scenario":"careless","devices":"iPhone 16"},{"tester":"offline","scenario":"offline","devices":"iPhone 13 Pro Max;iPhone 17 Pro Max"},{"tester":"advanced","scenario":"advanced","devices":"iPhone 16 Pro Max"},{"tester":"ipad","scenario":"ipad","devices":"iPad Pro 13-inch (M5);iPad Pro 13-inch (M4);iPad Pro 13-inch (M3)"},{"tester":"pending","scenario":"renew_pending","devices":"iPhone SE (3rd generation)"}]'
           if [ -n "$ONLY" ]; then
-            m=$(jq -c --arg only ",$ONLY," '[.[] | select($only | contains(","+.tester+","))]' <<<"$all")
+            m=$(jq -c --arg only ",$ONLY," '[.[] | select(.tester as $t | $only | contains(","+$t+","))]' <<<"$all")
           elif [ "$FULL" = "true" ]; then
             m="$all"
           else
