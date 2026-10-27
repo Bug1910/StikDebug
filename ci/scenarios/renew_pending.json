@@ -79,6 +79,17 @@
   "tree": "settings_pending_scrolled"
  },
  {
+  "swipe": [
+   180,
+   150,
+   180,
+   500
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
   "tapId": "settings.renewAccount"
  },
  {
