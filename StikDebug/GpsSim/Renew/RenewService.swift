@@ -253,13 +253,13 @@ final class RenewService: ObservableObject {
                     if !isMock { try LiveRenewBackend.requireSameCertificates(newProfile: pending.profile) }
                     RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); not signed in, Apple not contacted")
                     refreshStatus()
-                    return RenewOutcome(expiry: pending.expiry, message: "新描述檔已下載好，等安裝。",
+                    return RenewOutcome(expiry: pending.expiry, message: "新簽名已下載好，等安裝。",
                                         pendingOnly: true, reusedPending: true)
                 } catch let problem as RenewProblem where problem.kind == .profileNotNewer {
                     RenewDiagLog.write("pending dropped: phone already as new; not signed in, Apple not contacted")
                     RenewPendingProfile.delete(mock: isMock)
                     refreshStatus()
-                    return RenewOutcome(expiry: current.profileExpiry, message: "手機上已有同樣新或更新的描述檔，不用續簽。",
+                    return RenewOutcome(expiry: current.profileExpiry, message: "手機上的簽名已經是最新的，不用續簽。",
                                         alreadyUpToDate: true)
                 } catch {
                     RenewDiagLog.write("pending dropped \(RenewDiagLog.describe(error))")

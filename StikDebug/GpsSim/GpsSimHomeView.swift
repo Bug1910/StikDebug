@@ -2090,6 +2090,9 @@ struct GpsSimHomeView: View {
             // Under 3 hours left: a one-tap 續簽 on the line itself (same call as the Settings button;
             // false = not signed in yet, so send them to the renew section instead).
             if pendingOnly {
+                // No ✕ / 稍後提醒: the line stays while a signature waits, so snoozing would do nothing.
+                signBanner.secondaryTitle = nil
+                signBanner.secondaryAction = nil
                 // Installs the waiting signature (no Apple, no sign-in needed).
                 signBanner.buttonTitle = "裝上"
                 signBanner.action = {

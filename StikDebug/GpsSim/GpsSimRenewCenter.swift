@@ -119,6 +119,8 @@ protocol RenewServicing: AnyObject {
     func status() async -> RenewServiceStatus
 
     // Optional (defaults below).
+    /// Installs the already-downloaded signature only (step 4); throws RenewFailure.notNeeded when nothing was installed.
+    func installPending(progress: @escaping (RenewStep) -> Void) async throws -> Date?
     func signOut() async
     /// Clears the anisette provisioning data (adi.pb); a new sign-in is needed afterwards.
     func resetAuthData() async
@@ -130,6 +132,9 @@ protocol RenewServicing: AnyObject {
 }
 
 extension RenewServicing {
+    func installPending(progress: @escaping (RenewStep) -> Void) async throws -> Date? {
+        try await renewNow(progress: progress)
+    }
     func signOut() async {}
     func resetAuthData() async {}
     func anisetteServers() async -> [RenewAnisetteServer] { [RenewAnisetteServer.sideStoreNew] }
@@ -460,7 +465,10 @@ final class GpsRenewCenter: ObservableObject {
         attemptID = id
         let start = Date()
         UserDefaults.standard.set(start, forKey: Self.lastAttemptKey)
-        let first: RenewStep = status.pendingInstall ? .install : .anisette
+        // A waiting signature: the button only installs it (no Apple, no download), so it works with
+        // cellular data off + LocalDevVPN, exactly as the screen tells him to do it.
+        let installOnly = status.pendingInstall
+        let first: RenewStep = installOnly ? .install : .anisette
         phase = .running(step: first, startedAt: start, stepStartedAt: start, durations: [:])
         announceStep(first)
         // Ask iOS for extra time so a renewal that is half done when the app leaves the screen can
@@ -471,8 +479,14 @@ final class GpsRenewCenter: ObservableObject {
             defer { background.end() }
             guard let self else { return }
             do {
-                let expiry = try await self.service.renewNow { step in
+                let progress: (RenewStep) -> Void = { step in
                     Task { @MainActor in self.advance(to: step, attempt: id) }
+                }
+                let expiry: Date?
+                if installOnly {
+                    expiry = try await self.service.installPending(progress: progress)
+                } else {
+                    expiry = try await self.service.renewNow(progress: progress)
                 }
                 guard self.attemptID == id else { return }
                 self.finishSuccess(expiry, startedAt: start)
@@ -869,7 +883,7 @@ enum GpsRenewReminders {
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
             let content = UNMutableNotificationContent()
             content.title = "\(GpsRenewCopy.appName) 新簽名已下載"
-            content.body = "打開 \(GpsRenewCopy.appName) 就會裝上。只有 4G 時先關行動數據、開 LocalDevVPN。"
+            content.body = "打開 \(GpsRenewCopy.appName)、連上 LocalDevVPN 就會裝上。只有 4G 時先關行動數據。"
             content.sound = .default
             center.add(UNNotificationRequest(identifier: "gpssim.sign.downloaded", content: content, trigger: nil))
         }

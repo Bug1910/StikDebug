@@ -315,7 +315,15 @@ struct GpsSignSection: View {
     private func summary(_ state: GpsSignState) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                state.indicator.font(.subheadline).accessibilityHidden(true)
+                Group {
+                    // Mint like the home line: a downloaded signature waiting is good news.
+                    if renew.status.pendingInstall {
+                        Image(systemName: "circle.fill").foregroundStyle(GpsTheme.mint)
+                    } else {
+                        state.indicator
+                    }
+                }
+                .font(.subheadline).accessibilityHidden(true)
                 Text(renew.status.pendingInstall ? "新簽名已下載，還沒裝上" : state.headline(signedIn: renew.status.signedIn))
                     .font(.title2.weight(.bold))
                     .foregroundStyle(state.level == .expired ? GpsTheme.dangerText : Color.white)

@@ -65,6 +65,49 @@ protocol RenewBackend: Sendable {
     func pendingProfileExpiry() -> Date?
 }
 
+// MARK: - One-shot renew (live and mock share the order)
+
+enum RenewOneShot {
+    /// Errors after which a kept profile is still worth installing: no internet / server trouble.
+    static let offlineKinds: [RenewProblem.Kind] = [.network, .anisetteTimeout, .anisetteUnavailable, .serviceUnavailable503]
+
+    /// 1. Any waiting profile first (fresh or not; install checks it is newer than the phone), no Apple.
+    /// 2. Otherwise / dropped: download (needs a session), then install.
+    /// No tunnel for a FRESH waiting profile = stop there (downloading again would not help); a stale one
+    /// is refreshed first while there may be internet. A download that fails offline falls back to the
+    /// kept profile (which then reports "downloaded, not installed yet" if the tunnel is still missing).
+    static func run(session: RenewStoredSession?, pending: RenewPendingProfile.Pending?,
+                    install: () async throws -> RenewOutcome,
+                    download: (RenewStoredSession) async throws -> RenewOutcome) async throws -> RenewOutcome {
+        if let pending {
+            do {
+                let first = try await install()
+                if first.alreadyUpToDate || !first.nothingToInstall { return first }
+                // Dropped as unusable: fetch a new one below.
+            } catch let problem as RenewProblem where problem.kind == .pendingNeedsTunnel {
+                guard session != nil, !RenewPendingProfile.isFresh(pending) else { throw problem }
+                RenewDiagLog.write("renew: no tunnel and the pending one is stale; refreshing it first")
+            }
+        }
+        guard let session else { throw RenewProblem(.notSignedIn) }
+        let downloaded: RenewOutcome
+        do {
+            downloaded = try await download(session)
+        } catch {
+            guard pending != nil, offlineKinds.contains(RenewErrorClassifier.explain(error).kind) else { throw error }
+            RenewDiagLog.write("renew: download failed offline; falling back to the kept pending")
+            let fallback = try await install()
+            if fallback.alreadyUpToDate || !fallback.nothingToInstall { return fallback }
+            throw error
+        }
+        if downloaded.alreadyUpToDate { return downloaded }
+        let installed = try await install()
+        // Just downloaded and checked, so "nothing usable" here is a real problem, not a no-op.
+        if installed.nothingToInstall { throw RenewProblem(.install, detail: installed.message) }
+        return installed
+    }
+}
+
 // MARK: - Live backend
 
 struct LiveRenewBackend: RenewBackend {
@@ -89,21 +132,9 @@ struct LiveRenewBackend: RenewBackend {
 
     func renew(session stored: RenewStoredSession?, quick: Bool) async throws -> RenewOutcome {
         try await RenewQuietOutput.run { () async throws -> RenewOutcome in
-            // Downloaded earlier (e.g. on 4G): install that first, without Apple. Freshness only matters
-            // when a download could replace it; signed out, any still-newer profile beats none. A stale one
-            // is left alone here: the download keeps it until a new one is saved over it.
-            if let pending = RenewPendingProfile.load(mock: false), stored == nil || RenewPendingProfile.isFresh(pending) {
-                let first = try await installPendingUnmuted()
-                if first.alreadyUpToDate || !first.nothingToInstall { return first }
-                // Dropped as unusable: fetch a new one below.
-            }
-            guard let stored else { throw RenewProblem(.notSignedIn) }
-            let downloaded = try await downloadUnmuted(session: stored, quick: quick)
-            if downloaded.alreadyUpToDate { return downloaded }
-            let installed = try await installPendingUnmuted()
-            // Just downloaded and checked, so "nothing usable" here is a real problem, not a no-op.
-            if installed.nothingToInstall { throw RenewProblem(.install, detail: installed.message) }
-            return installed
+            try await RenewOneShot.run(session: stored, pending: RenewPendingProfile.load(mock: false),
+                                       install: { try await installPendingUnmuted() },
+                                       download: { try await downloadUnmuted(session: $0, quick: quick) })
         }
     }
 
@@ -418,14 +449,9 @@ struct MockRenewBackend: RenewBackend {
     }
 
     func renew(session: RenewStoredSession?, quick: Bool) async throws -> RenewOutcome {
-        if let pending = RenewPendingProfile.load(mock: true), session == nil || RenewPendingProfile.isFresh(pending) {
-            let first = try await installPending()
-            if first.alreadyUpToDate || !first.nothingToInstall { return first }
-        }
-        guard let session else { throw RenewProblem(.notSignedIn) }
-        let downloaded = try await download(session: session, quick: quick)
-        if downloaded.alreadyUpToDate { return downloaded }
-        return try await installPending()
+        try await RenewOneShot.run(session: session, pending: RenewPendingProfile.load(mock: true),
+                                   install: { try await installPending() },
+                                   download: { try await download(session: $0, quick: quick) })
     }
 
     func download(session: RenewStoredSession, quick: Bool) async throws -> RenewOutcome {

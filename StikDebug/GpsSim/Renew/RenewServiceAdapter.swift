@@ -71,6 +71,19 @@ final class RenewServiceAdapter: RenewServicing {
         }
     }
 
+    /// 「裝上」 / 「裝上新簽名」: install the waiting signature only (no Apple, no sign-in, no download),
+    /// so it works in the state the screen asks for (cellular data off + LocalDevVPN, no internet).
+    func installPending(progress: @escaping (RenewStep) -> Void) async throws -> Date? {
+        progress(.install)
+        do {
+            let outcome = try await core.installPendingProfile()
+            if outcome.alreadyUpToDate || outcome.nothingToInstall { throw RenewFailure.notNeeded }
+            return outcome.expiry
+        } catch {
+            throw Self.translate(error)
+        }
+    }
+
     func status() async -> RenewServiceStatus {
         let status = await core.status()
         // The engine only keeps a masked Apple ID, so there is nothing to pre-fill the form with.

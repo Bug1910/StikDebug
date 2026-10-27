@@ -136,7 +136,7 @@ enum GpsProfileRenew {
             let before = try ownProfiles(appID: parsed.appID).map(\.expiration).max() ?? .distantPast
             guard parsed.expiration > before else {
                 remember(before)
-                return InstallOutcome(expiry: before, note: "手機上已有同樣新或更新的描述檔，不用續簽。", alreadyUpToDate: true)
+                return InstallOutcome(expiry: before, note: "手機上的簽名已經是最新的，不用續簽。", alreadyUpToDate: true)
             }
             try withTunnelRetry { try JITEnableContext.shared.addProfile(data) }
             // Read back instead of trusting the install call. From here on the install HAS happened,
