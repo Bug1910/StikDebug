@@ -10,11 +10,38 @@
 
 import SwiftUI
 
+/// Which part of Settings to jump to when a one-line home status is tapped.
+enum GpsSettingsTarget: Equatable {
+    case none
+    /// 進階 › 連不上手機時（4G 步驟）
+    case connection
+    /// 進階 › 配對檔
+    case pairing
+    /// 進階 › 開發者映像（DDI）
+    case ddi
+    /// 簽名／續簽區（最上面）
+    case renew
+
+    fileprivate var needsAdvanced: Bool { self == .connection || self == .pairing || self == .ddi }
+    var anchorId: String? {
+        switch self {
+        case .none: return nil
+        case .connection: return "settings.section.connection"
+        case .pairing: return "settings.section.pairing"
+        case .ddi: return "settings.section.ddi"
+        case .renew: return "settings.section.renew"
+        }
+    }
+}
+
 struct GpsSimSettingsView: View {
     /// Places import is presented by the home screen (one fileImporter per view level).
-    /// Opens with 進階 expanded (the home 4G banner 「步驟」 button).
-    var startAdvancedOpen = false
+    /// Opens (and scrolls) to the part the home status line points at.
+    var startTarget: GpsSettingsTarget = .none
     let onImportPlaces: () -> Void
+    /// DDI mounting lives in the home view (it owns the error banner); Settings only triggers it.
+    let onMountDDI: () -> Void
+    @ObservedObject private var mounting = MountingProgress.shared
 
     @Environment(\.dismiss) private var dismiss
     @AppStorage(GpsGeo.driftKey) private var driftEnabled = true
@@ -46,6 +73,7 @@ struct GpsSimSettingsView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             Form {
                 if GpsSigning.expiration != nil {
                     // 立即續簽 and the days left; 描述檔 import/cleanup moved to 簽名 › 進階 (spec 1.11).
@@ -94,6 +122,7 @@ struct GpsSimSettingsView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .id(GpsSettingsTarget.connection.anchorId ?? "")
                     if let url = GpsSimNetwork.shortcutURL {
                         Button {
                             UIApplication.shared.open(url) { opened in
@@ -111,6 +140,27 @@ struct GpsSimSettingsView: View {
                     }
                 } header: {
                     Text("連不上手機時")
+                }
+
+                Section {
+                    Button {
+                        onMountDDI()
+                    } label: {
+                        Label("掛載 DDI", systemImage: "externaldrive.badge.plus")
+                            .frame(minHeight: 44)
+                    }
+                    .disabled(mounting.coolisMounted)
+                    .id(GpsSettingsTarget.ddi.anchorId ?? "")
+
+                    .accessibilityHint("掛載開發者映像，模擬定位需要它")
+                    .accessibilityIdentifier("settings.mountDDI")
+                    if mounting.coolisMounted {
+                        Text("DDI 已掛載。").font(.footnote).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("開發者映像（DDI）")
+                } footer: {
+                    Text("首頁顯示「DDI 還沒掛載」時按這裡，會回到首頁開始掛載（第一次先下載約數十 MB）。需要 LocalDevVPN 已連線。")
                 }
 
                 Section {
@@ -143,6 +193,8 @@ struct GpsSimSettingsView: View {
                 Section {
                     Button("匯入配對檔") { confirmPairingReplace = true }
                         .frame(minHeight: 44)
+                        .id(GpsSettingsTarget.pairing.anchorId ?? "")
+
                     if let pairingMessage {
                         Text(pairingMessage).font(.footnote).foregroundStyle(.secondary)
                     }
@@ -182,8 +234,18 @@ struct GpsSimSettingsView: View {
                         .accessibilityIdentifier("settings.version")
                 }
             }
+            .onAppear {
+                guard startTarget != .none else { return }
+                if startTarget.needsAdvanced { advancedOpen = true }
+                // Wait a beat so the expanded 進階 sections exist before scrolling to one.
+                if let anchor = startTarget.anchorId {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        withAnimation { proxy.scrollTo(anchor, anchor: .top) }
+                    }
+                }
+            }
+            }
             .navigationTitle("設定")
-            .onAppear { if startAdvancedOpen { advancedOpen = true } }
             .navigationDestination(isPresented: $showRenewAdvanced) {
                 GpsRenewAdvancedPage()
             }

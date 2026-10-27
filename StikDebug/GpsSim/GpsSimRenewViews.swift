@@ -276,12 +276,17 @@ struct GpsSignSection: View {
 
     var body: some View {
         Section {
-            TimelineView(.periodic(from: .now, by: 60)) { context in
-                if let expiry = GpsSigning.expiration {
-                    summary(GpsSignState(expiry: expiry, now: context.date))
+            Group {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    if let expiry = GpsSigning.expiration {
+                        summary(GpsSignState(expiry: expiry, now: context.date))
+                    }
                 }
+                .id(renew.signTick)
             }
-            .id(renew.signTick)
+            // Scroll target for the home status line (see GpsSettingsTarget.renew).
+            .id(GpsSettingsTarget.renew.anchorId ?? "")
+
             if renew.isRunning {
                 GpsRenewProgressView()
             } else if let f = renew.failure {
@@ -1120,156 +1125,6 @@ private extension View {
             .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(GpsTheme.idleBorder, lineWidth: 1))
             .foregroundStyle(.white)
-    }
-}
-
-// MARK: - Home reminder card (spec 1.5)
-
-/// Yellow-edged card under the map: 2 days or less left, a renewal running, or one that failed.
-struct GpsSignBannerCard: View {
-    let now: Date
-    /// One line (title + main button) while another card is open.
-    var compact = false
-    var largeText = false
-    let onSignIn: () -> Void
-    let onAdvanced: () -> Void
-    @ObservedObject private var renew = GpsRenewCenter.shared
-
-    private struct Content {
-        var title: String
-        var detail: String
-        var primary: String?
-        var primaryEnabled = true
-        var primaryAction: () -> Void = {}
-        var later = false
-        var primaryOutline = false
-        var edge: Color = GpsTheme.yellow
-        var icon = "exclamationmark.triangle.fill"
-    }
-
-    private func content(now: Date) -> Content {
-        let app = GpsRenewCopy.appName
-        let expiry = GpsSigning.expiration ?? now
-        let state = GpsSignState(expiry: expiry, now: now)
-        if case .running(let step, let start, _, _) = renew.phase {
-            let seconds = max(0, Int(now.timeIntervalSince(start)))
-            return Content(title: "續簽中（第 \(step.rawValue) 步／共 4 步，\(seconds) 秒）",
-                           detail: step.title,
-                           primary: renew.canCancel ? "取消續簽" : (step == .install ? "正在裝，請稍候" : "續簽中，請稍候"),
-                           primaryEnabled: renew.canCancel,
-                           primaryAction: { renew.cancel() },
-                           primaryOutline: true,
-                           edge: GpsTheme.mint, icon: "arrow.triangle.2.circlepath")
-        }
-        if let f = renew.failure {
-            let text = renew.failureText(f)
-            let reason = text.title == "沒續簽成功" ? text.detail : "\(text.title)。\(text.detail)"
-            return Content(title: "沒續簽成功",
-                           detail: reason + (text.codeLine.map { "\n\($0)" } ?? ""),
-                           primary: text.primary.title,
-                           primaryAction: {
-                               renew.perform(text.primary, openSignIn: onSignIn, openAdvanced: onAdvanced)
-                           },
-                           later: true, edge: GpsTheme.red, icon: "exclamationmark.octagon.fill")
-        }
-        let renewAction: () -> Void = { if !renew.renewNow() { onSignIn() } }
-        // No renew backend in this build yet: keep the old way out (SideStore / PC) on the card.
-        if !GpsRenewCenter.showsRenewButtons, state.level != .expired {
-            return Content(title: "簽名\(state.remaining)（到 \(GpsRenewCopy.dateTime(expiry))）",
-                           detail: "打開 SideStore 按 Refresh All，或接電腦按「\(GpsRenewCopy.pcRenewName)」。",
-                           primary: "打開 SideStore",
-                           primaryAction: { UIApplication.shared.open(GpsSigning.sideStoreURL) },
-                           later: state.level != .today)
-        }
-        if state.level == .expired {
-            return Content(title: "簽名已過期", detail: "續簽後就能再打開，地點不會不見。",
-                           primary: renew.status.signedIn ? "立即續簽" : "登入並續簽",
-                           primaryAction: renewAction, edge: GpsTheme.red, icon: "exclamationmark.octagon.fill")
-        }
-        if !renew.status.signedIn {
-            return Content(title: "簽名\(state.remaining)，需要登入 Apple",
-                           detail: "登入一次之後，\(app)可以自己續簽。密碼只存在這支手機、只送給 Apple。",
-                           primary: "登入並續簽", primaryAction: renewAction, later: state.level != .today)
-        }
-        let detail = "到期後\(app)會打不開。續簽要連網路、約 10～30 秒，地點不會不見。"
-        if state.level == .today {
-            return Content(title: "簽名\(state.remaining)（到 \(GpsRenewCopy.time(expiry))）", detail: detail,
-                           primary: "立即續簽", primaryAction: renewAction)
-        }
-        return Content(title: "簽名\(state.remaining)（到 \(GpsRenewCopy.dateTime(expiry))）", detail: detail,
-                       primary: "立即續簽", primaryAction: renewAction, later: true)
-    }
-
-    var body: some View {
-        // Reads the clock every second while a renewal runs, otherwise the minute tick from home is enough.
-        TimelineView(.periodic(from: .now, by: renew.isRunning ? 1 : 60)) { context in
-            card(content(now: renew.isRunning ? context.date : now))
-        }
-    }
-
-    private func card(_ c: Content) -> some View {
-        // The 4 pt colour edge is a background, so it follows the card's height instead of
-        // asking for all the height on offer (a shape inside the HStack would).
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: c.icon).foregroundStyle(c.edge).accessibilityHidden(true)
-                Text(c.title)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(largeText ? 3 : 2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if compact {
-                    Spacer(minLength: 0)
-                    primaryButton(c, compact: true)
-                }
-            }
-            if !compact {
-                Text(c.detail)
-                    .font(.footnote)
-                    .foregroundStyle(GpsTheme.sub)
-                    .fixedSize(horizontal: false, vertical: true)
-                buttons(c)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 12)
-        .background(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 2).fill(c.edge).frame(width: 4).accessibilityHidden(true)
-        }
-        .padding(10)
-        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("banner.sign")
-    }
-
-    @ViewBuilder
-    private func buttons(_ c: Content) -> some View {
-        // Large text: stacked and full width; otherwise side by side.
-        let layout = largeText ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
-        layout {
-            primaryButton(c, compact: false)
-            if c.later {
-                // Width goes on the label (inside the button style's padding), not on the button.
-                Button { renew.snooze(now: now) } label: {
-                    Text("稍後").frame(maxWidth: largeText ? .infinity : nil)
-                }
-                    .buttonStyle(GpsOutlineButtonStyle())
-                    .accessibilityIdentifier("banner.sign.later")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func primaryButton(_ c: Content, compact: Bool) -> some View {
-        if let title = c.primary {
-            Button(action: c.primaryAction) {
-                Text(title).frame(maxWidth: !compact && largeText ? .infinity : nil)
-            }
-                .buttonStyle(AnyButtonStyle(outline: c.primaryOutline, fullWidth: !compact && largeText))
-                .disabled(!c.primaryEnabled)
-                .fixedSize(horizontal: compact, vertical: false)
-                .accessibilityIdentifier("banner.sign.primary")
-        }
     }
 }
 

@@ -141,6 +141,8 @@ private struct GpsBanner: Identifiable {
     var linkURL: URL?
     /// Runs when iOS cannot open `linkURL` (e.g. the Shortcuts app was removed).
     var onLinkFailed: (() -> Void)?
+    /// Set = a one-line status: the whole row is a button that opens Settings at this part.
+    var settingsTarget: GpsSettingsTarget?
 }
 
 /// A toast with an optional action button. `id` lets a delayed auto-clear check it is still
@@ -218,7 +220,7 @@ struct GpsSimHomeView: View {
     @State private var managing = false
     @State private var showSettings = false
     /// Set by the 4G banner 「步驟」 so Settings opens with 進階 already expanded.
-    @State private var settingsAdvanced = false
+    @State private var settingsTarget: GpsSettingsTarget = .none
     @State private var showPairingImporter = false
     @State private var pairingCardDismissed = false
     @State private var showPlacesImporter = false
@@ -483,11 +485,15 @@ struct GpsSimHomeView: View {
             // so in light system appearance it came up white-on-white.
             .preferredColorScheme(.dark)
         }
-        .sheet(isPresented: $showSettings, onDismiss: { settingsAdvanced = false; refreshFromDisk(startTunnel: true) }) {
-            GpsSimSettingsView(startAdvancedOpen: settingsAdvanced, onImportPlaces: {
+        .sheet(isPresented: $showSettings, onDismiss: { settingsTarget = .none; refreshFromDisk(startTunnel: true) }) {
+            GpsSimSettingsView(startTarget: settingsTarget, onImportPlaces: {
                 showSettings = false
                 // Let the settings sheet finish dismissing before presenting the picker.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showPlacesImporter = true }
+            }, onMountDDI: {
+                // Close Settings first so the home screen shows progress and any download error banner.
+                showSettings = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { mountDDI() }
             })
             .preferredColorScheme(.dark)
         }
@@ -1464,10 +1470,11 @@ struct GpsSimHomeView: View {
     private var bannerStack: some View {
         VStack(spacing: 8) {
             ForEach(orderedBanners) { b in
-                if b.id == "sign" {
-                    GpsSignBannerCard(now: signNow, compact: draft != nil || managing, largeText: largeText,
-                                      onSignIn: { showRenewSignIn = true },
-                                      onAdvanced: { showSettings = true })
+                if b.settingsTarget != nil {
+                    GpsStatusLineRow(banner: b) {
+                        settingsTarget = b.settingsTarget ?? .none
+                        showSettings = true
+                    }
                 } else {
                     GpsBannerRow(banner: b, compact: draft != nil || managing,
                                  foldSteps: UIScreen.main.bounds.height < 700 || largeText)
@@ -1975,6 +1982,16 @@ struct GpsSimHomeView: View {
         return shown.isEmpty ? sign : shown
     }
 
+    /// One-line sign status: 「簽名剩 2 天」/「簽名剩 5 小時」; a running or failed renewal says so.
+    /// All buttons (立即續簽, 登入, progress, failure reasons) live in Settings now.
+    private var signLineTitle: String {
+        if renew.isRunning { return "續簽中…" }
+        if renew.failure != nil { return "沒續簽成功" }
+        guard let expiry = GpsSigning.expiration else { return "簽名快到期" }
+        let state = GpsSignState(expiry: expiry, now: signNow)
+        return state.level == .expired ? "簽名已過期" : "簽名\(state.remaining)"
+    }
+
     private var banners: [GpsBanner] {
         var list: [GpsBanner] = []
         // Mock mode (renew simulator scripts) has no real phone link: skip the card so the screens
@@ -1983,14 +2000,15 @@ struct GpsSimHomeView: View {
             // nothing: renewal works without a pairing file
         } else if !pairingExists {
             if !pairingCardDismissed {
+                // Owner 2026-10-27: home shows one line only; 匯入配對檔 lives in Settings › 進階 › 配對檔.
+                // The x button hides it so places can be saved first (same as the old 「先存地點」).
                 list.append(GpsBanner(
                     id: "pairing", color: GpsTheme.orange,
-                    title: "第一次使用：需要配對檔",
-                    detail: "配對檔是讓 PinFly 改這支手機定位的鑰匙，要用電腦產生一次。沒有電腦也可以先存地點，之後再匯入。",
-                    buttonTitle: "匯入配對檔",
-                    action: { showPairingImporter = true },
-                    secondaryTitle: "先存地點",
-                    secondaryAction: { pairingCardDismissed = true }
+                    title: "還沒配對",
+                    detail: "第一次使用：配對檔是讓 PinFly 改這支手機定位的鑰匙，要用電腦產生一次。沒有電腦也可以先存地點，之後再匯入。",
+                    secondaryTitle: "先隱藏，之後在設定匯入",
+                    secondaryAction: { pairingCardDismissed = true },
+                    settingsTarget: .pairing
                 ))
             }
         } else if !demoReady && !linkUp {
@@ -2012,19 +2030,19 @@ struct GpsSimHomeView: View {
                         buttonTitle: "重試",
                         action: { retryTunnel() },
                         secondaryTitle: "步驟",
-                        secondaryAction: { settingsAdvanced = true; showSettings = true }
+                        secondaryAction: { settingsTarget = .connection; showSettings = true }
                     )
                 }
                 list.append(banner)
             }
         } else if !demoReady, tunnel.isConnected, !mounting.coolisMounted, mounting.mountingThread == nil {
             // Needs the JIT tunnel: on 4G only the location link is up and mounting cannot work.
+            // Owner 2026-10-27: one line on home; 掛載 DDI lives in Settings › 進階 › 開發者映像（DDI）.
             list.append(GpsBanner(
                 id: "ddi", color: GpsTheme.orange,
-                title: "DDI（開發者映像）還沒掛載",
-                detail: "模擬定位需要先掛載 DDI（開發者映像），按右邊按鈕（第一次會先下載，約數十 MB）。",
-                buttonTitle: "掛載 DDI",
-                action: { mountDDI() }
+                title: "DDI 還沒掛載",
+                detail: "模擬定位需要先掛載 DDI（開發者映像）。第一次會先下載，約數十 MB。",
+                settingsTarget: .ddi
             ))
         }
         // One banner per cause: a send error that only repeats the device banner above
@@ -2052,9 +2070,26 @@ struct GpsSimHomeView: View {
             }
             list.append(banner)
         }
-        // Drawn by GpsSignBannerCard (立即續簽／稍後, progress, failures); this entry only holds its place.
+        // One-line status; the renew buttons, sign-in and failures live in Settings › 簽名.
         if renew.signCardVisible(now: signNow) {
-            list.append(GpsBanner(id: "sign", color: GpsTheme.yellow, title: "", detail: ""))
+            let expiry = GpsSigning.expiration ?? Date()
+            let state = GpsSignState(expiry: expiry, now: signNow)
+            let signColor: Color = (state.level == .expired || renew.failure != nil) ? GpsTheme.red
+                : (state.level == .today ? GpsTheme.orange : GpsTheme.yellow)
+            var signBanner = GpsBanner(id: "sign", color: signColor, title: signLineTitle,
+                                       detail: "\(signLineTitle)。續簽、登入和失敗原因都在設定。",
+                                       secondaryTitle: "稍後提醒",
+                                       secondaryAction: { renew.snooze(now: signNow) },
+                                       settingsTarget: .renew)
+            // Under 3 hours left: a one-tap 續簽 on the line itself (same call as the Settings button;
+            // false = not signed in yet, so send them to the renew section instead).
+            if !renew.isRunning, state.level != .expired, state.hours < 3 {
+                signBanner.buttonTitle = "續簽"
+                signBanner.action = {
+                    if !renew.renewNow() { settingsTarget = .renew; showSettings = true }
+                }
+            }
+            list.append(signBanner)
         }
         if let err = store.lastLoadError {
             list.append(GpsBanner(
@@ -2384,6 +2419,69 @@ private struct GpsPulseRing: View {
                     expanded = true
                 }
             }
+    }
+}
+
+/// A setup status squeezed into one tappable line (colored bar, title, chevron). Tapping opens
+/// Settings at the right part; an optional x (the banner's secondary action) hides it.
+private struct GpsStatusLineRow: View {
+    let banner: GpsBanner
+    let open: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: open) {
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 2).fill(banner.color).frame(width: 4, height: 24)
+                        .accessibilityHidden(true)
+                    Text(banner.title)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(GpsTheme.sub)
+                        .accessibilityHidden(true)
+                }
+                .padding(.leading, 8)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(banner.title + "。" + banner.detail)
+            .accessibilityHint("點兩下打開設定")
+            .accessibilityIdentifier("banner." + banner.id)
+            if let title = banner.buttonTitle, let action = banner.action {
+                Button(action: action) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 36)
+                        .background(GpsTheme.mint, in: Capsule())
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("banner." + banner.id + ".primary")
+            }
+            if let label = banner.secondaryTitle, let dismiss = banner.secondaryAction {
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(GpsTheme.sub)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(label)
+                .accessibilityIdentifier("banner." + banner.id + ".dismiss")
+            }
+        }
+        .padding(.horizontal, 8)
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
