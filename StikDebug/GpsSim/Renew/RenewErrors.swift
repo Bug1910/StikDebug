@@ -103,9 +103,9 @@ enum RenewErrorTable {
             return Entry(code: nil, title: "已取消", advice: "需要時再重新開始。")
         case .teamMismatch:
             return Entry(code: nil, title: "這個 Apple ID 不是簽這個 App 的帳號",
-                         advice: "請用當初簽PinFly的 Apple ID 登入。什麼都沒有改動。")
+                         advice: "請用當初簽 PinFly 的 Apple ID 登入。什麼都沒有改動。")
         case .appIDMissing:
-            return Entry(code: nil, title: "Apple 帳號裡找不到PinFly的 App ID",
+            return Entry(code: nil, title: "Apple 帳號裡找不到 PinFly 的 App ID",
                          advice: "為了不多吃 App ID，這裡不會新建。請用電腦續簽一次。")
         case .certMismatch:
             return Entry(code: nil, title: "新描述檔的簽名憑證和 App 現在用的不同",
@@ -125,13 +125,13 @@ enum RenewErrorTable {
             return Entry(code: nil, title: "描述檔沒有裝上", advice: "什麼都沒換掉。稍後再試。")
         case .pendingNeedsTunnel:
             return Entry(code: nil, title: "新簽名已下載，還沒裝上",
-                         advice: "關掉行動數據、打開 LocalDevVPN 後，跑「安裝PinFly描述檔」或在PinFly再按一次續簽（不會重新下載，也不用再登入）。")
+                         advice: "關掉行動數據、打開 LocalDevVPN 後，跑「安裝 PinFly 描述檔」或在 PinFly 再按一次續簽（不會重新下載，也不用再登入）。")
         case .downloadInProgress:
             return Entry(code: nil, title: "下載還沒完成",
-                         advice: "等「下載PinFly描述檔」跑完（約 1 分鐘內）再跑「安裝PinFly描述檔」。")
+                         advice: "等「下載 PinFly 描述檔」跑完（約 1 分鐘內）再跑「安裝 PinFly 描述檔」。")
         case .keychain:
             return Entry(code: "keychain", title: "登入成功，但存不了登入資料",
-                         advice: "這支手機不讓PinFly把登入資料存進鑰匙圈（Keychain）。請重新安裝PinFly後再試。")
+                         advice: "這支手機不讓 PinFly 把登入資料存進鑰匙圈（Keychain）。請重新安裝 PinFly 後再試。")
         case .unknown:
             return Entry(code: nil, title: "續簽失敗", advice: "稍後再試；一直失敗就用電腦續簽。")
         }

@@ -207,6 +207,13 @@
   "wait": 1
  },
  {
+  "swipe": [196, 700, 196, 520],
+  "note": "new row is last in the 300pt-max list and sits below the screen edge; scroll the list first"
+ },
+ {
+  "wait": 1
+ },
+ {
   "tap": "34.98580, 135.75880"
  },
  {
@@ -265,6 +272,13 @@
  },
  {
   "tapId": "btn.editPlaces"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [196, 700, 196, 520],
+  "note": "new row is last in the 300pt-max list and sits below the screen edge; scroll the list first"
  },
  {
   "wait": 1

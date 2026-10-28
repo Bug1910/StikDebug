@@ -315,7 +315,7 @@ struct GpsSimAdvancedView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Label("回PinFly", systemImage: "chevron.left")
+                    Label("回 PinFly", systemImage: "chevron.left")
                         .font(.headline)
                         .frame(minHeight: 44)
                 }

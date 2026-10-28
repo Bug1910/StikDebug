@@ -192,7 +192,7 @@ enum GpsGeo {
     /// Full-width digits and punctuation become half-width; comma, 、, ;, space and new line separate.
     /// A trailing 「°」 is dropped. Shared by both coordinate parsers so they always agree.
     static func coordinateParts(_ text: String) -> [String]? {
-        let half = signedHemispheres(text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text)
+        let half = signedHemispheres(decimalDegrees(text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text))
         let parts = half
             .replacingOccurrences(of: "、", with: ",")
             .split(whereSeparator: { $0 == "," || $0 == ";" || $0.isWhitespace })
@@ -203,14 +203,41 @@ enum GpsGeo {
         return parts.map { $0.hasSuffix("°") ? String($0.dropLast()) : $0 }
     }
 
+    /// Degrees, minutes and seconds turned into decimal degrees (before the hemisphere marks are read):
+    /// 「25°2'1.2"N」→「25.0336667N」, also with 「′ ″」, curly quotes or 「''」 for seconds. Minutes need
+    /// 「'」; seconds need 「"」 unless a hemisphere letter follows (「25°2'1.2N」). Minutes or seconds
+    /// of 60 or more are left alone, so the text is then not a coordinate.
+    private static func decimalDegrees(_ text: String) -> String {
+        var s = text
+        let marks: [(String, String)] = [("′", "'"), ("’", "'"), ("‘", "'"), ("″", "\""), ("”", "\""),
+                                         ("“", "\""), ("''", "\""), ("º", "°"), ("˚", "°")]
+        for (from, to) in marks { s = s.replacingOccurrences(of: from, with: to) }
+        let num = "(\\d+(?:\\.\\d+)?)"
+        let pattern = "(-?)" + num + "\\s*°\\s*" + num + "\\s*'(?:\\s*" + num + "\\s*(?:\"|(?=\\s*[NSEW])))?"
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+        for m in re.matches(in: s, range: NSRange(s.startIndex..., in: s)).reversed() {
+            guard let whole = Range(m.range, in: s),
+                  let degrees = Range(m.range(at: 2), in: s).flatMap({ Double(s[$0]) }),
+                  let minutes = Range(m.range(at: 3), in: s).flatMap({ Double(s[$0]) }) else { continue }
+            // Group 4 (seconds) is optional: an unmatched group has no Range, so 0.
+            let seconds = Range(m.range(at: 4), in: s).flatMap { Double(s[$0]) } ?? 0
+            guard minutes < 60, seconds < 60 else { continue }
+            let negative = Range(m.range(at: 1), in: s).map { !s[$0].isEmpty } ?? false
+            let value = degrees + minutes / 60 + seconds / 3600
+            s.replaceSubrange(whole, with: " " + (negative ? "-" : "") + String(format: "%.7f", value) + " ")
+        }
+        return s
+    }
+
     /// Hemisphere marks turned into signs, the way Apple Maps 「拷貝座標」 writes them:
-    /// 「25.03° N, 121.56° E」→「25.03, 121.56」, 「33.86° S」→「-33.86」, 「北緯25.03 東經121.56」 too.
+    /// 「25.03° N, 121.56° E」→「25.03, 121.56」, 「33.86° S」→「-33.86」, 「北緯25.03 東經121.56」 too,
+    /// and written together 「25.03N121.56E」 (the letter only must not start a word like 「North」).
     /// Letter-after (Apple) wins; letter-before 「N 25.03」 is only tried when there is none, since
     /// 「25° N 121° E」 would otherwise read 「N 121」 as one pair. Upper-case letters only.
     private static func signedHemispheres(_ text: String) -> String {
         let num = "(-?\\d+(?:\\.\\d+)?)"
         let chinese = (pattern: "(北緯|南緯|東經|西經|北纬|南纬|东经|西经)\\s*" + num + "\\s*°?", num: 2, mark: 1)
-        let after = (pattern: num + "\\s*°?\\s*([NSEW])\\b", num: 1, mark: 2)
+        let after = (pattern: num + "\\s*°?\\s*([NSEW])(?![A-Za-z])", num: 1, mark: 2)
         let before = (pattern: "\\b([NSEW])\\s*" + num + "\\s*°?", num: 2, mark: 1)
         var s = text
         func apply(_ rule: (pattern: String, num: Int, mark: Int)) -> Bool {

@@ -154,6 +154,28 @@ private struct GpsToast: Identifiable {
     var action: (() -> Void)?
 }
 
+/// Hands a search answer back exactly once: whichever comes first, Apple's answer or the timer.
+/// The second caller gets false and nothing happens (a continuation resumed twice would crash).
+private final class ResumeOnce<T> {
+    private var continuation: CheckedContinuation<T, Never>?
+    private let lock = NSLock()
+
+    init(_ continuation: CheckedContinuation<T, Never>) {
+        self.continuation = continuation
+    }
+
+    @discardableResult
+    func resume(_ value: T) -> Bool {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        guard let pending else { return false }
+        pending.resume(returning: value)
+        return true
+    }
+}
+
 /// Own coordinate parser so the home view can say *why* a pasted pair was rejected
 /// (works whatever shape GpsGeo.parseCoordinate has).
 private enum GpsCoordinateInput {
@@ -203,10 +225,16 @@ struct GpsSimHomeView: View {
     @State private var position: MapCameraPosition = .region(GpsTheme.taiwanRegion)
     @State private var mapCenter: CLLocationCoordinate2D?
     @State private var draft: GpsDraft?
+    /// Just-saved place: flashFreshID drives the short highlight, lastSavedPlaceID is where the manage list opens.
+    @State private var flashFreshID: String?
+    @State private var lastSavedPlaceID: String?
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
     @State private var searchMessage: String?
+    /// Rows of searchResults whose name is far from what was typed: shown with a 「最接近」 tag.
+    /// Reset with every finished search; rows are looked up by index, so a stale set never outlives its list.
+    @State private var approximateRows: Set<Int> = []
     /// Changes on every new search and on clear: a slow older search must not overwrite a newer one.
     @State private var searchID = UUID()
     /// Lat/lon swapped version of an out-of-range paste, offered via the 「對調」 button.
@@ -753,7 +781,7 @@ struct GpsSimHomeView: View {
                 Button {
                     swappedSuggestion = nil
                     searchMessage = nil
-                    startDraft(at: swapped, name: String(format: "%.5f, %.5f", swapped.latitude, swapped.longitude))
+                    startDraft(at: swapped, name: nil)
                 } label: {
                     Text("對調")
                         .font(.subheadline.weight(.semibold))
@@ -784,10 +812,18 @@ struct GpsSimHomeView: View {
                                    address: addressText(of: item))
                     } label: {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(item.name ?? "（未命名）")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(item.name ?? "（未命名）")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                if approximateRows.contains(i) {
+                                    Text("最接近")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(GpsTheme.orange)
+                                        .fixedSize()
+                                }
+                            }
                             if let sub = resultSubtitle(of: item) {
                                 Text(sub).font(.footnote).foregroundStyle(GpsTheme.sub).lineLimit(1)
                             }
@@ -798,7 +834,8 @@ struct GpsSimHomeView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(item.name ?? "未命名")
+                    .accessibilityLabel(approximateRows.contains(i) ? "\(item.name ?? "未命名")，最接近的結果，名稱不同"
+                                                                    : (item.name ?? "未命名"))
                     .accessibilityHint("在地圖上標出，可以存成地點")
                     .accessibilityIdentifier("search.result.\(i)")
                     if i < searchResults.count - 1 {
@@ -836,7 +873,7 @@ struct GpsSimHomeView: View {
         case .valid(let c):
             clearSearch()
             searchFocused = false
-            startDraft(at: c, name: String(format: "%.5f, %.5f", c.latitude, c.longitude))
+            startDraft(at: c, name: nil)
             return
         case .malformed(let reason):
             searchResults = []
@@ -863,16 +900,19 @@ struct GpsSimHomeView: View {
         Task {
             guard let first = await searchCore(q, normalized: normalizedQuery, myID: myID) else { return }
             var (m, f, nf) = (first.matched, first.fallback, first.networkFailed)
+            // Some Apple call got no answer in time: when nothing is listed, say the network is slow.
+            var slow = first.timedOut
             var shorterQuery: String?
             // Nothing at all and not a network problem: vague or colloquial names (「台北海線」).
             if m.isEmpty && f.isEmpty && !nf {
                 // The whole fallback stops after 8 s on 4G: past that, the plain 「找不到」 is kinder.
-                let deadline = Date().addingTimeInterval(8)
+                let deadline = Date().addingTimeInterval(Self.searchBudgetSeconds)
                 // a. The geocoder knows addresses and areas that the place search does not list.
                 if await MainActor.run(body: { searchID != myID }) { return }
-                let geo = await Self.geocode(q)
+                let geo = await Self.geocode(q, timeout: deadline.timeIntervalSinceNow)
                 if Date() < deadline { f = geo.items }
                 nf = geo.networkFailed
+                if geo.timedOut { slow = true }
                 // b. Chinese: drop trailing characters (at least 2 left, at most 3 tries), one Taiwan
                 // search each. A name containing the shorter text wins; other answers are only kept
                 // as the 「沒有名稱完全相符」 list.
@@ -885,7 +925,9 @@ struct GpsSimHomeView: View {
                         length -= 1
                         guard short.count >= 2, tried.insert(short).inserted else { continue }
                         if await MainActor.run(body: { searchID != myID }) { return }
-                        let r = await Self.mapSearch(short, region: GpsTheme.taiwanRegion)
+                        let r = await Self.mapSearch(short, region: GpsTheme.taiwanRegion,
+                                                     timeout: deadline.timeIntervalSinceNow)
+                        if r.timedOut { slow = true; break }
                         guard Date() < deadline else { break }
                         if r.networkFailed { nf = f.isEmpty; break }
                         let key = Self.fold(short)
@@ -899,11 +941,12 @@ struct GpsSimHomeView: View {
                     }
                 }
             }
-            let (fm, ff, fnf, short) = (m, f, nf, shorterQuery)
+            let (fm, ff, fnf, short, fslow) = (m, f, nf, shorterQuery, slow)
             await MainActor.run {
                 // Cleared or replaced by a newer search while we waited: drop this answer.
                 guard searchID == myID else { return }
                 isSearching = false
+                approximateRows = []
                 if let short, !fm.isEmpty {
                     searchResults = Array(fm.prefix(6))
                     searchMessage = "找不到「\(q)」，以下是「\(short)」的結果"
@@ -911,8 +954,18 @@ struct GpsSimHomeView: View {
                     searchResults = Array(fm.prefix(6))
                     searchMessage = nil
                 } else if !ff.isEmpty {
-                    searchResults = Array(ff.prefix(6))
-                    searchMessage = "沒有名稱完全相符的結果，請看清楚再選；也可以試試英文名稱。"
+                    // The fallback can still hold the right place under another spelling (「Taipei 101」 →
+                    // 「台北101」): those go first and need no warning; the rest are marked 「最接近」.
+                    let close = ff.filter { Self.nameMatches(query: q, name: $0.name) }
+                    let shown = Array((close + ff.filter { !Self.nameMatches(query: q, name: $0.name) }).prefix(6))
+                    searchResults = shown
+                    approximateRows = Set(shown.indices.filter { !Self.nameMatches(query: q, name: shown[$0].name) })
+                    searchMessage = close.isEmpty ? "沒有名稱完全相符的結果，請看清楚再選；也可以試試英文名稱。" : nil
+                } else if fslow {
+                    searchResults = []
+                    // No seconds in the text: the name search and the vague-name fallback each get
+                    // searchBudgetSeconds, so the wait can be anything up to twice that.
+                    searchMessage = "網路太慢，搜尋等太久沒有回應。請換個網路再試，或長按地圖直接新增。"
                 } else if fnf {
                     searchResults = []
                     searchMessage = "搜尋需要網路，請確認連線後再試"
@@ -1119,7 +1172,7 @@ struct GpsSimHomeView: View {
 
     /// One full name search (Taiwan, then the world). nil = cleared or replaced by a newer search.
     private func searchCore(_ q: String, normalized normalizedQuery: String,
-                            myID: UUID) async -> (matched: [MKMapItem], fallback: [MKMapItem], networkFailed: Bool)? {
+                            myID: UUID) async -> (matched: [MKMapItem], fallback: [MKMapItem], networkFailed: Bool, timedOut: Bool)? {
         // Taiwan first (fast, local names), then the whole world: a Taiwan-only search answered
         // 「大英博物館」 with a street in Taitung. Results whose name or address does not contain
         // the typed words are never listed first, and the message says so.
@@ -1140,16 +1193,21 @@ struct GpsSimHomeView: View {
             return (kept.map { $0.element.item }, scored.filter { $0.score == 1 }.map { $0.item })
         }
         let taiwanQueries = hasCJK ? plan.taiwanQueries : [q]
-        let taiwan = await Self.mapSearch(taiwanQueries[0], region: GpsTheme.taiwanRegion)
+        // All the Apple calls below share one budget; each is cancelled when the time left runs out.
+        let deadline = Date().addingTimeInterval(Self.searchBudgetSeconds)
+        let taiwan = await Self.mapSearch(taiwanQueries[0], region: GpsTheme.taiwanRegion, timeout: deadline.timeIntervalSinceNow)
         var pool = Self.uniqueItems(taiwan.items)
         var networkFailed = taiwan.networkFailed
+        var timedOut = taiwan.timedOut
         var ranked = rank(pool)
         if hasCJK {
             var next = 1
-            while ranked.list.isEmpty && next < taiwanQueries.count {
+            while ranked.list.isEmpty && next < taiwanQueries.count && !timedOut {
                 if await MainActor.run(body: { searchID != myID }) { return nil }
-                let extra = await Self.mapSearch(taiwanQueries[next], region: GpsTheme.taiwanRegion)
+                let extra = await Self.mapSearch(taiwanQueries[next], region: GpsTheme.taiwanRegion,
+                                                 timeout: deadline.timeIntervalSinceNow)
                 networkFailed = networkFailed && extra.networkFailed
+                timedOut = timedOut || extra.timedOut
                 pool = Self.uniqueItems(pool + extra.items)
                 ranked = rank(pool)
                 next += 1
@@ -1163,8 +1221,10 @@ struct GpsSimHomeView: View {
         let firstOutsideTaiwan = taiwan.items.first.map { $0.placemark.isoCountryCode != "TW" } ?? true
         if hasCJK ? ranked.list.isEmpty : (taiwan.items.isEmpty || firstOutsideTaiwan) {
             if await MainActor.run(body: { searchID != myID }) { return nil }
-            let world = await Self.mapSearch(hasCJK ? plan.worldQuery : q, region: GpsTheme.worldRegion)
+            let world = await Self.mapSearch(hasCJK ? plan.worldQuery : q, region: GpsTheme.worldRegion,
+                                             timeout: deadline.timeIntervalSinceNow)
             networkFailed = networkFailed && world.networkFailed
+            timedOut = timedOut || world.timedOut
             if hasCJK {
                 let all = Self.uniqueItems(pool + world.items)
                 let worldRanked = rank(all)
@@ -1177,40 +1237,75 @@ struct GpsSimHomeView: View {
             }
         }
         if await MainActor.run(body: { searchID != myID }) { return nil }
-        return (matched, fallback, networkFailed)
+        return (matched, fallback, networkFailed, timedOut)
     }
+
+    /// One Apple answer. `timedOut`: no answer within the time left, the request was cancelled
+    /// (also counted as `networkFailed`, so callers that only look at that still stop).
+    typealias SearchAnswer = (items: [MKMapItem], networkFailed: Bool, timedOut: Bool)
+
+    /// Seconds the name search (and, separately, the vague-name fallback) may take in total on a slow 4G.
+    static let searchBudgetSeconds: TimeInterval = 8
 
     /// Fallback for vague names: the geocoder (addresses, districts, areas), as plain map items.
     /// `networkFailed`: only kCLErrorNetwork; "not found" and other errors are just an empty list.
-    private static func geocode(_ query: String) async -> (items: [MKMapItem], networkFailed: Bool) {
-        do {
-            let marks = try await CLGeocoder().geocodeAddressString(query, in: nil,
-                                                                   preferredLocale: Locale(identifier: "zh_Hant_TW"))
-            let items = marks.compactMap { mark -> MKMapItem? in
-                guard mark.location != nil else { return nil }
-                let item = MKMapItem(placemark: MKPlacemark(placemark: mark))
-                item.name = mark.name ?? mark.locality ?? query
-                return item
+    /// CLGeocoder has no timeout of its own: after `timeout` seconds it is cancelled and reported as timedOut.
+    private static func geocode(_ query: String, timeout: TimeInterval) async -> SearchAnswer {
+        guard timeout > 0 else { return ([], true, true) }
+        let geocoder = CLGeocoder()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<SearchAnswer, Never>) in
+            let once = ResumeOnce(continuation)
+            geocoder.geocodeAddressString(query, in: nil, preferredLocale: Locale(identifier: "zh_Hant_TW")) { marks, error in
+                if let error {
+                    NSLog("PinFly geocode failed: %@", String(describing: error))
+                    if let cl = error as? CLError, cl.code == .network { once.resume(([], true, false)) }
+                    else { once.resume(([], false, false)) }
+                    return
+                }
+                let items = (marks ?? []).compactMap { mark -> MKMapItem? in
+                    guard mark.location != nil else { return nil }
+                    let item = MKMapItem(placemark: MKPlacemark(placemark: mark))
+                    item.name = mark.name ?? mark.locality ?? query
+                    return item
+                }
+                once.resume((items, false, false))
             }
-            return (items, false)
-        } catch {
-            NSLog("PinFly geocode failed: %@", String(describing: error))
-            if let cl = error as? CLError, cl.code == .network { return ([], true) }
-            return ([], false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+                // Only when the answer has not come yet; the late answer is then ignored.
+                if once.resume(([], true, true)) {
+                    NSLog("PinFly geocode timed out after %.1f s", timeout)
+                    geocoder.cancelGeocode()
+                }
+            }
         }
     }
 
     /// `networkFailed`: the search itself errored for a reason other than "nothing found".
-    private static func mapSearch(_ query: String, region: MKCoordinateRegion) async -> (items: [MKMapItem], networkFailed: Bool) {
+    /// MKLocalSearch has no timeout of its own: after `timeout` seconds it is cancelled and reported as timedOut.
+    private static func mapSearch(_ query: String, region: MKCoordinateRegion, timeout: TimeInterval) async -> SearchAnswer {
+        guard timeout > 0 else { return ([], true, true) }
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
         request.region = region
-        do {
-            return (try await MKLocalSearch(request: request).start().mapItems, false)
-        } catch {
-            NSLog("PinFly search failed: %@", String(describing: error))
-            if let mk = error as? MKError, mk.code == .placemarkNotFound { return ([], false) }
-            return ([], true)
+        let search = MKLocalSearch(request: request)
+        return await withCheckedContinuation { (continuation: CheckedContinuation<SearchAnswer, Never>) in
+            let once = ResumeOnce(continuation)
+            search.start { response, error in
+                if let error {
+                    NSLog("PinFly search failed: %@", String(describing: error))
+                    if let mk = error as? MKError, mk.code == .placemarkNotFound { once.resume(([], false, false)) }
+                    else { once.resume(([], true, false)) }
+                    return
+                }
+                once.resume((response?.mapItems ?? [], false, false))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+                // Whether cancel() still calls the completion handler does not matter: ResumeOnce ignores it.
+                if once.resume(([], true, true)) {
+                    NSLog("PinFly search timed out after %.1f s", timeout)
+                    search.cancel()
+                }
+            }
         }
     }
 
@@ -1223,6 +1318,43 @@ struct GpsSimHomeView: View {
         let folded = hant.folding(options: [.caseInsensitive, .widthInsensitive, .diacriticInsensitive], locale: nil)
             .replacingOccurrences(of: "台", with: "臺")
         return String(folded.unicodeScalars.filter { !foldDropped.contains($0) })
+    }
+
+    /// English words Apple answers in Chinese (Taiwan place names, common place types), longest first
+    /// so 「sun moon lake」 is replaced before shorter words. Only used to compare names, never sent to Apple.
+    private static let nameAliases: [(String, String)] = [
+        ("sun moon lake", "日月潭"), ("night market", "夜市"), ("main station", "車站"),
+        ("taipei", "臺北"), ("new taipei", "新北"), ("taichung", "臺中"), ("tainan", "臺南"),
+        ("kaohsiung", "高雄"), ("taoyuan", "桃園"), ("hsinchu", "新竹"), ("keelung", "基隆"),
+        ("chiayi", "嘉義"), ("changhua", "彰化"), ("miaoli", "苗栗"), ("nantou", "南投"),
+        ("yunlin", "雲林"), ("pingtung", "屏東"), ("yilan", "宜蘭"), ("hualien", "花蓮"),
+        ("taitung", "臺東"), ("penghu", "澎湖"), ("kinmen", "金門"), ("matsu", "馬祖"),
+        ("tamsui", "淡水"), ("jiufen", "九份"), ("kenting", "墾丁"), ("alishan", "阿里山"),
+        ("taroko", "太魯閣"), ("ximending", "西門町"), ("beitou", "北投"), ("shilin", "士林"),
+        ("taiwan", "臺灣"), ("station", "車站"), ("airport", "機場"), ("museum", "博物館"),
+        ("university", "大學"), ("park", "公園"), ("zoo", "動物園"), ("temple", "廟"),
+    ].sorted { $0.0.count > $1.0.count }
+
+    /// fold() plus the English aliases above, so 「Taipei 101」 and 「台北 101」 both become 「臺北101」.
+    private static func aliasFold(_ text: String) -> String {
+        var lower = text.lowercased()
+        // Whole words only (「park」 inside 「parking」 stays), but digits may touch: 「taipei101」.
+        for (english, chinese) in nameAliases {
+            lower = lower.replacingOccurrences(of: "(?<![a-z])" + english + "(?![a-z])", with: chinese,
+                                               options: .regularExpression)
+        }
+        return fold(lower)
+    }
+
+    /// A result counts as what was typed when the two names, folded (case, spaces, full/half width,
+    /// 台/臺, simplified/traditional, English aliases), are equal or one contains the other.
+    /// Two characters at least on each side, so a one-letter name never matches everything.
+    static func nameMatches(query: String, name: String?) -> Bool {
+        guard let name else { return false }
+        let q = aliasFold(query)
+        let n = aliasFold(name)
+        guard q.count >= 2, n.count >= 2 else { return q == n && !q.isEmpty }
+        return q.contains(n) || n.contains(q)
     }
 
     // Brackets and separators that Google Maps names carry (the full-width brackets around a branch name), turned into spaces.
@@ -1652,7 +1784,7 @@ struct GpsSimHomeView: View {
     /// Parts of the map covered by the floating controls, in points (rounded so tiny layout
     /// jitter does not refit the camera).
     private var mapInsets: EdgeInsets {
-        guard mapFrame.width > 1 else { return EdgeInsets(top: 120, leading: 8, bottom: 40, trailing: 64) }
+        guard mapFrame.width > 1 else { return EdgeInsets(top: 120, leading: 8, bottom: 40, trailing: 88) }
         let top = max(0, topBarFrame.maxY - mapFrame.minY)
         // Banners are outside the map now; only the toast floats over it: fixed room for it
         // (44 pt + spacing) above the Apple Maps logo, shown or not, so the map never jumps.
@@ -1662,7 +1794,8 @@ struct GpsSimHomeView: View {
             let rowTop = max(top, toolsFrame.maxY - mapFrame.minY)
             return EdgeInsets(top: rowTop.rounded(), leading: 8, bottom: bottom.rounded(), trailing: 8)
         }
-        let trailing = toolsFrame == .zero ? 64 : max(0, mapFrame.maxX - toolsFrame.minX)
+        // +24: a pin's name hangs out to the right of the pin, so leave room beyond the button column.
+        let trailing = toolsFrame == .zero ? 88 : max(0, mapFrame.maxX - toolsFrame.minX) + 24
         return EdgeInsets(top: top.rounded(), leading: 8, bottom: bottom.rounded(), trailing: trailing.rounded())
     }
 
@@ -1850,6 +1983,13 @@ struct GpsSimHomeView: View {
                     guard let id else { return }
                     withAnimation { reader.scrollTo(id) }
                 }
+                // A newly saved place can sit below the cut-off: scroll it into view (it also flashes).
+                .onChange(of: flashFreshID) { _, id in
+                    guard let id else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        withAnimation { reader.scrollTo(id, anchor: .center) }
+                    }
+                }
             }
         }
         .frame(height: placesCardHeight)
@@ -1942,6 +2082,11 @@ struct GpsSimHomeView: View {
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(failedPlaceID == p.id && !active ? GpsTheme.sub : Color.clear,
                         style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(GpsTheme.mint, lineWidth: 3)
+                .opacity(flashFreshID == p.id ? 1 : 0))
+            .scaleEffect(flashFreshID == p.id ? 1.04 : 1)
+            .animation(.easeInOut(duration: 0.3), value: flashFreshID)
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -1987,6 +2132,7 @@ struct GpsSimHomeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
+            ScrollViewReader { manageReader in
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(store.sorted) { p in
@@ -2014,9 +2160,16 @@ struct GpsSimHomeView: View {
                         .accessibilityLabel(p.isHidden ? "\(p.name)，已隱藏" : p.name)
                         .accessibilityHint("開啟編輯")
                         .accessibilityIdentifier("place.edit.\(p.id)")
+                        .id(p.id)
                         Rectangle().fill(GpsTheme.line).frame(height: 1).padding(.leading, 16)
                     }
                 }
+            }
+            // Order stays as the person arranged it; the list just opens scrolled to the newest save.
+            .onAppear {
+                guard let id = lastSavedPlaceID, store.sorted.contains(where: { $0.id == id }) else { return }
+                DispatchQueue.main.async { manageReader.scrollTo(id, anchor: .center) }
+            }
             }
             .frame(maxHeight: 300)
             .fixedSize(horizontal: false, vertical: true)
@@ -2173,13 +2326,27 @@ struct GpsSimHomeView: View {
         guard draft?.nameEdited == false else { return }
         geocoder.cancelGeocode()
         geocoder.reverseGeocodeLocation(CLLocation(latitude: c.latitude, longitude: c.longitude),
-                                        preferredLocale: Locale(identifier: "zh_Hant_TW")) { marks, _ in
-            guard let m = marks?.first else { return }
-            let candidates = [m.areasOfInterest?.first, m.name, m.thoroughfare, m.locality]
-            guard let name = candidates.compactMap({ $0 }).first(where: { !$0.isEmpty }) else { return }
+                                        preferredLocale: Locale(identifier: "zh_Hant_TW")) { marks, error in
+            // Cancelled because a newer lookup started (second draft, map moved): that one answers instead.
+            if let cl = error as? CLError, cl.code == .geocodeCanceled { return }
+            let first = marks?.first
+            let candidates = [first?.areasOfInterest?.first, first?.name, first?.thoroughfare, first?.locality]
+            let found = candidates.compactMap({ $0 }).first(where: { !$0.isEmpty })
             DispatchQueue.main.async {
                 guard var d = draft, !d.nameEdited else { return }
-                d.name = name
+                // A pinned draft must still be at the looked-up point, or an older answer would name a
+                // newer draft. (A center-following draft keeps its first coordinate, so it is not compared.)
+                if !d.followsCenter {
+                    guard abs(d.coordinate.latitude - c.latitude) < 1e-9,
+                          abs(d.coordinate.longitude - c.longitude) < 1e-9 else { return }
+                }
+                if let found {
+                    d.name = found
+                } else if d.name == defaultDraftName, !d.followsCenter {
+                    // Lookup failed or found no name (it has no timeout of its own): a pasted coordinate
+                    // keeps its coordinate text as the name.
+                    d.name = String(format: "%.5f, %.5f", c.latitude, c.longitude)
+                } else { return }
                 draft = d
             }
         }
@@ -2194,6 +2361,11 @@ struct GpsSimHomeView: View {
                              lat: point.latitude, lon: point.longitude, radius: d.size.meters)
         store.upsert(place)
         draft = nil
+        lastSavedPlaceID = place.id
+        flashFreshID = place.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            if flashFreshID == place.id { flashFreshID = nil }
+        }
         guard canSend else {
             showToast("已存「\(place.name)」", autoClear: true)
             return

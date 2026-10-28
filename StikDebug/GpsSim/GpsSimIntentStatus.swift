@@ -27,7 +27,7 @@ enum GpsIntentOutcome: String, AppEnum {
 }
 
 struct GpsSimStatusEntity: TransientAppEntity {
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "PinFly狀態"
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "PinFly 狀態"
 
     @Property(title: "結果")
     var outcome: GpsIntentOutcome

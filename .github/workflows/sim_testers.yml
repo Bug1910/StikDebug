@@ -33,10 +33,39 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 50  # enough history to date most files by their last commit
 
-      - uses: maxim-lobanov/setup-xcode@v1
+      # git checkout stamps every file "now", so Xcode thinks all sources changed and the cached DerivedData is useless.
+      # One pass over history: give each file the time of the last commit that touched it (no third-party action; BSD touch on macOS, hence touch -t).
+      # Files older than the fetched window get a fixed old time, which is stable between runs.
+      - name: Restore file mtimes (so cached DerivedData stays valid)
+        run: |
+          git -c core.quotepath=false ls-files -z | xargs -0 touch -t 200109090146.40
+          git -c core.quotepath=false log --format='@%ct' --name-only --no-renames | awk '
+            /^@/ { t = substr($0, 2); next }
+            NF && !($0 in seen) { seen[$0] = 1; print t "	" $0 }
+          ' | while IFS=$'	' read -r t p; do
+            [ -e "$p" ] && touch -t "$(date -r "$t" +%Y%m%d%H%M.%S)" -- "$p"
+          done
+
+      - name: Runner image id (part of the cache key)
+        id: img
+        run: echo "id=${ImageOS:-na}-${ImageVersion:-na}" >> "$GITHUB_OUTPUT"
+
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: '26.6'
+
+      # Cache DerivedData (objects, ModuleCache, SwiftPM checkouts). Bust it by bumping the v1 in the key.
+      # Shared by sim_testers.yml and sim_screens.yml (same build command). Contains no secrets; only compiler output.
+      - name: Cache DerivedData (build/)
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: simdd-v1-${{ runner.os }}-${{ steps.img.outputs.id }}-xcode26.6-${{ hashFiles('StikDebug.xcodeproj/project.pbxproj', '**/Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            simdd-v1-${{ runner.os }}-${{ steps.img.outputs.id }}-xcode26.6-${{ hashFiles('StikDebug.xcodeproj/project.pbxproj', '**/Package.resolved') }}-
 
       - name: Stamp build (short sha and date) shown in 設定 as 版本 v<x.y.z>（sha · date）
         run: plutil -insert GpsSimBuild -string "${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
@@ -58,7 +87,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_OPTIMIZATION_LEVEL="-Onone" \
-            IPHONEOS_DEPLOYMENT_TARGET=17.4
+            IPHONEOS_DEPLOYMENT_TARGET=17.4 \
+            COMPILER_INDEX_STORE_ENABLE=NO
           test -d build/Build/Products/Debug-iphonesimulator/StikDebug.app
           cd build/Build/Products/Debug-iphonesimulator
           zip -qr "$GITHUB_WORKSPACE/sim-app.zip" StikDebug.app
@@ -104,14 +134,22 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: '26.6'
       - uses: actions/download-artifact@v7
         with:
           name: sim-app-zip-internal
       - run: unzip -q sim-app.zip
+      - name: Cache Homebrew downloads (AXe)
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-axe-v1-${{ runner.os }}-${{ runner.arch }}
       - name: Install AXe (tap/type/swipe by accessibility label; https://github.com/cameroncooke/AXe)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: brew install cameroncooke/axe/axe
       - name: Play scenario
         run: python3 ci/run_scenario.py ${{ matrix.scenario }} "${{ matrix.devices }}" StikDebug.app out

@@ -23,7 +23,7 @@ final class GpsSimNetwork: ObservableObject {
 
     nonisolated static let noWifiTitle = "沒有連上 Wi-Fi"
     /// The 4G route the owner confirmed on his phone 2026-10-15 (the fake point stays after airplane mode is off).
-    nonisolated static let fourGSteps = "只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回PinFly點地點 → 關飛航（假定位會保留）。或用捷徑一鍵完成。"
+    nonisolated static let fourGSteps = "只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回 PinFly 點地點 → 關飛航（假定位會保留）。或用捷徑一鍵完成。"
     /// The same route as numbered steps for the banner (each short enough for an iPhone SE column).
     nonisolated static let fourGStepList = ["開 LocalDevVPN", "開飛航模式", "開 Wi-Fi", "回來點地點", "關飛航模式"]
     /// The owner's own shortcut that runs the route above (built and tested by him 2026-10-15).
@@ -113,7 +113,7 @@ struct GpsSimIssue: Equatable {
     static func from(code: Int32) -> GpsSimIssue {
         switch code {
         case 1:
-            return GpsSimIssue(kind: .other, message: "目標 IP 設定錯誤（\(DeviceConnectionContext.targetIPAddress)）。請到「進階 (StikDebug)」→ Settings 改回 10.7.0.1。")
+            return GpsSimIssue(kind: .other, message: "目標 IP 設定錯誤（\(DeviceConnectionContext.targetIPAddress)）。請到「設定 › 進階：原始除錯工具」→ Settings 改回 10.7.0.1。")
         case 2:
             return GpsSimIssue(kind: .pairing, message: "配對檔讀不到或已失效。請在電腦上用 iloader 重新放配對檔。")
         case 3, 9:

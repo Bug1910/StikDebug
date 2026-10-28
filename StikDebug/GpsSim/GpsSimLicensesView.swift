@@ -18,7 +18,7 @@ struct GpsSimLicensesView: View {
 
     static let items: [Item] = [
         Item(name: "StikDebug", license: "AGPL-3.0", url: "https://github.com/StikDebug/StikDebug",
-             note: "PinFly是從它修改來的。"),
+             note: "PinFly 是從它修改來的。"),
         Item(name: "SideSign (commit 752d1ef)", license: "GPL-3.0", url: "https://github.com/SideStore/SideSign",
              note: "登入 Apple ID、下載描述檔（續簽用）。"),
         Item(name: "AnisetteKit (db8b410)", license: "AGPL-3.0", url: "https://github.com/mahee96/AnisetteKit",
@@ -53,7 +53,7 @@ struct GpsSimLicensesView: View {
                     .padding(.vertical, 4)
                 }
             } footer: {
-                Text("這個版本含上列開源元件，原始碼可在各連結取得。PinFly本身依 AGPL-3.0 釋出。")
+                Text("這個版本含上列開源元件，原始碼可在各連結取得。PinFly 本身依 AGPL-3.0 釋出。")
             }
         }
         .navigationTitle("開源授權")

@@ -108,7 +108,7 @@ private enum GpsSimIntentRunner {
 // MARK: - Intents
 
 struct ConnectIntent: AppIntent {
-    static var title: LocalizedStringResource = "PinFly連線"
+    static var title: LocalizedStringResource = "PinFly 連線"
     // Kept (an old Shortcut may still use it; Shortcuts finds actions by type name) but off App Shortcuts.
     static var description = IntentDescription("舊版用的步驟，現在「定位到地點」會自己連線，可以刪掉這一步。")
     static var openAppWhenRun: Bool = false
@@ -144,7 +144,7 @@ struct SendToPlaceIntent: AppIntent {
             engine.send(to: landing, name: saved.name, center: saved.coordinate, placeID: saved.id, completion: done)
         }
         guard code == 0 else {
-            let reason = code == GpsSimEngine.busyCode ? "PinFly正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
+            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
             let message = "定位失敗：\(reason)"
             return .result(value: await GpsSimIntentStatus.make(.failed, reason: message), dialog: "\(message)")
         }
@@ -177,7 +177,7 @@ struct StopSimulationIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
         let code = await GpsSimIntentRunner.retryingLink { done in GpsSimEngine.shared.stop(completion: done) }
         guard code == 0 else {
-            let reason = code == GpsSimEngine.busyCode ? "PinFly正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
+            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
             // Throw (not just a dialog) so Shortcuts marks the step failed instead of looking fine.
             throw GpsSimStopError.failed(reason)
         }
@@ -210,7 +210,7 @@ struct PeekRealLocationIntent: AppIntent {
         if wasActive != nil || stale != nil {
             let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in engine.stop(full: false, completion: done) }
             guard code == 0 else {
-                let reason = code == GpsSimEngine.busyCode ? "PinFly正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
+                let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
                 return .result(value: nil, dialog: "沒辦法暫停模擬：\(reason)")
             }
         }
@@ -233,7 +233,7 @@ struct PeekRealLocationIntent: AppIntent {
         }
         let back = (wasActive ?? stale?.name).map { resumed ? "，已定位回「\($0)」" : "，但沒能定位回「\($0)」，請再送一次" } ?? ""
         guard let fix else {
-            let why = GpsRealFix.authorized ? "\(Int(gpsWait.rounded())) 秒內抓不到 GPS（室內可能比較久）" : "PinFly沒有定位權限，請到「設定 › PinFly › 位置」打開"
+            let why = GpsRealFix.authorized ? "\(Int(gpsWait.rounded())) 秒內抓不到 GPS（室內可能比較久）" : "PinFly 沒有定位權限，請到「設定 › PinFly › 位置」打開"
             return .result(value: nil, dialog: "\(why)\(back)")
         }
         let placemark = try? await CLGeocoder().reverseGeocodeLocation(fix).first

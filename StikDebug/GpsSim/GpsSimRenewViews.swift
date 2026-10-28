@@ -308,7 +308,7 @@ struct GpsSignSection: View {
         } header: {
             Text("簽名")
         } footer: {
-            Text("免費 Apple ID 簽的 App 每 7 天到期，到期後\(GpsRenewCopy.appName)會打不開。續簽只換新的 7 天簽名，地點不會不見。")
+            Text("免費 Apple ID 簽的 App 每 7 天到期，到期後 \(GpsRenewCopy.appName) 會打不開。續簽只換新的 7 天簽名，地點不會不見。")
         }
     }
 
@@ -482,7 +482,7 @@ struct GpsRenewAccountPage: View {
             } header: {
                 Text("續簽")
             } footer: {
-                Text("打開\(GpsRenewCopy.appName)時，如果簽名剩不到 3 天，會自動續簽（每 6 小時最多試一次）。如果 Apple 暫時不讓登入，會等 6 小時再試，不影響你的帳號。")
+                Text("打開 \(GpsRenewCopy.appName) 時，如果簽名剩不到 3 天，會自動續簽（每 6 小時最多試一次）。如果 Apple 暫時不讓登入，會等 6 小時再試，不影響你的帳號。")
             }
             .id(renew.signTick)
 
@@ -554,7 +554,7 @@ struct GpsRenewAccountPage: View {
     }
 
     private var signOutMessage: String {
-        var text = "登出後要重新輸入密碼和驗證碼。Apple 最近常擋這類登入，可能好幾天登不回來；登不回來的話，簽名到期後\(GpsRenewCopy.appName)就打不開。"
+        var text = "登出後要重新輸入密碼和驗證碼。Apple 最近常擋這類登入，可能好幾天登不回來；登不回來的話，簽名到期後 \(GpsRenewCopy.appName) 就打不開。"
         if let expiry = GpsSigning.expiration {
             text += "現在的簽名不受影響，到 \(GpsRenewCopy.dateTime(expiry)) 前照常能用。"
         }
@@ -631,7 +631,7 @@ struct GpsRenewAdvancedPage: View {
                         runProfileImport(result)
                     }
                 }
-                Button("清掉過期的舊描述檔（只清\(GpsRenewCopy.appName)自己的）") { runProfileCleanup() }
+                Button("清掉過期的舊描述檔（只清 \(GpsRenewCopy.appName) 自己的）") { runProfileCleanup() }
                     .disabled(profileBusy)
                     .frame(minHeight: 44)
                 if let profileMessage {
@@ -824,12 +824,12 @@ struct GpsRenewSignInSheet: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("為什麼要登入").font(.headline).foregroundStyle(.white)
-            Text("免費 Apple ID 簽的 App 只能用 7 天。登入一次之後，\(GpsRenewCopy.appName)可以自己換新的 7 天簽名，不用接電腦。")
+            Text("免費 Apple ID 簽的 App 只能用 7 天。登入一次之後，\(GpsRenewCopy.appName) 可以自己換新的 7 天簽名，不用接電腦。")
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 8) {
                 bullet("Apple ID 和密碼只存在這支手機的鑰匙圈（Keychain），只送給 Apple。")
-                bullet("用你裝\(GpsRenewCopy.appName)時用的同一個 Apple ID。")
+                bullet("用你裝 \(GpsRenewCopy.appName) 時用的同一個 Apple ID。")
             }
             Button("下一步") {
                 stage = .credentials
@@ -869,7 +869,7 @@ struct GpsRenewSignInSheet: View {
                 .onSubmit { focus = .password }
                 .fieldStyle()
                 .accessibilityIdentifier("signIn.appleID")
-            Text("要用裝\(GpsRenewCopy.appName)時用的那個 Apple ID；別人幫你裝的請問他。")
+            Text("要用裝 \(GpsRenewCopy.appName) 時用的那個 Apple ID；別人幫你裝的請問他。")
                 .font(.footnote)
                 .foregroundStyle(GpsTheme.sub)
                 .fixedSize(horizontal: false, vertical: true)

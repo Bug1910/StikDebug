@@ -231,7 +231,7 @@ struct RenewFailureText {
             primary = .signInAgain
         case .loginBlocked:
             title = "Apple 暫時擋下登入"
-            let until = expiry.map { "簽名到 \(GpsRenewCopy.dateTime($0)) 前\(app)照常能用；" } ?? ""
+            let until = expiry.map { "簽名到 \(GpsRenewCopy.dateTime($0)) 前 \(app) 照常能用；" } ?? ""
             detail = "不是密碼錯。連續重試可能被擋更久，請隔 1 小時再試。\(until)急的話可以接電腦按「\(GpsRenewCopy.pcRenewName)」。"
             primary = .acknowledge
         case .wrongPassword:
@@ -258,7 +258,7 @@ struct RenewFailureText {
             primary = .acknowledge
         case .deviceNotRegistered:
             title = "這支手機還沒登記到 Apple 帳號"
-            detail = "請接電腦用 iloader 裝一次\(app)，手機就會登記。" + keep
+            detail = "請接電腦用 iloader 裝一次 \(app)，手機就會登記。" + keep
             primary = .acknowledge
         case .other(let code):
             title = "沒續簽成功"
@@ -267,7 +267,7 @@ struct RenewFailureText {
             primary = .retry
         case .notSignedIn:
             title = "還沒登入 Apple"
-            detail = "登入一次之後，\(app)可以自己續簽。" + keep
+            detail = "登入一次之後，\(app) 可以自己續簽。" + keep
             primary = .signInAndRenew
         case .anisetteUnavailable:
             title = "驗證伺服器回了錯誤"
@@ -282,17 +282,17 @@ struct RenewFailureText {
             detail = "先完成或取消目前的登入，再按一次。" + keep
             primary = .acknowledge
         case .accountMismatch:
-            title = "這個 Apple ID 不是簽\(app)的帳號"
-            detail = "請用當初裝\(app)時的 Apple ID 登入。什麼都沒有改動。" + keep
+            title = "這個 Apple ID 不是簽 \(app) 的帳號"
+            detail = "請用當初裝 \(app) 時的 Apple ID 登入。什麼都沒有改動。" + keep
             primary = .signInAgain
         case .needsComputer(let code):
             title = "這支手機沒辦法自己續簽"
-            detail = "為了不把\(app)弄壞，已停止，什麼都沒裝。請接電腦按「\(GpsRenewCopy.pcRenewName)」。" + keep
+            detail = "為了不把 \(app) 弄壞，已停止，什麼都沒裝。請接電腦按「\(GpsRenewCopy.pcRenewName)」。" + keep
             codeLine = "錯誤代碼：\(code)（給 Claude 看用）"
             primary = .acknowledge
         case .keychain:
             title = "登入成功，但存不了登入資料"
-            detail = "這支手機不讓\(app)把登入資料存進鑰匙圈（Keychain）。請重新安裝\(app)後再試。" + keep
+            detail = "這支手機不讓 \(app) 把登入資料存進鑰匙圈（Keychain）。請重新安裝 \(app) 後再試。" + keep
             codeLine = "錯誤代碼：keychain（給 Claude 看用）"
             primary = .acknowledge
         case .notNeeded:
@@ -876,8 +876,8 @@ enum GpsRenewReminders {
             for (id, hours) in zip(ids, hoursBefore) {
                 guard let fire = fireDate(expiry: expiry, hoursBefore: hours), fire > now else { continue }
                 let content = UNMutableNotificationContent()
-                content.title = "\(GpsRenewCopy.appName)簽名\(leftText(from: fire, to: expiry))"
-                content.body = "到期後\(GpsRenewCopy.appName)會打不開。點這裡打開\(GpsRenewCopy.appName)，按「立即續簽」。"
+                content.title = "\(GpsRenewCopy.appName) 簽名\(leftText(from: fire, to: expiry))"
+                content.body = "到期後 \(GpsRenewCopy.appName) 會打不開。點這裡打開 \(GpsRenewCopy.appName)，按「立即續簽」。"
                 content.sound = .default
                 // Seconds from now, not a wall-clock date: a calendar trigger would fire at the wrong
                 // moment after the phone changes time zone (travel), while the expiry is an absolute time.

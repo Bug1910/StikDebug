@@ -282,25 +282,25 @@ struct StikDebugShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: RenewNowIntent(),
             phrases: ["用\(.applicationName)續簽", "\(.applicationName)續簽"],
-            shortTitle: "續簽PinFly",
+            shortTitle: "續簽 PinFly",
             systemImageName: "signature"
         )
         AppShortcut(
             intent: RenewSigningIntent(),
             phrases: ["\(.applicationName)快到期才續簽", "用\(.applicationName)快到期才續簽"],
-            shortTitle: "剩幾天內才續簽PinFly",
+            shortTitle: "剩幾天內才續簽 PinFly",
             systemImageName: "calendar.badge.clock"
         )
         AppShortcut(
             intent: DownloadProfileIntent(),
             phrases: ["用\(.applicationName)下載描述檔", "\(.applicationName)下載描述檔"],
-            shortTitle: "下載PinFly描述檔",
+            shortTitle: "下載 PinFly 描述檔",
             systemImageName: "arrow.down.circle"
         )
         AppShortcut(
             intent: InstallProfileIntent(),
             phrases: ["用\(.applicationName)安裝描述檔", "\(.applicationName)安裝描述檔"],
-            shortTitle: "安裝PinFly描述檔",
+            shortTitle: "安裝 PinFly 描述檔",
             systemImageName: "square.and.arrow.down"
         )
         AppShortcut(

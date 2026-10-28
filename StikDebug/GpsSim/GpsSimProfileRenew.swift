@@ -96,7 +96,7 @@ enum GpsProfileRenew {
         }
         guard new.team == current.team else { throw Failure(message: "描述檔的開發者隊伍和目前的簽名不同，已拒絕。") }
         guard new.appID == "\(current.team).\(bundleID)" else {
-            throw Failure(message: "描述檔不是給PinFly的（App 識別碼不符），已拒絕。")
+            throw Failure(message: "描述檔不是給 PinFly 的（App 識別碼不符），已拒絕。")
         }
         guard new.expiration > now else { throw Failure(message: "這個描述檔已經過期了。") }
         guard new.expiration > current.expiration else {
@@ -296,7 +296,7 @@ enum GpsProfileRenew {
 
 struct ImportProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "匯入描述檔"
-    static var description = IntentDescription("把新的描述檔（.mobileprovision）裝到手機，不用重裝PinFly。需要 Wi-Fi 且 LocalDevVPN 已連線；檢查有任何一項不過就什麼都不做。")
+    static var description = IntentDescription("把新的描述檔（.mobileprovision）裝到手機，不用重裝 PinFly。需要 Wi-Fi 且 LocalDevVPN 已連線；檢查有任何一項不過就什麼都不做。")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "描述檔")

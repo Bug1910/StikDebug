@@ -29,14 +29,23 @@ jobs:
         run: plutil -insert GpsSimBuild -string "${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
 
       - name: 2. Configure Xcode Environment
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: '26.6'
+
+      # Only SwiftPM checkouts are cached here (archive keeps clean, so the product is always built fresh).
+      # Bust by bumping v1 in the key.
+      - name: Cache SwiftPM checkouts
+        uses: actions/cache@v4
+        with:
+          path: SourcePackages
+          key: spm-v1-xcode26.6-${{ hashFiles('**/Package.resolved') }}
 
       - name: 3. Compile Project Archive
         run: |
           xcodebuild clean archive \
             -project StikDebug.xcodeproj \
+            -clonedSourcePackagesDirPath SourcePackages \
             -scheme "StikDebug" \
             -configuration Debug \
             -archivePath build/StikDebug.xcarchive \
@@ -78,6 +87,7 @@ jobs:
         run: |
           xcodebuild archive \
             -project StikDebug.xcodeproj \
+            -clonedSourcePackagesDirPath SourcePackages \
             -scheme "StikDebug" \
             -configuration Release \
             -archivePath build/StikDebugRelease.xcarchive \
