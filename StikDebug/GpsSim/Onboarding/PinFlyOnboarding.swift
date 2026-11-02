@@ -102,7 +102,11 @@ enum PinFlyOnboardingJump {
 final class PinFlyOnboardingPresenter: ObservableObject {
     static let shared = PinFlyOnboardingPresenter()
     @Published var isPresented = false
-    func show() { isPresented = true }
+    func show() {
+        // Reset first: a request swallowed by another open sheet leaves isPresented stuck at true.
+        isPresented = false
+        DispatchQueue.main.async { self.isPresented = true }
+    }
 }
 
 // MARK: - Host modifier (the single hook in GpsSimHomeView)
@@ -143,18 +147,21 @@ private struct PinFlyOnboardingHost: ViewModifier {
                 }
                 // Marked as seen only once the guide is really on screen; closing it never makes it nag again.
                 .onAppear { shownOnce = true }
+                .interactiveDismissDisabled()
                 .preferredColorScheme(.dark)
             }
             .task {
-                guard !shownOnce, autoShowAllowed else { return }
-                // A sheet that is already open swallows the request silently, so retry until the guide really appeared.
-                for _ in 0..<20 {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    if shownOnce { break }
-                    presenter.show()
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    if !shownOnce { presenter.isPresented = false }
-                }
+                // Read UserDefaults directly: a copied @AppStorage inside this closure can go stale.
+                let key = "pinfly.onboarding.done"
+                guard !UserDefaults.standard.bool(forKey: key), autoShowAllowed else { return }
+                // Wait for the home screen to settle, then show once. Never force-dismiss: on a busy main thread
+                // the sheet's onAppear can be late, and the old 1-second "not seen yet -> dismiss" retry loop
+                // closed the guide a few seconds after it opened (looked like a crash).
+                do { try await Task.sleep(nanoseconds: 3_000_000_000) } catch { return }
+                guard !UserDefaults.standard.bool(forKey: key) else { return }
+                // Not marked seen here: if another sheet is open this request is swallowed, and the
+                // sheet's own onAppear (above) marks it only when the guide really appeared.
+                presenter.show()
             }
     }
 }
@@ -173,6 +180,7 @@ struct PinFlyOnboardingView: View {
     let onJump: (PinFlyOnboardingJump) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmLater = false
     @Environment(\.openURL) private var openURL
     @ObservedObject private var network = GpsSimNetwork.shared
     @ObservedObject private var tunnel = TunnelManager.shared
@@ -212,10 +220,16 @@ struct PinFlyOnboardingView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("關閉") { dismiss() }
+                    Button("稍後") { confirmLater = true }
                         .accessibilityIdentifier("onboarding.close")
                 }
             }
+        }
+        .alert("稍後再看？", isPresented: $confirmLater) {
+            Button("繼續引導", role: .cancel) {}
+            Button("稍後") { dismiss() }
+        } message: {
+            Text("之後可在「設定 › 使用引導」重新開啟。")
         }
         .onReceive(recheck) { _ in pairingPresent = GpsSimEngine.pairingExists }
         .onReceive(NotificationCenter.default.publisher(for: .pairingFileImported)) { _ in
