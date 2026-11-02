@@ -61,7 +61,7 @@ struct GpsSimDailyRenewGuideView: View {
             } header: {
                 Text("在「捷徑」App 建一個自動化（約 2 分鐘）")
             } footer: {
-                Text("鬧鐘觸發最穩（10/22 實測）。手機鎖著時 iOS 可能不讓動作跑完，失敗時會收到通知，打開 PinFly 按「立即續簽」即可。")
+                Text("建議以鬧鐘觸發。手機鎖定時可能執行失敗，屆時會收到通知，請開啟 PinFly 按「立即續簽」。")
             }
             Section {
                 Button("打開「捷徑」App") {

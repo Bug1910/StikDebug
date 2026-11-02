@@ -169,7 +169,7 @@ struct GpsRenewProgressView: View {
                         row(s, current: step, durations: durations)
                     }
                     if step == .anisette, context.date.timeIntervalSince(stepStart) > 10 {
-                        Text("驗證伺服器比較慢，最多等 30 秒。")
+                        Text("驗證伺服器回應較慢。每台伺服器等候 6 秒，含自動重試最多約 42 秒。")
                             .font(.footnote)
                             .foregroundStyle(GpsTheme.sub)
                             .fixedSize(horizontal: false, vertical: true)
@@ -510,7 +510,7 @@ struct GpsRenewAccountPage: View {
                 NavigationLink {
                     GpsRenewAdvancedPage()
                 } label: {
-                    Text("進階（一般不用改）").frame(minHeight: 44)
+                    Text("進階").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("renew.advanced")
             }
@@ -562,7 +562,7 @@ struct GpsRenewAccountPage: View {
     }
 }
 
-// MARK: - 「進階（一般不用改）」 page (spec 1.11)
+// MARK: - 「進階」 page (spec 1.11)
 
 struct GpsRenewAdvancedPage: View {
     @ObservedObject private var renew = GpsRenewCenter.shared
@@ -612,7 +612,7 @@ struct GpsRenewAdvancedPage: View {
             } header: {
                 Text("驗證伺服器（anisette）")
             } footer: {
-                Text("驗證伺服器只負責產生「這台像 Mac」的驗證資料，不會收到 Apple ID 或密碼。超過 16 秒沒回應，續簽幾乎都會失敗。")
+                Text("驗證伺服器只負責產生「這台像 Mac」的驗證資料，不會收到 Apple ID 或密碼。每台伺服器等候 6 秒，主伺服器未回應時改用備用伺服器。")
             }
 
             Section {
@@ -657,7 +657,7 @@ struct GpsRenewAdvancedPage: View {
                 Text("只在 Apple 一直要求重新驗證時才用。重設後要重新登入一次。")
             }
         }
-        .navigationTitle("進階（一般不用改）")
+        .navigationTitle("進階")
         .navigationBarTitleDisplayMode(.inline)
         .alert("重設驗證資料？", isPresented: $confirmReset) {
             Button("取消", role: .cancel) {}
@@ -869,7 +869,7 @@ struct GpsRenewSignInSheet: View {
                 .onSubmit { focus = .password }
                 .fieldStyle()
                 .accessibilityIdentifier("signIn.appleID")
-            Text("要用裝 \(GpsRenewCopy.appName) 時用的那個 Apple ID；別人幫你裝的請問他。")
+            Text("請使用安裝 \(GpsRenewCopy.appName) 時的 Apple ID。")
                 .font(.footnote)
                 .foregroundStyle(GpsTheme.sub)
                 .fixedSize(horizontal: false, vertical: true)
@@ -920,7 +920,7 @@ struct GpsRenewSignInSheet: View {
                     .font(.subheadline)
                 }
                 if current == .anisette, context.date.timeIntervalSince(busyStart) > 10 {
-                    Text("驗證伺服器比較慢，最多等 30 秒。").font(.footnote).foregroundStyle(GpsTheme.sub)
+                    Text("驗證伺服器回應較慢，請稍候。").font(.footnote).foregroundStyle(GpsTheme.sub)
                 }
             }
         }

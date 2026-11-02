@@ -61,7 +61,7 @@ struct MainTabView: View {
             Color.clear.ignoresSafeArea()
 
             // GpsSim fork: the app opens straight into the GpsSim screen. The stock tab bar
-            // lives on as GpsSimAdvancedView (設定 → 進階 (StikDebug)); the stikdebug:// location
+            // lives on as GpsSimAdvancedView (設定 → 進階 → 除錯工具); the stikdebug:// location
             // handlers below stay attached here so external links keep working.
             GpsSimRootView()
             .onAppear {

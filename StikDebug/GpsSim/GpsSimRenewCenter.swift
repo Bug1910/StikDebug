@@ -158,8 +158,8 @@ extension RenewAnisetteServer {
 enum GpsRenewCopy {
     /// One place to switch the app name used in renewal wording (the app is being renamed).
     static let appName = "PinFly"
-    /// The PC desktop shortcut that renews over USB.
-    static let pcRenewName = "定位儀續簽"
+    /// Fallback advice when the phone cannot renew by itself (no author-specific tool names).
+    static var pcReinstall: String { "請用電腦重新安裝 \(appName)。" }
 
     static func dateTime(_ d: Date) -> String { format(d, "M/d HH:mm") }
     static func time(_ d: Date) -> String { format(d, "HH:mm") }
@@ -172,7 +172,7 @@ enum GpsRenewCopy {
         return f.string(from: d)
     }
 
-    /// 「lol•••@gmail.com」: first 3 characters, dots, domain (safe in screenshots).
+    /// 「ab•••@gmail.com」: first 3 characters, dots, domain (safe in screenshots).
     static func masked(_ appleID: String) -> String {
         let parts = appleID.split(separator: "@", maxSplits: 1).map(String.init)
         // An empty string splits into no parts: indexing parts[0] trapped (crashed the account page).
@@ -208,7 +208,7 @@ enum RenewAction: Equatable {
 struct RenewFailureText {
     let title: String
     let detail: String
-    /// 「錯誤代碼：N（給 Claude 看用）」, last line in small grey text.
+    /// 「錯誤代碼：N」, last line in small grey text.
     var codeLine: String?
     let primary: RenewAction
     var secondary: RenewAction?
@@ -232,7 +232,7 @@ struct RenewFailureText {
         case .loginBlocked:
             title = "Apple 暫時擋下登入"
             let until = expiry.map { "簽名到 \(GpsRenewCopy.dateTime($0)) 前 \(app) 照常能用；" } ?? ""
-            detail = "不是密碼錯。連續重試可能被擋更久，請隔 1 小時再試。\(until)急的話可以接電腦按「\(GpsRenewCopy.pcRenewName)」。"
+            detail = "不是密碼錯。連續重試可能被擋更久，請隔 1 小時再試。\(until)急用時\(GpsRenewCopy.pcReinstall)"
             primary = .acknowledge
         case .wrongPassword:
             title = "Apple ID 或密碼不對"
@@ -258,12 +258,12 @@ struct RenewFailureText {
             primary = .acknowledge
         case .deviceNotRegistered:
             title = "這支手機還沒登記到 Apple 帳號"
-            detail = "請接電腦用 iloader 裝一次 \(app)，手機就會登記。" + keep
+            detail = "請依安裝教學以電腦安裝一次 \(app)，手機即會登記。" + keep
             primary = .acknowledge
         case .other(let code):
             title = "沒續簽成功"
             detail = keep
-            codeLine = "錯誤代碼：\(code)（給 Claude 看用）"
+            codeLine = "錯誤代碼：\(code)"
             primary = .retry
         case .notSignedIn:
             title = "還沒登入 Apple"
@@ -287,13 +287,13 @@ struct RenewFailureText {
             primary = .signInAgain
         case .needsComputer(let code):
             title = "這支手機沒辦法自己續簽"
-            detail = "為了不把 \(app) 弄壞，已停止，什麼都沒裝。請接電腦按「\(GpsRenewCopy.pcRenewName)」。" + keep
-            codeLine = "錯誤代碼：\(code)（給 Claude 看用）"
+            detail = "為了不把 \(app) 弄壞，已停止，未安裝任何檔案。\(GpsRenewCopy.pcReinstall)" + keep
+            codeLine = "錯誤代碼：\(code)"
             primary = .acknowledge
         case .keychain:
             title = "登入成功，但存不了登入資料"
             detail = "這支手機不讓 \(app) 把登入資料存進鑰匙圈（Keychain）。請重新安裝 \(app) 後再試。" + keep
-            codeLine = "錯誤代碼：keychain（給 Claude 看用）"
+            codeLine = "錯誤代碼：keychain"
             primary = .acknowledge
         case .notNeeded:
             title = "不用續簽"
@@ -301,7 +301,7 @@ struct RenewFailureText {
             primary = .acknowledge
         case .unavailable:
             title = "這個版本還不能在手機上續簽"
-            detail = "請打開 SideStore 按 Refresh All，或接電腦按「\(GpsRenewCopy.pcRenewName)」。" + keep
+            detail = "此版本無法在手機續簽，請用電腦重新安裝。" + keep
             primary = .acknowledge
         case .pendingUnusable:
             title = "下載的簽名不能用，已刪掉"
@@ -779,7 +779,7 @@ final class GpsDemoRenewService: RenewServicing {
     private var cycleIndex = 0
     private let cycle = ProcessInfo.processInfo.arguments.contains("-GpsSimRenewCycle")
     static let cycleFailures: [RenewFailure] = [
-        .anisetteTimeout(seconds: 17), .sessionExpired, .loginBlocked, .wrongPassword, .wrongCode,
+        .anisetteTimeout(seconds: 12), .sessionExpired, .loginBlocked, .wrongPassword, .wrongCode,
         .noNetwork, .installUnreachable, .appIDLimit(availableAgain: Date().addingTimeInterval(3 * 86_400)),
         .deviceNotRegistered, .other(code: "1100"),
     ]
@@ -791,7 +791,7 @@ final class GpsDemoRenewService: RenewServicing {
             RenewRecord(at: now.addingTimeInterval(-5.5 * 86_400), succeeded: true,
                         expiry: now.addingTimeInterval(1.5 * 86_400)),
             RenewRecord(at: now.addingTimeInterval(-5.9 * 86_400), succeeded: false,
-                        reason: "驗證伺服器太慢（16 秒）"),
+                        reason: "驗證伺服器太慢（12 秒）"),
         ]
     }
 

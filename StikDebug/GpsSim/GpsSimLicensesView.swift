@@ -17,7 +17,7 @@ struct GpsSimLicensesView: View {
     }
 
     /// PinFly's own Corresponding Source (AGPL-3.0 §6 / §13). The only place this URL is written.
-    /// TODO: confirm once the public repo exists (Bug1910/PinFly is private as of 2026-10-29).
+    /// TODO: confirm once the public repo exists.
     static let pinFlySourceURL = "https://github.com/Bug1910/PinFly"
 
     static let items: [Item] = [
@@ -55,7 +55,7 @@ struct GpsSimLicensesView: View {
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("本 App")
+                Text("PinFly")
             }
             Section {
                 ForEach(Self.items) { item in
@@ -73,7 +73,7 @@ struct GpsSimLicensesView: View {
                     .padding(.vertical, 4)
                 }
             } footer: {
-                Text("這個版本含上列開源元件，原始碼可在各連結取得。PinFly 本身依 AGPL-3.0 釋出。")
+                Text("本版本包含上列開源元件。PinFly 依 AGPL-3.0 授權釋出。")
             }
         }
         .navigationTitle("開源授權")

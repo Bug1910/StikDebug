@@ -113,9 +113,9 @@ struct GpsSimIssue: Equatable {
     static func from(code: Int32) -> GpsSimIssue {
         switch code {
         case 1:
-            return GpsSimIssue(kind: .other, message: "目標 IP 設定錯誤（\(DeviceConnectionContext.targetIPAddress)）。請到「設定 › 進階：原始除錯工具」→ Settings 改回 10.7.0.1。")
+            return GpsSimIssue(kind: .other, message: "目標 IP 錯誤，請按「改回預設」")
         case 2:
-            return GpsSimIssue(kind: .pairing, message: "配對檔讀不到或已失效。請在電腦上用 iloader 重新放配對檔。")
+            return GpsSimIssue(kind: .pairing, message: "配對檔讀不到或已失效。請依安裝教學以電腦產生配對檔。")
         case 3, 9:
             if !GpsSimNetwork.onWiFiNow {
                 return GpsSimIssue(kind: .tunnel, message: "\(GpsSimNetwork.noWifiMessage)（錯誤 \(code)）")
@@ -265,7 +265,7 @@ final class GpsSimEngine: ObservableObject {
         guard !isBusy else { completion?(Self.busyCode); return }
         let path = Self.pairingFilePath
         guard FileManager.default.fileExists(atPath: path) else {
-            issue = GpsSimIssue(kind: .pairing, message: "還沒有配對檔。請在電腦上用 iloader 放配對檔。")
+            issue = GpsSimIssue(kind: .pairing, message: "尚無配對檔。請依安裝教學以電腦產生配對檔。")
             completion?(2)
             return
         }

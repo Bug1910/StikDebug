@@ -525,6 +525,7 @@ struct GpsSimHomeView: View {
         .sheet(isPresented: $showRenewSignIn) {
             GpsRenewSignInSheet(origin: .renewAfter).preferredColorScheme(.dark)
         }
+        .pinFlyOnboarding(openSettings: { settingsTarget = $0; showSettings = true }, openSignIn: { showRenewSignIn = true })
         .fileImporter(isPresented: $showPlacesImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
             importPlaces(result)
         }
@@ -2092,7 +2093,7 @@ struct GpsSimHomeView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
-        .accessibilityHint("點一下就飛過去")
+        .accessibilityHint("點選以定位")
         .accessibilityIdentifier("place.row.\(p.id)")
         .accessibilityAction(named: "編輯") { editing = p }
         .accessibilityAction(named: "刪除") { deletePlace(p) }
@@ -2279,7 +2280,7 @@ struct GpsSimHomeView: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("不存，飛到這個圈內")
+                .accessibilityHint("僅定位")
                 .accessibilityIdentifier("draft.flyOnly")
                 Button {
                     saveDraft()
@@ -2488,7 +2489,7 @@ struct GpsSimHomeView: View {
     /// All buttons (立即續簽, 登入, progress, failure reasons) live in Settings now.
     private var signLineTitle: String {
         if renew.isRunning { return "續簽中…" }
-        if renew.failure != nil { return "沒續簽成功，點看原因" }
+        if renew.failure != nil { return "續簽失敗" }
         if renew.status.pendingInstall { return "新簽名已下載，等安裝" }
         guard let expiry = GpsSigning.expiration else { return "簽名快到期" }
         let state = GpsSignState(expiry: expiry, now: signNow)
@@ -2742,7 +2743,7 @@ struct GpsSimHomeView: View {
                     renew.renewNow()
                 }
             case "renewFailed":
-                renew.applyDemoFailure(.anisetteTimeout(seconds: 17))
+                renew.applyDemoFailure(.anisetteTimeout(seconds: 12))
             case "settingsSign", "settingsSignPending":
                 showSettings = true
             case "signIn":

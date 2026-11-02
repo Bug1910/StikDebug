@@ -1,0 +1,73 @@
+# 發佈免費公開自動更新來源：把某次建置的 IPA 掛到 GitHub Release，並重產 apps.json
+# 最終來源網址（在 SideStore／AltStore 加入此網址）：
+#   https://raw.githubusercontent.com/<owner>/<repo>/source/source/apps.json
+# apps.json 固定放在 `source` 分支的 source/apps.json（首次執行自動由目前 commit 建立）。
+name: Publish source
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "build_ipa.yml 的 run id（取其 release IPA artifact）"
+        required: true
+      version:
+        description: "版本號，例如 1.2.0（需與 IPA 內 CFBundleShortVersionString 相同）"
+        required: true
+      changelog:
+        description: "更新內容"
+        required: false
+        default: ""
+permissions:
+  contents: write
+  actions: read
+concurrency: publish-source
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ inputs.version }}
+      CHANGELOG: ${{ inputs.changelog }}
+      RUN_ID: ${{ inputs.run_id }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 檢查版號格式
+        run: |
+          echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || { echo "版號格式錯誤"; exit 1; }
+      - name: 下載建置產物（只取 PinFly 公開版 release IPA）
+        run: |
+          mkdir -p dl
+          gh run download "$RUN_ID" -R "$REPO" -D dl -p 'PinFly-com.pinfly.app-release-*'
+          COUNT=$(find dl -name '*.ipa' | wc -l)
+          test "$COUNT" -eq 1 || { echo "需剛好 1 個 IPA，找到 $COUNT"; exit 1; }
+          cp "$(find dl -name '*.ipa')" PinFly.ipa
+      - name: 建立 Release 並上傳 IPA（tag 已存在就失敗，不覆蓋）
+        run: |
+          TAG="source-$VERSION"
+          if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG 已存在，拒絕覆蓋"; exit 1
+          fi
+          gh release create "$TAG" PinFly.ipa -R "$REPO" --target "$GITHUB_SHA" \
+            --title "PinFly $VERSION" --notes "$CHANGELOG"
+      - name: 切到固定的 source 分支
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          mkdir -p /tmp/keep && cp -r tools /tmp/keep/tools
+          if git ls-remote --exit-code --heads origin source >/dev/null 2>&1; then
+            git fetch origin source && git checkout -f source
+          else
+            git checkout -b source
+          fi
+          rm -rf tools && cp -r /tmp/keep/tools tools
+      - name: 重產 apps.json（會驗 bundle id 與版本）
+        run: |
+          python3 tools/source/make_source.py --ipa PinFly.ipa \
+            --version "$VERSION" --changelog "$CHANGELOG" \
+            --download-url "https://github.com/$REPO/releases/download/source-$VERSION/PinFly.ipa" \
+            --icon-url "https://raw.githubusercontent.com/$REPO/$GITHUB_SHA/StikDebug/Assets.xcassets/PinFlyLogo.imageset/PinFlyLogo-1024.png"
+      - name: 提交 apps.json
+        run: |
+          git add source/apps.json
+          git commit -m "更新來源 $VERSION" || exit 0
+          git push origin source

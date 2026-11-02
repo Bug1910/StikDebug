@@ -74,7 +74,7 @@ enum RenewErrorTable {
             return Entry(code: "1100", title: "Apple 開發者服務回 1100",
                          advice: "10/22 紀錄：anisette 回應太慢時出現。已自動重試 1 次；還是不行就過幾分鐘再按。")
         case .anisetteTimeout:
-            return Entry(code: nil, title: "anisette 伺服器太慢（超過 6 秒）",
+            return Entry(code: nil, title: "驗證伺服器太慢（每台超過 6 秒）",
                          advice: "主伺服器和備用伺服器都沒及時回應，已自動重試 2 次。換個網路或稍後再試。")
         case .anisetteUnavailable:
             return Entry(code: nil, title: "連不上 anisette 伺服器",

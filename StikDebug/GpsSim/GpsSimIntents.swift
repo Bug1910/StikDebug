@@ -99,24 +99,30 @@ private enum GpsSimIntentRunner {
     }
 
     static func tunnelFailureMessage() -> String {
-        guard GpsSimEngine.pairingExists else { return "還沒有配對檔。請在電腦上用 iloader 放配對檔。" }
+        guard GpsSimEngine.pairingExists else { return "尚無配對檔。請依安裝教學以電腦產生配對檔。" }
         let reason = GpsSimNetwork.shared.onWiFi ? GpsSimNetwork.checkVPNMessage : GpsSimNetwork.noWifiMessage
         return "連不上手機的定位服務（等了 20 秒）。\(reason)"
+    }
+
+    /// Engine status code → Shortcuts dialog text. Code 1's app text points at the in-app 「改回預設」
+    /// banner button, which Shortcuts does not have, so the dialog sends the user into the app instead.
+    static func failureMessage(_ code: Int32) -> String {
+        code == 1 ? "目標 IP 錯誤，請開啟 PinFly 處理" : GpsSimIssue.from(code: code).message
     }
 }
 
 // MARK: - Intents
 
 struct ConnectIntent: AppIntent {
-    static var title: LocalizedStringResource = "PinFly 連線"
+    static var title: LocalizedStringResource = "建立連線"
     // Kept (an old Shortcut may still use it; Shortcuts finds actions by type name) but off App Shortcuts.
-    static var description = IntentDescription("舊版用的步驟，現在「定位到地點」會自己連線，可以刪掉這一步。")
+    static var description = IntentDescription("建立定位連線。「定位到地點」會自動連線，新捷徑不需加入此動作。")
     static var openAppWhenRun: Bool = false
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let ok = await GpsSimIntentRunner.waitForTunnel()
-        let message = ok ? "已連線，可以關掉飛航模式了" : GpsSimIntentRunner.tunnelFailureMessage()
+        let message = ok ? "已連線，可關閉飛航模式。" : GpsSimIntentRunner.tunnelFailureMessage()
         return .result(dialog: "\(message)")
     }
 }
@@ -144,7 +150,7 @@ struct SendToPlaceIntent: AppIntent {
             engine.send(to: landing, name: saved.name, center: saved.coordinate, placeID: saved.id, completion: done)
         }
         guard code == 0 else {
-            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
+            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
             let message = "定位失敗：\(reason)"
             return .result(value: await GpsSimIntentStatus.make(.failed, reason: message), dialog: "\(message)")
         }
@@ -177,7 +183,7 @@ struct StopSimulationIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
         let code = await GpsSimIntentRunner.retryingLink { done in GpsSimEngine.shared.stop(completion: done) }
         guard code == 0 else {
-            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
+            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
             // Throw (not just a dialog) so Shortcuts marks the step failed instead of looking fine.
             throw GpsSimStopError.failed(reason)
         }
@@ -210,7 +216,7 @@ struct PeekRealLocationIntent: AppIntent {
         if wasActive != nil || stale != nil {
             let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in engine.stop(full: false, completion: done) }
             guard code == 0 else {
-                let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIssue.from(code: code).message
+                let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
                 return .result(value: nil, dialog: "沒辦法暫停模擬：\(reason)")
             }
         }

@@ -64,7 +64,7 @@ jobs:
           restore-keys: |
             simdd-v1-${{ runner.os }}-${{ steps.img.outputs.id }}-xcode26.6-${{ hashFiles('StikDebug.xcodeproj/project.pbxproj', '**/Package.resolved') }}-
 
-      - name: Stamp build (short sha and date) shown in 設定 as 版本 v<x.y.z>（sha · date）
+      - name: Stamp build (short sha and date) shown in 設定 › 關於 › 版本 as v<x.y.z>（sha · date）
         run: plutil -insert GpsSimBuild -string "${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
 
       - name: Retag prebuilt idevice lib for simulator (CI workspace copy only)

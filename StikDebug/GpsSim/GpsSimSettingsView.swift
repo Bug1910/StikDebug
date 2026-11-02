@@ -3,7 +3,7 @@
 //  StikDebug (GpsSim fork)
 //
 //  Settings sheet: connection help, drift, places import/export, pairing file,
-//  the only way into the original StikDebug screens ("進階 (StikDebug)"), and the version.
+//  the only way into the original StikDebug screens ("進階 → 除錯工具"), and the version.
 //  Place sizes are 小/中/大 on each place now, so the old default-radius slider is gone
 //  (places without their own radius still use the stored default, unchanged).
 //
@@ -57,14 +57,14 @@ struct GpsSimSettingsView: View {
     @State private var confirmRenewReset = false
     @ObservedObject private var store = GpsPlaceStore.shared
 
-    /// 「版本 v1.0.0（dcd13a2 · 2026-10-15）」. CI stamps GpsSimBuild (short sha · build date)
-    /// into Info.plist; a local Xcode build without it shows the version only.
+    /// 「v1.0.0（dcd13a2 · 2026-10-15）」, shown after the 「版本」 label in 關於. CI stamps GpsSimBuild
+    /// (short sha · build date) into Info.plist; a local Xcode build without it shows the version only.
     private var versionText: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         if let build = Bundle.main.infoDictionary?["GpsSimBuild"] as? String, !build.isEmpty {
-            return String(localized: "版本 v\(v)（\(build)）")
+            return "v\(v)（\(build)）"
         }
-        return String(localized: "版本 v\(v)")
+        return "v\(v)"
     }
 
     private var placesFileExists: Bool {
@@ -80,10 +80,18 @@ struct GpsSimSettingsView: View {
                     GpsSignSection(onSignIn: { showRenewSignIn = true },
                                    onAdvanced: { showRenewAdvanced = true })
                 }
+                Section {
+                    Button("使用引導") {
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { PinFlyOnboardingPresenter.shared.show() }
+                    }
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("settings.onboarding")
+                }
                 GpsSimShortcutsSection()
 
                 Section {
-                    Toggle("原地微飄（像真手機晃幾公尺）", isOn: $driftEnabled)
+                    Toggle("位置微飄", isOn: $driftEnabled)
                         .frame(minHeight: 44)
                 } footer: {
                     Text("像真手機的 GPS 一樣在落點附近輕微飄動，不會離落點超過 4 公尺。")
@@ -94,7 +102,7 @@ struct GpsSimSettingsView: View {
                         withAnimation { advancedOpen.toggle() }
                     } label: {
                         HStack {
-                            Text("進階（一般不用動）")
+                            Text("進階")
                             Spacer()
                             Image(systemName: advancedOpen ? "chevron.up" : "chevron.down")
                                 .accessibilityHidden(true)
@@ -103,10 +111,8 @@ struct GpsSimSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .accessibilityValue(advancedOpen ? "已展開" : "已收合")
-                    .accessibilityHint("連不上的說明、地點檔、配對檔、原始除錯工具")
+                    .accessibilityHint("連線說明、地點檔、配對檔、除錯工具、驗證資料")
                     .accessibilityIdentifier("settings.advanced")
-                } footer: {
-                    Text("多數時候用不到。")
                 }
 
                 if advancedOpen {
@@ -199,39 +205,47 @@ struct GpsSimSettingsView: View {
                         Text(pairingMessage).font(.footnote).foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("配對檔（連手機用的鑰匙）")
+                    Text("配對檔")
                 } footer: {
-                    Text("配對檔要用電腦上的 iloader 產生一次（約 5 分鐘）。")
+                    Text("請依安裝教學以電腦產生配對檔。")
                 }
 
                 Section {
-                    Button("進階：原始除錯工具（一般不用）") { showAdvanced = true }
+                    Button("除錯工具") { showAdvanced = true }
                         .frame(minHeight: 44)
                 } footer: {
-                    Text("原始除錯工具（JIT、裝置資訊、Settings 等）。")
-                }
+                    Text("JIT、裝置資訊等。")
                 }
 
+                // Destructive, so it sits inside 進階 rather than next to 關於.
                 Section {
                     Button("重設驗證資料", role: .destructive) { confirmRenewReset = true }
                         .frame(minHeight: 44)
-                    NavigationLink("開源授權") { GpsSimLicensesView() }
-                        .frame(minHeight: 44)
+                } header: {
+                    Text("驗證資料")
                 } footer: {
-                    Text("重設會登出 Apple ID 並清掉 anisette 身分，下次續簽要重新登入並輸入驗證碼。")
+                    Text("重設會登出 Apple ID 並清除 anisette 身分，下次續簽須重新登入並輸入驗證碼。")
                 }
                 .confirmationDialog("重設驗證資料？", isPresented: $confirmRenewReset, titleVisibility: .visible) {
                     Button("登出並重設", role: .destructive) { Task { await GpsRenewCenter.shared.resetAuthData() } }
                     Button("取消", role: .cancel) {}
                 }
+                }
 
                 Section {
-                    Text(versionText)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .listRowBackground(Color.clear)
-                        .accessibilityIdentifier("settings.version")
+                    LabeledContent("版本") {
+                        Text(versionText)
+                            .accessibilityIdentifier("settings.version")
+                    }
+                    .frame(minHeight: 44)
+                    NavigationLink("開源授權") { GpsSimLicensesView() }
+                        .frame(minHeight: 44)
+                    if let url = URL(string: GpsSimLicensesView.pinFlySourceURL) {
+                        Link("原始碼", destination: url)
+                            .frame(minHeight: 44)
+                    }
+                } header: {
+                    Text("關於")
                 }
             }
             .onAppear {
