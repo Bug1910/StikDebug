@@ -93,6 +93,29 @@ for n, step in enumerate(steps, 1):
         elif kind == "tapId":
             r = tap_retry("--id", val)
             ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
+        elif kind == "tapLastId":  # tap the last on-screen element whose id starts with val (rows whose label is a geocoded name)
+            hits = []
+
+            def walk(node):
+                if isinstance(node, list):
+                    for x in node:
+                        walk(x)
+                elif isinstance(node, dict):
+                    uid = node.get("AXUniqueId") or ""
+                    f = node.get("frame") or {}
+                    if uid.startswith(val) and f.get("height", 0) > 0:
+                        hits.append(f)
+                    walk(node.get("children") or [])
+            try:
+                walk(json.loads(tree_dump().stdout))
+            except ValueError:
+                pass
+            if hits:
+                f = hits[-1]
+                r = tap_retry("-x", str(int(f["x"] + f["width"] / 2)), "-y", str(int(f["y"] + f["height"] / 2)))
+                ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
+            else:
+                ok, detail = False, "no element with id prefix " + val
         elif kind == "tapXY":
             r = sh("axe", "tap", "-x", val[0], "-y", val[1], "--udid", udid, check=False)
             if r.returncode:

@@ -29,7 +29,7 @@ enum PinFlyOnboardingStep: Int, CaseIterable {
 
     var detail: String {
         switch self {
-        case .developerMode: return "請至「設定 › 隱私權與安全性 › 開發者模式」開啟，開啟後裝置會重新啟動。"
+        case .developerMode: return "請至「設定 › 隱私權與安全性 › 開發者模式」開啟，並確認重新啟動；開機後再確認開啟並輸入 iPhone 密碼。"
         case .pairing: return "配對檔用於連線此裝置，請依安裝教學以電腦產生後匯入。"
         case .vpn: return "PinFly 需經由 LocalDevVPN 連線裝置。請開啟 LocalDevVPN 並連線，再回到 PinFly。"
         case .signIn: return "登入後可自動續簽 7 天簽名，無需連接電腦。"

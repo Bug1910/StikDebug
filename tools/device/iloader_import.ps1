@@ -12,7 +12,7 @@
 #   - iloader shows an update prompt at start: we keep clicking its dismiss button, never update
 #   - an expired Apple ID session shows a login error (-90010): we print it and exit 1
 #   - verify afterwards: %TEMP%\<IpaName>.ipa_extracted gets a fresh timestamp, and
-#     `python -m pymobiledevice3 apps query <bundle id>.<team>` (author: com.stik.stikdebug.CJA56ZFU6T) shows the new CFBundleDisplayName (U+5B9A U+4F4D U+5100)
+#     `python -m pymobiledevice3 apps query <bundle id>.<team>` shows the new CFBundleDisplayName (U+5B9A U+4F4D U+5100)
 param([Parameter(Mandatory)][string]$IpaName, [switch]$DryRun)
 $dismiss = "$([char]0x5FFD)$([char]0x7565)"  # "dismiss" button label
 $import  = "$([char]0x532F)$([char]0x5165) IPA"  # "Import IPA" button label

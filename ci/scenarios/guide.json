@@ -1,0 +1,468 @@
+[
+ {
+  "persona": "想學會操作的使用者",
+  "situation": "從設定開啟使用教學，逐章閱讀",
+  "note": "guide: Settings > 使用教學 list, then each of the 8 chapters (top + scrolled); relaunch per chapter"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "list"
+ },
+ {
+  "tree": "list"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.newphone"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "newphone"
+ },
+ {
+  "tree": "newphone"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "newphone_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "newphone_end"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.place"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "place"
+ },
+ {
+  "tree": "place"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "place_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "place_end"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.stop"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "stop"
+ },
+ {
+  "tree": "stop"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "stop_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "stop_end"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.manage"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "manage"
+ },
+ {
+  "tree": "manage"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "manage_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "manage_end"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.radius"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "radius"
+ },
+ {
+  "tree": "radius"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "radius_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "radius_end"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.shortcuts"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "shortcuts"
+ },
+ {
+  "tree": "shortcuts"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "shortcuts_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "shortcuts_end"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.renew"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "renew"
+ },
+ {
+  "tree": "renew"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "renew_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "renew_end"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.guide"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "guide.chapter.errors"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "errors"
+ },
+ {
+  "tree": "errors"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "errors_more"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "errors_end"
+ }
+]

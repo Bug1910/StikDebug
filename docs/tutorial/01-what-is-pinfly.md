@@ -47,12 +47,75 @@ LocalDevVPN 下載位置（App Store）：`https://apps.apple.com/us/app/localde
 
 ## 1.5 流程總覽
 
-1. 第 2 章：把 PinFly 裝到 iPhone。
+1. 第 2 章：把 PinFly 裝到 iPhone，信任開發者並開啟開發者模式（新手機請照 1.6 的順序）。
 2. 第 3 章：在電腦上產生配對檔，匯入 PinFly。
 3. 第 4 章：安裝並連接 LocalDevVPN。
 4. 第 5 章：登入一次 Apple ID。
 5. 第 6 章：選地點，開始定位。
 6. 第 7 章（選做）：設定捷徑自動續簽。
+
+
+## 1.6 從新手機開始（完整順序）
+
+新 iPhone 請照下列順序做，每一步只做一件事。App 內「設定 › 使用教學 › 從新手機開始」是同一份步驟。截圖中的黃框是要點的位置。
+
+### 安裝前
+
+1. 完成 iPhone 初始設定，並登入 Apple ID。
+2. 連上 Wi-Fi。
+3. 以可傳輸資料的 USB 線連接電腦，iPhone 出現「信任這部電腦」時按「信任」，並輸入 iPhone 密碼（Apple 說明：https://support.apple.com/zh-tw/109054）。
+4. 在電腦以 iloader 安裝 PinFly（第 2 章 2.2）。
+
+### 信任開發者
+
+5. 開啟「設定」›「一般」，點「VPN 與裝置管理」。
+
+   ![](images/guide_sys_12.png)
+
+6. 有「開發者 App」區塊時，點選安裝時使用的 Apple ID，按「信任」。此區塊不一定會出現（下圖即沒有出現），沒有時略過此步。
+
+   ![](images/guide_sys_02.png)
+
+### 開發者模式
+
+7. 開啟「設定」›「隱私權與安全性」，捲到最下方，點「安全性」區的「開發者模式」。
+
+   ![](images/guide_sys_04.png)
+
+8. 打開「開發者模式」開關。
+
+   ![](images/guide_sys_13.png)
+
+9. 在警示中確認重新啟動。 〔待確認：繁中按鈕文字，Apple 英文文件為「Restart」〕
+10. 開機後解鎖，在警示中確認開啟，並輸入 iPhone 密碼。 〔待確認：繁中按鈕文字，Apple 英文文件為「Enable」〕
+
+「開發者模式」要在 iPhone 與電腦配對過後才會出現（https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device）。
+
+### LocalDevVPN
+
+11. 在 App Store 搜尋「LocalDevVPN」，按「取得」安裝（已安裝時顯示「打開」）。
+
+    ![](images/guide_sys_07.png)
+
+12. 開啟 LocalDevVPN，畫面顯示「已中斷連線」。
+
+    ![](images/guide_sys_14.png)
+
+13. 按「連線」。
+14. 第一次連線時，iOS 詢問是否加入 VPN 設定，按「允許」並輸入 iPhone 密碼。 〔待確認：提示文字〕
+15. 確認畫面顯示「已連線」。
+
+    ![](images/guide_sys_08.png)
+
+### PinFly
+
+16. 在 PinFly 開啟「設定」›「進階」，於「配對檔」按「匯入配對檔」（iloader 已放置時免做，第 3 章）。
+
+    ![](images/guide_ch1_01.png)
+
+17. 依「使用引導」確認每一步皆為「已完成」。
+
+    ![](images/guide_ch1_02.png)
 
 ![](images/ch01-01.png)
 

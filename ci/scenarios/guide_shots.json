@@ -1,0 +1,351 @@
+[
+ {
+  "persona": "教學截圖",
+  "situation": "依使用教學每一步需要的畫面逐一截圖",
+  "note": "guide_shots: shot names = asset names in Assets.xcassets/Guide; public demo places only (艾菲爾鐵塔 etc., 台北101)"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "home"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch2_01"
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "type": "Taipei 101\n"
+ },
+ {
+  "wait": 5
+ },
+ {
+  "shot": "guide_ch2_02"
+ },
+ {
+  "tapId": "search.result.0"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "guide_ch2_03"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "home"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "type": "25.0340, 121.5645\n"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "guide_ch2_04"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "home"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "type": "https://www.google.com/maps/place/Taipei+101/@25.0339639,121.5644722,17z\n"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "guide_ch2_07"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "newPlace"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch2_05"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "simulating"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch2_06"
+ },
+ {
+  "tapId": "btn.stop"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "guide_ch3_01"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "manage"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch4_01"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "edit"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch4_02"
+ },
+ {
+  "tap": "更多"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "guide_ch4_03"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "undoToast"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch4_04"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "home"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "btn.shortcuts"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "guide_ch6_01"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "swipe": [
+   196,
+   650,
+   196,
+   350
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "guide_ch5_01"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.onboarding"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "guide_ch1_02"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settings"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "tapId": "settings.advanced"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   200
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "guide_ch4_05"
+ },
+ {
+  "swipe": [
+   196,
+   700,
+   196,
+   350
+  ]
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "guide_ch1_01"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settingsSign"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch7_01"
+ },
+ {
+  "tapId": "settings.renewAccount"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "guide_ch7_02"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "settingsSignPending"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch7_03"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "errorNoWifi"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch8_01"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "errorVPN"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch8_02"
+ },
+ {
+  "relaunch": [
+   "-GpsSimDemo",
+   "renewFailed"
+  ]
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "guide_ch8_03"
+ }
+]

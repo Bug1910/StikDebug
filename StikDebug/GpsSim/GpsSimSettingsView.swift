@@ -87,6 +87,15 @@ struct GpsSimSettingsView: View {
                     }
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("settings.onboarding")
+                    NavigationLink {
+                        PinFlyGuideListView(openOnboarding: {
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { PinFlyOnboardingPresenter.shared.show() }
+                        })
+                    } label: {
+                        Text("使用教學").frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("settings.guide")
                 }
                 GpsSimShortcutsSection()
 

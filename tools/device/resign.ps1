@@ -7,7 +7,7 @@
 # Usage: pwsh -File resign.ps1            (full run, reinstalls the app on the phone)
 #        pwsh -File resign.ps1 -CheckOnly (steps 1-3 only, changes nothing)
 # Log: C:\Tools\GpsSimPhone\logs\resign.log (one line per run)
-param([switch]$CheckOnly, [string]$AppId = 'com.stik.stikdebug.CJA56ZFU6T')  # AppId: bundle id + team suffix as installed (public build: com.pinfly.app.<TEAM>)
+param([switch]$CheckOnly, [string]$AppId = 'com.pinfly.app')  # AppId: bundle id + team suffix as installed (public build: com.pinfly.app.<TEAM>)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $env:PYTHONIOENCODING = 'utf-8'

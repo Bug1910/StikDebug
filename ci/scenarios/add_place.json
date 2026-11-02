@@ -214,7 +214,7 @@
   "wait": 1
  },
  {
-  "tap": "34.98580, 135.75880"
+  "tapLastId": "place.edit."
  },
  {
   "wait": 2
@@ -284,7 +284,7 @@
   "wait": 1
  },
  {
-  "tap": "36.20480, 138.25290"
+  "tapLastId": "place.edit."
  },
  {
   "wait": 2
