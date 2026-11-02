@@ -141,8 +141,9 @@ final class GpsSimRouteMover: ObservableObject {
         guard token == generation else { return nil }
         isPlanning = false
         guard !plan.path.isEmpty else { return nil }
-        start(plan: plan, name: name, placeID: placeID, center: center,
-              kmh: kmh.map(MoveSpeedPreset.clampCustom) ?? speed.kmh)
+        // 參數 `from start:` 會遮住同名方法，必須寫 self.start。
+        self.start(plan: plan, name: name, placeID: placeID, center: center,
+                   kmh: kmh.map(MoveSpeedPreset.clampCustom) ?? speed.kmh)
         return plan
     }
 
