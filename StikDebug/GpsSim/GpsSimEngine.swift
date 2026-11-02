@@ -317,6 +317,8 @@ final class GpsSimEngine: ObservableObject {
                 self.issue = nil
                 self.failStreak = 0
                 self.connectionLost = false
+                // 新的「前往」取消之前捷徑設定的持續時間（規格 12.3.1）；「查看真實位置」會自己還原。
+                GpsSimAutoReturn.shared.clear(reason: "send")
                 self.persistLastTarget(name: name, placeID: placeID, coordinate: coordinate)
                 self.sessionPairingPath = path
                 self.sessionIP = ip
@@ -440,6 +442,8 @@ final class GpsSimEngine: ObservableObject {
                     return
                 }
                 self.clearLastTarget()
+                // 完整停止＝回到真實位置，持續時間不再需要；full: false 是「查看真實位置」的短暫停止。
+                if full { GpsSimAutoReturn.shared.clear(reason: "stop") }
                 self.connectionLost = false
                 self.lastLinkOK = Date()
                 self.issue = nil
@@ -539,8 +543,10 @@ final class GpsSimEngine: ObservableObject {
     }
 
     /// 結束移動（抵達或「停止移動」）：landing＝停下的點，恢復 4 秒微飄；模擬不中斷。
-    func endMove(at point: CLLocationCoordinate2D, arrivedName: String? = nil) {
-        guard isMoving else { return }
+    /// 回傳 true＝正常結束（landing 已設在 point）；false＝沒在移動、或一點都沒送成功而還原。
+    @discardableResult
+    func endMove(at point: CLLocationCoordinate2D, arrivedName: String? = nil) -> Bool {
+        guard isMoving else { return false }
         isMoving = false
         lastMoveEndedAt = Date()
         LocationSimulationSession.shared.clearRoute()
@@ -548,9 +554,9 @@ final class GpsSimEngine: ObservableObject {
             // 新目的地一點都沒送成功過：手機還停在原本的地方，不能拿舊名字存新座標。
             pendingMoveIdentity = nil
             restoreAfterUnstartedMove()
-            return
+            return false
         }
-        guard let name = activeName else { return }
+        guard let name = activeName else { return false }
         landing = point
         current = point
         persistLastTarget(name: name, placeID: activePlaceID, coordinate: point)
@@ -560,6 +566,7 @@ final class GpsSimEngine: ObservableObject {
             toast = "已抵達 \(arrivedName)"
             Haptics.light()
         }
+        return true
     }
 
     /// 移動沒真的開始（第一點都沒送成功）：原本在模擬就回到原本的落點繼續微飄；

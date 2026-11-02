@@ -17,6 +17,8 @@ struct StikDebugApp: App {
         // PinFly: background download of the new 7-day profile (must be registered during launch;
         // skipped when this process was launched in the background, see registerAtLaunch).
         if !GpsRenewCenter.isDemo { RenewBackgroundDownload.registerAtLaunch() }
+        // PinFly: a 持續時間 set by a Shortcut that passed while the app was not running ends now.
+        Task { @MainActor in GpsSimAutoReturn.shared.resume() }
     }
 
     var body: some Scene {
@@ -38,6 +40,7 @@ struct StikDebugApp: App {
         case .active:
             // Keeps one background-download request planned (no-op if this process did not register).
             if !GpsRenewCenter.isDemo { RenewBackgroundDownload.appBecameActive() }
+            Task { @MainActor in GpsSimAutoReturn.shared.resume() }
             if shouldAttemptTunnelReconnect {
                 shouldAttemptTunnelReconnect = false
                 startTunnelInBackground(showErrorUI: false)

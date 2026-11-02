@@ -26,6 +26,34 @@ enum GpsIntentOutcome: String, AppEnum {
     ]
 }
 
+/// 移動狀態 property（規格 12.4，只增不改）。rawValue 永不改名。
+enum GpsMoveStatus: String, AppEnum {
+    case idle
+    case moving
+    case paused
+    case arrived
+    case wandering
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "移動狀態"
+    static var caseDisplayRepresentations: [GpsMoveStatus: DisplayRepresentation] = [
+        .idle: "未移動",
+        .moving: "移動中",
+        .paused: "已暫停",
+        .arrived: "已抵達",
+        .wandering: "漫步中",
+    ]
+
+    init(_ state: MoveState) {
+        switch state {
+        case .idle: self = .idle
+        case .moving: self = .moving
+        case .paused: self = .paused
+        case .arrived: self = .arrived
+        case .wandering: self = .wandering
+        }
+    }
+}
+
 struct GpsSimStatusEntity: TransientAppEntity {
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "PinFly 狀態"
 
@@ -53,6 +81,26 @@ struct GpsSimStatusEntity: TransientAppEntity {
     @Property(title: "原因")
     var reason: String
 
+    /// 路線、直線、原地漫步的狀態（App 內或捷徑開始的都算）。
+    @Property(title: "移動狀態")
+    var moveStatus: GpsMoveStatus
+
+    /// 移動或漫步的地點名稱；未移動時為空。
+    @Property(title: "目的地")
+    var destinationName: String
+
+    /// 路線、直線移動中（含暫停）才有值。
+    @Property(title: "剩餘距離（公尺）")
+    var remainingMeters: Int?
+
+    /// 依目前速度推算；暫停時為空。
+    @Property(title: "預計抵達")
+    var arrivalTime: Date?
+
+    /// 捷徑設定了持續時間時，回到真實位置的時間。
+    @Property(title: "預計結束")
+    var endTime: Date?
+
     init() {
         outcome = .succeeded
         signingExpiry = nil
@@ -61,6 +109,11 @@ struct GpsSimStatusEntity: TransientAppEntity {
         simulating = false
         placeName = ""
         reason = ""
+        moveStatus = .idle
+        destinationName = ""
+        remainingMeters = nil
+        arrivalTime = nil
+        endTime = nil
     }
 
     var displayRepresentation: DisplayRepresentation {
@@ -105,7 +158,37 @@ enum GpsSimIntentStatus {
         let place = currentPlace()
         value.simulating = place != nil
         value.placeName = place?.name ?? ""
+        let mover = GpsSimRouteMover.shared
+        value.moveStatus = GpsMoveStatus(mover.state)
+        value.destinationName = value.moveStatus == .idle ? "" : (mover.destinationName ?? "")
+        value.remainingMeters = mover.remainingMeters
+        value.arrivalTime = mover.estimatedArrival
+        value.endTime = GpsSimAutoReturn.shared.deadline
         return value
+    }
+
+    /// 「目前模擬狀態」的完成訊息（規格 12.4）。
+    static func statusSentence(_ value: GpsSimStatusEntity) -> String {
+        let name = value.destinationName
+        let endNote = value.endTime.map { "將於 \(GpsMoveEstimate.clockText($0)) 回到真實位置。" } ?? ""
+        switch value.moveStatus {
+        case .moving:
+            var text = "移動中：前往 \(name)"
+            if let left = value.remainingMeters { text += "，剩餘 \(GpsMoveEstimate.distanceText(Double(left)))" }
+            if let eta = value.arrivalTime { text += "，預計 \(GpsMoveEstimate.clockText(eta)) 抵達" }
+            return text + "。" + endNote
+        case .paused:
+            var text = "移動已暫停：前往 \(name)"
+            if let left = value.remainingMeters { text += "，剩餘 \(GpsMoveEstimate.distanceText(Double(left)))" }
+            return text + "。" + endNote
+        case .wandering:
+            return "漫步中：\(name)。" + endNote
+        case .idle, .arrived:
+            guard let place = currentPlace() else { return "未在模擬。" }
+            // After a relaunch only the persisted last target is known; a stop always clears it.
+            let note = place.confirmed ? "" : "（PinFly 曾重新開啟，此為上次送出的地點）"
+            return "模擬中：\(place.name)。\(note)" + endNote
+        }
     }
 
     /// What is simulated right now. After a relaunch (a Shortcut can start the app fresh) activeName

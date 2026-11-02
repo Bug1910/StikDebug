@@ -1,4 +1,5 @@
-# 單元測試：只跑 StikDebugTests/RoutePlannerTests（移動引擎的純幾何測試，不需要手機與 MKDirections）。
+# 單元測試：只跑 StikDebugTests/RoutePlannerTests（移動引擎的純幾何測試）與 IntentMappingTests
+# （捷徑參數換算、時間估算），都不需要手機與 MKDirections。
 # build 參數照 sim_testers.yml 的「Build for iphonesimulator」，模擬器用 iPhone 16（沒有就退回第一台可用的 iPhone）。
 name: Unit Tests
 
@@ -7,6 +8,7 @@ on:
   push:
     paths:
       - "StikDebug/GpsSim/**"
+      - "StikDebug/App/**"
       - "StikDebugTests/**"
       - ".github/workflows/unit_tests.yml"
 
@@ -43,7 +45,7 @@ jobs:
             echo "name=$name" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run RoutePlannerTests
+      - name: Run RoutePlannerTests and IntentMappingTests
         run: |
           set -o pipefail
           xcodebuild test \
@@ -54,6 +56,7 @@ jobs:
             -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.name }}" \
             -derivedDataPath build \
             -only-testing:StikDebugTests/RoutePlannerTests \
+            -only-testing:StikDebugTests/IntentMappingTests \
             -resultBundlePath TestResults.xcresult \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="" \

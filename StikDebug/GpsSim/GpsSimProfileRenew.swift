@@ -303,6 +303,7 @@ struct ImportProfileIntent: AppIntent {
     var file: IntentFile
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        await GpsSimAutoReturn.shared.settle(timeout: 3)
         // Throws on any failure so the Shortcut stops instead of carrying on as if it had worked.
         let outcome = try await GpsProfileRenew.install(file.data)
         return .result(dialog: "\(outcome.message)")

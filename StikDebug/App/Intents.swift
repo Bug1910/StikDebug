@@ -133,6 +133,9 @@ struct RunningProcessQuery: EntityStringQuery {
 
 struct EnableJITIntent: AppIntent, ForegroundContinuableIntent {
     static var title: LocalizedStringResource = "Enable JIT"
+    // PinFly: upstream action kept compiled but hidden from Siri, Spotlight and the Shortcuts app
+    // (spec 12.10 #2; PinFly users do not need JIT).
+    static var isDiscoverable: Bool = false
     static var description = IntentDescription(
         "Enables JIT compilation for an installed app using PinFly.",
         categoryName: "PinFly"
@@ -207,6 +210,8 @@ struct EnableJITIntent: AppIntent, ForegroundContinuableIntent {
 
 struct KillProcessIntent: AppIntent {
     static var title: LocalizedStringResource = "Kill Process"
+    // PinFly: hidden like EnableJITIntent (spec 12.10 #2).
+    static var isDiscoverable: Bool = false
     static var description = IntentDescription(
         "Terminates a running process on the device using PinFly.",
         categoryName: "PinFly"
@@ -263,21 +268,42 @@ struct KillProcessIntent: AppIntent {
 
 struct StikDebugShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
-        // GpsSim fork actions first, in spec 2.3 order (most important first, HIG App Shortcuts).
-        // An app may have only one provider. Not listed on purpose (still usable as Shortcut actions):
-        // ConnectIntent (old step, no longer needed), SimulationStatusIntent, ImportProfileIntent.
-        // Total 10 here (8 GpsSim + 2 upstream) = Apple's limit of 10: remove one before adding another.
-        AppShortcut(
-            intent: StopSimulationIntent(),
-            phrases: ["用\(.applicationName)停止模擬", "\(.applicationName)停止模擬"],
-            shortTitle: "停止模擬",
-            systemImageName: "location.fill"
-        )
+        // Spec 12.6 slots, most important first (the first one is shown at the top of Spotlight).
+        // An app may have only one provider and at most 10 App Shortcuts; slot 10 is reserved for
+        // 開始行程 (stage 3). Every phrase contains \(.applicationName); phrase parameters are
+        // AppEntity only. Building blocks (ConnectIntent, ImportProfileIntent) and the hidden
+        // upstream EnableJITIntent／KillProcessIntent are not listed (still compiled).
         AppShortcut(
             intent: SendToPlaceIntent(),
-            phrases: ["用\(.applicationName)前往\(\.$place)", "\(.applicationName)前往\(\.$place)"],
+            phrases: [
+                "用\(.applicationName)前往\(\.$place)",
+                "\(.applicationName)前往\(\.$place)",
+                "用\(.applicationName)前往地點"
+            ],
             shortTitle: "前往地點",
-            systemImageName: "location.fill"
+            systemImageName: "mappin.and.ellipse"
+        )
+        AppShortcut(
+            intent: StopSimulationIntent(),
+            phrases: [
+                "用\(.applicationName)停止模擬",
+                "\(.applicationName)停止模擬",
+                "用\(.applicationName)回到真實位置"
+            ],
+            shortTitle: "停止模擬",
+            systemImageName: "location.slash"
+        )
+        AppShortcut(
+            intent: SimulationStatusIntent(),
+            phrases: ["\(.applicationName)目前模擬狀態", "用\(.applicationName)查詢模擬狀態"],
+            shortTitle: "目前模擬狀態",
+            systemImageName: "info.circle"
+        )
+        AppShortcut(
+            intent: PeekRealLocationIntent(),
+            phrases: ["用\(.applicationName)查看真實位置", "\(.applicationName)查看真實位置"],
+            shortTitle: "查看真實位置",
+            systemImageName: "location.magnifyingglass"
         )
         AppShortcut(
             intent: RenewNowIntent(),
@@ -292,6 +318,12 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             systemImageName: "calendar.badge.clock"
         )
         AppShortcut(
+            intent: SigningStatusIntent(),
+            phrases: ["\(.applicationName)簽名期限", "用\(.applicationName)查詢簽名期限"],
+            shortTitle: "查詢簽名期限",
+            systemImageName: "calendar"
+        )
+        AppShortcut(
             intent: DownloadProfileIntent(),
             phrases: ["用\(.applicationName)下載描述檔", "\(.applicationName)下載描述檔"],
             shortTitle: "下載 PinFly 描述檔",
@@ -302,47 +334,6 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             phrases: ["用\(.applicationName)安裝描述檔", "\(.applicationName)安裝描述檔"],
             shortTitle: "安裝 PinFly 描述檔",
             systemImageName: "square.and.arrow.down"
-        )
-        AppShortcut(
-            intent: SigningStatusIntent(),
-            phrases: ["\(.applicationName)簽名期限", "用\(.applicationName)查詢簽名期限"],
-            shortTitle: "查詢簽名期限",
-            systemImageName: "calendar.badge.clock"
-        )
-        AppShortcut(
-            intent: PeekRealLocationIntent(),
-            phrases: ["用\(.applicationName)查看真實位置", "\(.applicationName)查看真實位置"],
-            shortTitle: "查看真實位置",
-            systemImageName: "location.magnifyingglass"
-        )
-        // Upstream StikDebug.
-        AppShortcut(
-            intent: EnableJITIntent(),
-            phrases: [
-                "Enable JIT for \(\.$app) with \(.applicationName)",
-                "Enable JIT for \(\.$app) using \(.applicationName)",
-                "Enable JIT for \(\.$app) in \(.applicationName)",
-                "\(.applicationName) enable JIT for \(\.$app)",
-                "\(.applicationName) enable JIT",
-                "Use \(.applicationName) to enable JIT for \(\.$app)",
-                "Use \(.applicationName) to enable JIT"
-            ],
-            shortTitle: "Enable JIT",
-            systemImageName: "bolt.fill"
-        )
-        AppShortcut(
-            intent: KillProcessIntent(),
-            phrases: [
-                "Kill \(\.$process) with \(.applicationName)",
-                "Kill \(\.$process) using \(.applicationName)",
-                "Kill \(\.$process) in \(.applicationName)",
-                "\(.applicationName) kill \(\.$process)",
-                "\(.applicationName) kill process",
-                "Use \(.applicationName) to kill \(\.$process)",
-                "Use \(.applicationName) to stop \(\.$process)"
-            ],
-            shortTitle: "Kill Process",
-            systemImageName: "xmark.circle.fill"
         )
     }
 }

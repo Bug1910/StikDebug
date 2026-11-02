@@ -39,6 +39,15 @@ enum MovePauseReason: Equatable {
     case deviceLocked
 }
 
+/// 抵達後要做的事（捷徑「抵達後」參數；App 內一律 .stay）。
+enum MoveArrivalAction: Equatable {
+    case stay
+    /// 在抵達的地點原地漫步；radius＝已取「檔位與地點範圍」較小者。
+    case wander(radius: Double)
+    /// 回到真實位置（engine.stop）。
+    case stopSimulation
+}
+
 enum MoveState: Equatable {
     case idle
     case moving
@@ -77,6 +86,30 @@ final class GpsSimRouteMover: ObservableObject {
         case .idle, .arrived: return false
         default: return true
         }
+    }
+
+    /// 每次 start／startWander 加 1：捷徑動作用來確認「還是自己開始的那一趟」。
+    private(set) var runSerial = 0
+    /// 本趟已被手機接受的點數（含抵達點）；捷徑動作等第一點成功才回報。
+    private(set) var deliveredSteps = 0
+    /// 本趟最近一次送點的結果代碼（0＝成功；busyCode 不記）。
+    private(set) var lastStepCode: Int32?
+
+    /// 剩餘公尺：只在路線／直線移動中（含暫停）有值。
+    var remainingMeters: Int? {
+        guard let plan else { return nil }
+        switch state {
+        case .moving, .paused:
+            return GpsMoveEstimate.remainingMeters(total: plan.totalMeters, traveled: traveledMeters)
+        default:
+            return nil
+        }
+    }
+
+    /// 依目標速度推算的抵達時間：只在移動中（未暫停）有值。
+    var estimatedArrival: Date? {
+        guard state == .moving, let left = remainingMeters else { return nil }
+        return GpsMoveEstimate.eta(remainingMeters: Double(left), kmh: targetKmh, now: Date())
     }
 
     // MARK: 常數
@@ -121,6 +154,13 @@ final class GpsSimRouteMover: ObservableObject {
     private var lastDwellSend: Date?
     private var engine: GpsSimEngine { GpsSimEngine.shared }
 
+    // 抵達後（捷徑）
+    private var arrivalAction: MoveArrivalAction = .stay
+    /// 抵達後幾秒回到真實位置（持續時間自抵達時起算）；nil＝不限。
+    private var arrivalAutoReturn: TimeInterval?
+    private var arrivalPlaceID: String?
+    private var arrivalCenter: CLLocationCoordinate2D?
+
     private init() {}
 
     // MARK: - 開始
@@ -131,7 +171,9 @@ final class GpsSimRouteMover: ObservableObject {
     @discardableResult
     func moveTo(_ destination: CLLocationCoordinate2D, name: String, placeID: String? = nil,
                 center: CLLocationCoordinate2D? = nil, from start: CLLocationCoordinate2D,
-                mode: MoveMode, speed: MoveSpeedPreset, kmh: Double? = nil) async -> MovePlan? {
+                mode: MoveMode, speed: MoveSpeedPreset, kmh: Double? = nil,
+                afterArrival: MoveArrivalAction = .stay,
+                autoReturnAfter: TimeInterval? = nil) async -> MovePlan? {
         // 上一趟還在跑就正常收尾（停在原地交還微飄）；沒在跑也要讓舊的規劃作廢。
         if state != .idle { stopMoving() } else { cancelForTakeover() }
         let token = generation
@@ -143,16 +185,26 @@ final class GpsSimRouteMover: ObservableObject {
         guard !plan.path.isEmpty else { return nil }
         // 參數 `from start:` 會遮住同名方法，必須寫 self.start。
         self.start(plan: plan, name: name, placeID: placeID, center: center,
-                   kmh: kmh.map(MoveSpeedPreset.clampCustom) ?? speed.kmh)
+                   kmh: kmh.map(MoveSpeedPreset.clampCustom) ?? speed.kmh,
+                   afterArrival: afterArrival, autoReturnAfter: autoReturnAfter)
         return plan
     }
 
     /// 用已經規劃好的路徑開始（行程預先規劃、測試用）。
+    /// afterArrival／autoReturnAfter：捷徑用；App 內呼叫沿用預設（停留、不限時間）。
     func start(plan: MovePlan, name: String, placeID: String? = nil,
-               center: CLLocationCoordinate2D? = nil, kmh: Double) {
+               center: CLLocationCoordinate2D? = nil, kmh: Double,
+               afterArrival: MoveArrivalAction = .stay, autoReturnAfter: TimeInterval? = nil) {
         guard let first = plan.start else { return }
         finishPreviousRun()
         tearDown()
+        // 新的移動取消之前的「持續時間」（規格 12.3.1）。
+        GpsSimAutoReturn.shared.clear(reason: "new move")
+        beginRunCounters()
+        arrivalAction = afterArrival
+        arrivalAutoReturn = afterArrival == .stopSimulation ? nil : autoReturnAfter
+        arrivalPlaceID = placeID
+        arrivalCenter = center ?? plan.destination
         self.plan = plan
         destinationName = name
         targetKmh = MoveSpeedPreset.clampCustom(kmh)
@@ -176,6 +228,8 @@ final class GpsSimRouteMover: ObservableObject {
                      placeID: String? = nil, from current: CLLocationCoordinate2D? = nil) {
         finishPreviousRun()
         tearDown()
+        GpsSimAutoReturn.shared.clear(reason: "new wander")
+        beginRunCounters()
         let here = current.map { GpsSimWanderPlanner.clamp($0, center: center, radius: max(1, radius)) } ?? center
         plan = nil
         destinationName = name
@@ -232,8 +286,18 @@ final class GpsSimRouteMover: ObservableObject {
         state = .idle
     }
 
+    private func beginRunCounters() {
+        runSerial &+= 1
+        deliveredSteps = 0
+        lastStepCode = nil
+    }
+
     private func tearDown() {
         generation &+= 1
+        arrivalAction = .stay
+        arrivalAutoReturn = nil
+        arrivalPlaceID = nil
+        arrivalCenter = nil
         isPlanning = false
         timer?.invalidate()
         timer = nil
@@ -346,10 +410,50 @@ final class GpsSimRouteMover: ObservableObject {
         state = .arrived
         let token = generation
         let name = destinationName
-        engine.sendMoveStep(point) { [weak self] _ in
+        // 之後的 tearDown 會清掉抵達設定，先記下來。
+        let action = arrivalAction
+        let autoReturn = arrivalAutoReturn
+        let placeID = arrivalPlaceID
+        let center = arrivalCenter
+        engine.sendMoveStep(point) { [weak self] code in
             // 送成功或失敗都交還微飄：失敗時 4 秒重送會繼續試，斷線語意由 resendTick 處理。
             guard let self, token == self.generation else { return }
-            self.engine.endMove(at: point, arrivedName: name)
+            if code == 0 { self.deliveredSteps += 1 }
+            if code != GpsSimEngine.busyCode { self.lastStepCode = code }
+            let endedNormally = self.engine.endMove(at: point, arrivedName: name)
+            // 抵達後動作與「自抵達起算」的持續時間只在終點真的送到、移動正常結束時才做；
+            // 否則手機可能還不在目的地（4 秒重送會繼續試），不能開始漫步或計時。
+            guard code == 0, endedNormally else {
+                if action != .stay || autoReturn != nil {
+                    GpsSimIntentLog.error("arrival action skipped: final point code \(code), ended normally \(endedNormally)")
+                }
+                return
+            }
+            self.runArrivalAction(action, autoReturnAfter: autoReturn, at: point, name: name ?? "",
+                                  placeID: placeID, center: center)
+        }
+    }
+
+    /// 抵達後的動作（捷徑「抵達後」）。也給「已在目的地附近、不需要移動」的捷徑路徑使用。
+    func runArrivalAction(_ action: MoveArrivalAction, autoReturnAfter: TimeInterval?,
+                          at point: CLLocationCoordinate2D, name: String,
+                          placeID: String?, center: CLLocationCoordinate2D?) {
+        switch action {
+        case .stay:
+            if let seconds = autoReturnAfter { GpsSimAutoReturn.shared.arm(after: seconds) }
+        case .wander(let radius):
+            // startWander 會取消舊的持續時間，所以之後才登記。
+            self.startWander(center: center ?? point, radius: radius, name: name, placeID: placeID, from: point)
+            if let seconds = autoReturnAfter { GpsSimAutoReturn.shared.arm(after: seconds) }
+            GpsSimIntentLog.info("arrival: wander started")
+        case .stopSimulation:
+            GpsSimIntentLog.info("arrival: stopping simulation")
+            engine.stop { code in
+                guard code != 0 else { return }
+                GpsSimIntentLog.error("arrival stop failed (code \(code))")
+                GpsSimAutoReturn.notify("無法回到真實位置。請開啟 PinFly 並點選「停止模擬」。（錯誤 12）",
+                                        id: "gpsSim.arrival.stopFailed")
+            }
         }
     }
 
@@ -438,6 +542,8 @@ final class GpsSimRouteMover: ObservableObject {
             // 舊一趟的回呼：不動新一趟的狀態（tearDown 已把 sendInFlight 歸零）。
             guard let self, token == self.generation else { return }
             self.sendInFlight = false
+            if code == 0 { self.deliveredSteps += 1 }
+            if code != GpsSimEngine.busyCode { self.lastStepCode = code }
             self.handleSendResult(code)
         }
     }

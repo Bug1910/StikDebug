@@ -54,6 +54,7 @@ struct RenewSigningIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        await GpsSimAutoReturn.shared.settle(timeout: 3)
         let answer = try await GpsRenewIntentRunner.run(withinDays: withinDays <= 0 ? nil : withinDays,  // old automations saved 0 = "always renew"
                                                         stopOnFailure: stopOnFailure,
                                                         maxSeconds: maxSeconds)
@@ -81,6 +82,7 @@ struct RenewNowIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        await GpsSimAutoReturn.shared.settle(timeout: 3)
         let answer = try await GpsRenewIntentRunner.run(withinDays: nil, stopOnFailure: stopOnFailure,
                                                         maxSeconds: maxSeconds)
         return .result(value: answer.value, dialog: "\(answer.dialog)")
@@ -124,6 +126,7 @@ struct DownloadProfileIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        await GpsSimAutoReturn.shared.settle(timeout: 3)
         let days = min(max(withinDays, 1), 7)
         let answer = try await GpsRenewIntentRunner.download(withinDays: onlyWhenExpiring ? days : nil,
                                                              stopOnFailure: stopOnFailure, maxSeconds: maxSeconds)
@@ -151,6 +154,7 @@ struct InstallProfileIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        await GpsSimAutoReturn.shared.settle(timeout: 3)
         let answer = try await GpsRenewIntentRunner.install(stopOnFailure: stopOnFailure, maxSeconds: maxSeconds)
         return .result(value: answer.value, dialog: "\(answer.dialog)")
     }
@@ -357,6 +361,7 @@ struct SigningStatusIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        await GpsSimAutoReturn.shared.settle(timeout: 3)
         let value = await GpsSimIntentStatus.make(.succeeded)
         guard let sentence = GpsSimIntentStatus.signingSentence(value) else {
             var unknown = value
@@ -370,20 +375,23 @@ struct SigningStatusIntent: AppIntent {
 
 // MARK: - 目前模擬狀態
 
-/// Offline and read-only: never touches the phone's location. Not in App Shortcuts (a building block only).
+/// Read-only: never touches the phone's location (except ending a 持續時間 that is already due,
+/// which GpsSimAutoReturn.resume does on every intent run). App Shortcuts slot 3 (spec 12.6).
 struct SimulationStatusIntent: AppIntent {
     static var title: LocalizedStringResource = "目前模擬狀態"
-    static var description = IntentDescription("回傳目前是否模擬中及所在地點。不需要網路連線，不變更位置。")
+    static var description = IntentDescription("回傳目前是否模擬中、所在地點、移動狀態、剩餘距離、預計抵達與預計結束時間。不需要網路連線，不變更位置。")
     static var openAppWhenRun: Bool = false
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
+        // A due 持續時間 is stopped first and awaited, so the status below is the real one.
+        await GpsSimAutoReturn.shared.settle()
         let value = await GpsSimIntentStatus.make(.succeeded)
-        guard let place = GpsSimIntentStatus.currentPlace() else {
-            return .result(value: value, dialog: "未在模擬")
+        var message = GpsSimIntentStatus.statusSentence(value)
+        if GpsSimAutoReturn.shared.isOverdue {
+            // The stop is still running or failed (e.g. phone locked); say so instead of a plain 模擬中.
+            message = "持續時間已到期，正在回到真實位置。" + message
         }
-        // After a relaunch only the persisted last target is known; a stop always clears it.
-        let note = place.confirmed ? "" : "（PinFly 曾重新開啟，此為上次送出的地點）"
-        return .result(value: value, dialog: "模擬中：\(place.name)\(note)")
+        return .result(value: value, dialog: "\(message)")
     }
 }
