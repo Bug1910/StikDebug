@@ -12,66 +12,7 @@ import Testing
 
 struct StikDebugTests {
 
-    @Test func txmDetectionUsesClassicTXMBeforeIOS266() async throws {
-        #expect(
-            ProcessInfo.hasTXMSupport(
-                isIOS266OrNewer: false,
-                hasTXMClassic: false,
-                hardwareIdentifier: "iPhone15,2"
-            ) == false
-        )
-        #expect(
-            ProcessInfo.hasTXMSupport(
-                isIOS266OrNewer: false,
-                hasTXMClassic: true,
-                hardwareIdentifier: "iPhone1,1"
-            ) == true
-        )
-    }
-
-    @Test func txmDetectionUsesClassicTXMWhenAvailableOnIOS266() async throws {
-        #expect(
-            ProcessInfo.hasTXMSupport(
-                isIOS266OrNewer: true,
-                hasTXMClassic: true,
-                hardwareIdentifier: "iPhone1,1"
-            ) == true
-        )
-    }
-
-    @Test func txmDetectionFallsBackToIPhoneThresholdOnIOS266() async throws {
-        #expect(
-            ProcessInfo.hasTXMSupport(
-                isIOS266OrNewer: true,
-                hasTXMClassic: false,
-                hardwareIdentifier: "iPhone14,1"
-            ) == false
-        )
-        #expect(
-            ProcessInfo.hasTXMSupport(
-                isIOS266OrNewer: true,
-                hasTXMClassic: false,
-                hardwareIdentifier: "iPhone14,2"
-            ) == true
-        )
-    }
-
-    @Test func txmDetectionFallsBackToIPadThresholdOnIOS266() async throws {
-        #expect(
-            ProcessInfo.hasTXMSupport(
-                isIOS266OrNewer: true,
-                hasTXMClassic: false,
-                hardwareIdentifier: "iPad14,4"
-            ) == false
-        )
-        #expect(
-            ProcessInfo.hasTXMSupport(
-                isIOS266OrNewer: true,
-                hasTXMClassic: false,
-                hardwareIdentifier: "iPad14,5"
-            ) == true
-        )
-    }
+    // 上游 iOS 26.6 TXM 偵測的 4 個測試已移除：它們呼叫的是新版 hasTXMSupport(isIOS266OrNewer:hasTXMClassic:hardwareIdentifier:)，本分支的上游程式還是舊版只收 hardwareIdentifier，整個測試目標因此編不過。
 
     @Test func deviceVersionParsesSupportedIdentifiers() async throws {
         #expect(ProcessInfo.processInfo.deviceVersion(from: "iPhone14,2") == 14.2)
