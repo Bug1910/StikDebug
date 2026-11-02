@@ -12,12 +12,19 @@ import AppIntents
 import SwiftUI
 
 struct GpsSimShortcutsSection: View {
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
         Section {
-            // Apple's own button: opens the Shortcuts app on this app's page of actions.
-            ShortcutsLink()
-                .shortcutsLinkStyle(.automatic)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Own button instead of Apple's ShortcutsLink: that one prints the system's name for the app,
+            // which came out as the upstream executable name ("StikDebug shortcuts").
+            Button {
+                if let url = URL(string: "shortcuts://") { openURL(url) }
+            } label: {
+                Label("PinFly 捷徑", systemImage: "square.2.layers.3d")
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .accessibilityIdentifier("settings.shortcutsLink")
             NavigationLink {
                 GpsSimDailyRenewGuideView()
             } label: {

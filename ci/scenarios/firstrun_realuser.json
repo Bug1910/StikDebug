@@ -1,0 +1,265 @@
+[
+ {
+  "persona": "第一次用 PinFly 的真實使用者",
+  "situation": "裝好後第一次打開：看引導、搜尋台北101、把圖釘拖到旁邊的建築、改範圍、存起來；點地圖上的圖釘前往、再編輯改名，最後停止模擬",
+  "note": "firstrun_realuser, iPhone 16 393x852, order taken from the owner's own run on 2026-11-02 (phone3 018-067). -GpsSimCI: invisible map.pin.* markers so AXe can tap/drag pins, and 前往 pretends the send worked (no phone behind the simulator). Guide never auto-shows on a simulator, so it is opened from Settings."
+ },
+ {
+  "relaunch": ["-GpsSimDemo", "home", "-GpsSimCI"]
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "01_start"
+ },
+ {
+  "tapId": "btn.settings"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "settings.onboarding"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "02_guide_step1"
+ },
+ {
+  "tree": "guide_step1"
+ },
+ {
+  "tapId": "onboarding.skip",
+  "note": "step 1 略過"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "03_guide_step2"
+ },
+ {
+  "tapId": "onboarding.close",
+  "note": "toolbar 稍後 -> confirm dialog"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "04_later_dialog"
+ },
+ {
+  "expect": "稍後再看？"
+ },
+ {
+  "tap": "繼續引導"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "onboarding.skip"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "onboarding.skip"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "onboarding.skip"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "onboarding.skip"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "onboarding.skip",
+  "note": "last step: the guide closes"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "05_guide_done"
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "type": "台北101\n"
+ },
+ {
+  "wait": 5
+ },
+ {
+  "shot": "06_search_results"
+ },
+ {
+  "tapId": "search.result.0"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "07_draft"
+ },
+ {
+  "tree": "draft"
+ },
+ {
+  "expect": "map.pin.draft"
+ },
+ {
+  "drag": ["map.pin.draft", 90, -70],
+  "note": "press-and-hold the draft pin, drag it to the next building"
+ },
+ {
+  "wait": 5,
+  "note": "reverse geocoding needs the network"
+ },
+ {
+  "shot": "08_dragged"
+ },
+ {
+  "tree": "dragged"
+ },
+ {
+  "expect": "!draft.address",
+  "note": "the search address row goes away once the pin has moved (proves the drag landed)"
+ },
+ {
+  "tapId": "size.m"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "09_size_medium"
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "10_saved_toast"
+ },
+ {
+  "expect": "已儲存"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "map.pin.last"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "11_pin_menu"
+ },
+ {
+  "tree": "pin_menu"
+ },
+ {
+  "expect": "pin.menu.go"
+ },
+ {
+  "tapId": "pin.menu.go"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "12_simulating"
+ },
+ {
+  "tree": "simulating"
+ },
+ {
+  "expect": "!目前已停止",
+  "note": "the red stop button is armed (停止模擬)"
+ },
+ {
+  "tapId": "map.pin.last"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "pin.menu.edit"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "13_edit_on_map"
+ },
+ {
+  "tree": "edit_on_map"
+ },
+ {
+  "tapId": "draft.name"
+ },
+ {
+  "selectAll": true
+ },
+ {
+  "type": "我的觀景台\n"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "expect": "儲存變更",
+  "note": "edit mode: the save button reads 儲存變更, not ＋ 存成地點"
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "14_renamed"
+ },
+ {
+  "expect": "已儲存「我的觀景台」"
+ },
+ {
+  "expectRow": ["place.row.", "我的觀景台"],
+  "note": "the place list really holds the new name (not only the toast)"
+ },
+ {
+  "tapId": "btn.stop"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "15_stopped"
+ },
+ {
+  "tree": "stopped"
+ },
+ {
+  "expect": "目前已停止"
+ }
+]

@@ -117,6 +117,22 @@ private struct GpsDraft {
     var size: GpsSize = .small
     /// ＋ button: the point follows the map centre (crosshair) until saved.
     var followsCenter = false
+    /// Set = editing this saved place on the map (pin menu 「編輯」); saving updates it in place.
+    var editing: GpsPlace?
+    /// A saved radius that is not one of 小/中/大 (e.g. 2000 m from the PC): kept until a size is tapped.
+    var keptRadius: Double?
+
+    var radius: Double { keptRadius ?? size.meters }
+}
+
+/// What a press-and-hold on the map is doing once the finger moves.
+private enum GpsPressTarget {
+    /// Dragging the draft pin; `offset` keeps the pin tip where it was relative to the finger.
+    case draft(offset: CGSize)
+    /// Ordinary long-press: a new place where the finger lifts.
+    case newPlace
+    /// Editing a saved place and the hold is outside its pin and circle: do nothing (unsaved edits stay).
+    case ignored
 }
 
 /// What the camera framed on its own (re-applied when the overlays change size).
@@ -281,6 +297,22 @@ struct GpsSimHomeView: View {
     /// dropping the keyboard focus never flickers the page away.
     @State private var searchMode = false
     @FocusState private var draftNameFocused: Bool
+    /// Saved place whose pin was tapped: the bottom card offers 編輯 / 前往.
+    @State private var pinMenuID: String?
+    /// Map panning is off while a press-and-hold is moving a pin (set the moment the hold is recognised).
+    @State private var mapLocked = false
+    /// The draft pin is being dragged: drawn lifted, with a shadow on the real point.
+    @State private var pinLifted = false
+    @State private var pressTarget: GpsPressTarget?
+    /// Set the moment a hold is recognised: the tap that may fire on the same lift is swallowed.
+    /// Cleared 0.35 s after the press ends, or when a cancelled press is cleaned up.
+    @State private var pressConsumed = false
+    /// When the last press-and-hold ended; a tap within 0.35 s of it is the same lift.
+    @State private var pressEndAt = Date.distantPast
+    /// Where the dragged pin was before the drag, so a cancelled drag puts it back.
+    @State private var dragOrigin: CLLocationCoordinate2D?
+    /// Resets itself when the press gesture ends or is cancelled, so the map is never left locked.
+    @GestureState private var pressActive = false
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
 
@@ -330,6 +362,10 @@ struct GpsSimHomeView: View {
     private var demoIsError: Bool {
         ["error", "errorNoWifi", "errorVPN"].contains(Self.demoState ?? "")
     }
+    /// CI scenarios only (`-GpsSimCI`, honoured only together with `-GpsSimDemo`): 前往 pretends the send
+    /// worked, and invisible markers over the pins give AXe something to tap and drag (the map itself is
+    /// hidden from accessibility). Normal launches never see either.
+    private static let ciMode: Bool = demoState != nil && ProcessInfo.processInfo.arguments.contains("-GpsSimCI")
 
     /// Screenshot-only: `-GpsSimDemoWidth <pt>` (and optional `-GpsSimDemoHeight <pt>`), honoured only
     /// together with `-GpsSimDemo`. Squeezes the screen to that size so CI can show Display Zoom widths.
@@ -430,6 +466,8 @@ struct GpsSimHomeView: View {
         .onReceive(Self.minuteTick) { signNow = $0 }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
+            // Leaving the app mid-drag: the gesture never ends, so put the pin back and unlock the map.
+            if phase != .active, mapLocked || pinLifted || pressTarget != nil { cancelPress() }
             if phase == .active {
                 signNow = Date()
                 refreshFromDisk(startTunnel: true)
@@ -594,6 +632,7 @@ struct GpsSimHomeView: View {
     /// Only then do the pulse and the mint colour show, so the screen never claims more than we know.
     private func confirmation(at now: Date) -> Bool {
         guard engine.activeName != nil else { return false }
+        if Self.ciMode { return true }
         if let demo = Self.demoState {
             if demo == "simulating" { return true }
             if demo == "simulatingStale" { return false }
@@ -1519,6 +1558,7 @@ struct GpsSimHomeView: View {
                 Button {
                     clearToast()
                     draft = nil
+                    pinMenuID = nil
                     managing.toggle()
                 } label: {
                     Image(systemName: "list.bullet")
@@ -1602,26 +1642,31 @@ struct GpsSimHomeView: View {
 
     private var map: some View {
         MapReader { proxy in
-            Map(position: $position) {
-                ForEach(visiblePlaces) { p in
+            // Panning stops while a press-and-hold moves a pin (mapLocked is set when the hold is recognised,
+            // before the finger moves), so dragging the pin never also drags the map.
+            Map(position: $position, interactionModes: mapLocked ? MapInteractionModes() : .all) {
+                ForEach(mapPlaces) { p in
                     let c = pinColor(p)
                     let failed = failedPlaceID == p.id && !isActivePlace(p)
                     MapCircle(center: p.coordinate, radius: GpsGeo.radius(of: p))
                         .foregroundStyle(c.opacity(isActivePlace(p) ? 0.18 : (failed ? 0.04 : 0.10)))
                         .stroke(c.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, dash: failed ? [6, 4] : []))
                 }
-                ForEach(visiblePlaces) { p in
+                ForEach(mapPlaces) { p in
                     Annotation(p.name, coordinate: p.coordinate, anchor: .bottom) {
                         GpsPinView(color: pinColor(p))
+                            .scaleEffect(pinMenuID == p.id ? 1.2 : 1, anchor: .bottom)
+                            // Touches go to the map, whose own gestures decide tap (menu) or hold (drag).
+                            .allowsHitTesting(false)
                     }
                 }
                 if let point = draftPoint, let d = draft {
-                    MapCircle(center: point, radius: d.size.meters)
+                    MapCircle(center: point, radius: d.radius)
                         .foregroundStyle(GpsTheme.mint.opacity(0.16))
                         .stroke(GpsTheme.mint, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
                     if !d.followsCenter {
                         Annotation(d.name, coordinate: point, anchor: .bottom) {
-                            GpsPinView(color: GpsTheme.mint)
+                            GpsDraftPinView(lifted: pinLifted)
                         }
                         .annotationTitles(.hidden)
                     }
@@ -1666,33 +1711,232 @@ struct GpsSimHomeView: View {
                 if draft?.followsCenter == true { suggestName(for: context.region.center) }
             }
             .onTapGesture { location in
-                guard let c = proxy.convert(location, from: .local) else { return }
-                searchFocused = false
-                draftNameFocused = false
-                if var d = draft {
-                    // While making a place, a tap moves its point (quick correction).
-                    if !d.followsCenter {
-                        d.coordinate = c
-                        draft = d
-                        suggestName(for: c)
+                // The lift at the end of a press-and-hold is not a tap.
+                // SwiftUI does not promise which gesture callback runs first, so both a flag (set when the
+                // hold is recognised) and a short window after the press ended swallow the tap.
+                if pressConsumed || Date().timeIntervalSince(pressEndAt) < 0.35 {
+                    // A hold cancelled without onEnded (call, Control Centre) left the map locked: unlock it
+                    // once this event is done (a normal end has already reset everything by then).
+                    DispatchQueue.main.async {
+                        if !pressActive, mapLocked || pinLifted { cancelPress() }
                     }
                     return
                 }
-                if let hit = placeHit(at: location, proxy: proxy) { fly(hit) }
+                if mapLocked || pinLifted { cancelPress() }
+                guard let c = proxy.convert(location, from: .local) else { return }
+                searchFocused = false
+                draftNameFocused = false
+                if let d = draft {
+                    // While making a place, a tap moves its point (quick correction).
+                    if !d.followsCenter { moveDraft(to: c) }
+                    return
+                }
+                // One tap on a saved place = its menu (編輯 / 前往); a tap elsewhere closes it.
+                pinMenuID = placeHit(at: location, proxy: proxy)?.id
             }
-            // Long-press anywhere -> new place there (Apple Maps "drop a pin"). The drag after the
-            // press only exists to read where the finger is; the ＋ button is the visible alternative.
+            // Hold recognised (finger still down, not moved yet): stop panning now, so the drag that
+            // follows moves the pin and not the map. Released by pressEnded / resetPress.
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.45)
+                    .onEnded { _ in
+                        mapLocked = true
+                        pressConsumed = true
+                    }
+            )
+            // Press-and-hold: on the new-place pin or circle = drag it; on a saved pin = edit that place and
+            // drag it; anywhere else = new place where the finger lifts (Apple Maps "drop a pin").
+            // The ＋ button, tap-to-move and the VoiceOver actions are the non-drag alternatives (WCAG 2.5.7).
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.45)
                     .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                    .updating($pressActive) { value, state, _ in
+                        if case .second(true, _) = value { state = true }
+                    }
+                    .onChanged { value in
+                        guard case .second(true, let drag?) = value else { return }
+                        pressMoved(drag, proxy: proxy)
+                    }
                     .onEnded { value in
-                        guard case .second(true, let drag?) = value,
-                              let c = proxy.convert(drag.location, from: .local) else { return }
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        startDraft(at: c, name: nil)
+                        pressEnded(value, proxy: proxy)
                     }
             )
+            .onChange(of: pressActive) { _, active in
+                // Cancelled gestures skip onEnded; give a normal end time to run first, then clean up.
+                guard !active else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if !pressActive, mapLocked || pinLifted { cancelPress() }
+                }
+            }
+            .overlay {
+                if Self.ciMode { ciPinMarkers(proxy) }
+            }
         }
+    }
+
+    /// Saved places drawn on the map: the one being edited is drawn as the draft instead.
+    private var mapPlaces: [GpsPlace] {
+        guard let id = draft?.editing?.id else { return visiblePlaces }
+        return visiblePlaces.filter { $0.id != id }
+    }
+
+    private var pinMenuPlace: GpsPlace? {
+        guard let id = pinMenuID else { return nil }
+        return visiblePlaces.first { $0.id == id }
+    }
+
+    // MARK: - Dragging a pin
+
+    /// Every movement after the hold. The first one decides what the press is doing.
+    private func pressMoved(_ drag: DragGesture.Value, proxy: MapProxy) {
+        if pressTarget == nil { pressTarget = beginPress(at: drag.startLocation, proxy: proxy) }
+        guard case .draft(let offset)? = pressTarget else { return }
+        let tip = CGPoint(x: drag.location.x + offset.width, y: drag.location.y + offset.height)
+        guard let c = proxy.convert(tip, from: .local) else { return }
+        // Live: the pin and the dashed circle follow the finger.
+        draft?.coordinate = c
+    }
+
+    private func beginPress(at start: CGPoint, proxy: MapProxy) -> GpsPressTarget {
+        if let d = draft {
+            if !d.followsCenter, draftHit(at: start, proxy: proxy) {
+                // fall through: drag the draft
+            } else {
+                return d.editing != nil ? .ignored : .newPlace
+            }
+        } else if let p = pinHit(at: start, proxy: proxy) {
+            startEditDraft(p, refocus: false)
+        } else {
+            return .newPlace
+        }
+        guard let d = draft, let tip = proxy.convert(d.coordinate, to: .local) else { return .newPlace }
+        draftNameFocused = false
+        dragOrigin = d.coordinate
+        pinLifted = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // Keep the finger where it grabbed the pin, so the pin does not jump under it.
+        return .draft(offset: CGSize(width: tip.x - start.x, height: tip.y - start.y))
+    }
+
+    private func pressEnded(_ value: SequenceGesture<LongPressGesture, DragGesture>.Value, proxy: MapProxy) {
+        let target = pressTarget
+        let heldStill = target == nil
+        resetPress()
+        // The tap from this same lift may arrive before or after this callback: keep swallowing for 0.35 s.
+        pressEndAt = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { pressConsumed = false }
+        if case .ignored? = target { return }
+        if case .draft? = target {
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            if let c = draft?.coordinate { moveDraft(to: c) }
+            return
+        }
+        guard case .second(true, let drag?) = value else { return }
+        if heldStill {
+            // Held still on the new-place pin: nothing to do. On a saved pin: open it for editing.
+            if let d = draft, !d.followsCenter, draftHit(at: drag.location, proxy: proxy) { return }
+            // Editing a saved place: a hold elsewhere must not throw the unsaved edits away.
+            if draft?.editing != nil { return }
+            if draft == nil, let p = pinHit(at: drag.location, proxy: proxy) {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                startEditDraft(p)
+                return
+            }
+        }
+        guard let c = proxy.convert(drag.location, from: .local) else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        startDraft(at: c, name: nil)
+    }
+
+    private func resetPress() {
+        mapLocked = false
+        pinLifted = false
+        pressTarget = nil
+        dragOrigin = nil
+    }
+
+    /// A press that never ended normally (app left, call, cancelled gesture): the pin goes back to where
+    /// it was before the drag, and the map is unlocked.
+    private func cancelPress() {
+        if case .draft? = pressTarget, let origin = dragOrigin { draft?.coordinate = origin }
+        resetPress()
+        pressConsumed = false
+    }
+
+    /// The new-place pin (up to 44 pt above its point, 22 pt either side) or anywhere in its circle.
+    private func draftHit(at location: CGPoint, proxy: MapProxy) -> Bool {
+        guard let d = draft, let center = proxy.convert(d.coordinate, to: .local) else { return false }
+        let dist = hypot(location.x - center.x, location.y - center.y)
+        let inPin = abs(location.x - center.x) <= 22 && location.y >= center.y - 44 && location.y <= center.y + 8
+        return inPin || dist <= max(22, radiusPoints(d.coordinate, d.radius, center: center, proxy: proxy))
+    }
+
+    /// A saved place's pin only (not its circle: a hold inside a big circle still makes a new place).
+    private func pinHit(at location: CGPoint, proxy: MapProxy) -> GpsPlace? {
+        var best: (place: GpsPlace, dist: CGFloat)?
+        for p in mapPlaces {
+            guard let center = proxy.convert(p.coordinate, to: .local) else { continue }
+            guard abs(location.x - center.x) <= 22,
+                  location.y >= center.y - 44, location.y <= center.y + 8 else { continue }
+            let dist = hypot(location.x - center.x, location.y - (center.y - 20))
+            if best == nil || dist < best!.dist { best = (p, dist) }
+        }
+        return best?.place
+    }
+
+    private func radiusPoints(_ c: CLLocationCoordinate2D, _ meters: Double, center: CGPoint, proxy: MapProxy) -> CGFloat {
+        let edge = CLLocationCoordinate2D(
+            latitude: c.latitude,
+            longitude: c.longitude + meters / (111_320 * max(cos(c.latitude * Double.pi / 180), 0.01))
+        )
+        guard let e = proxy.convert(edge, to: .local) else { return 0 }
+        return hypot(e.x - center.x, e.y - center.y)
+    }
+
+    /// Moves the new-place point (drag end, tap, VoiceOver action) and names it again from the address
+    /// under it, unless the name was typed by hand. The old search address no longer applies.
+    private func moveDraft(to c: CLLocationCoordinate2D) {
+        guard var d = draft, !d.followsCenter else { return }
+        d.coordinate = c
+        d.address = nil
+        draft = d
+        suggestName(for: c)
+    }
+
+    /// VoiceOver / Switch Control alternative to dragging: 10 m steps.
+    private func nudgeDraft(north: Double, east: Double, label: String) {
+        guard let c = draft?.coordinate else { return }
+        let moved = CLLocationCoordinate2D(
+            latitude: c.latitude + north / 111_320,
+            longitude: c.longitude + east / (111_320 * max(cos(c.latitude * Double.pi / 180), 0.01))
+        )
+        moveDraft(to: moved)
+        AccessibilityAnnouncer.announce("已\(label)")
+    }
+
+    /// CI only: invisible, accessible markers over the pins so AXe can find, tap and drag them.
+    private func ciPinMarkers(_ proxy: MapProxy) -> some View {
+        var marks: [(String, CLLocationCoordinate2D)] = []
+        if let d = draft, !d.followsCenter { marks.append(("map.pin.draft", d.coordinate)) }
+        for p in mapPlaces {
+            marks.append(("map.pin.\(p.id)", p.coordinate))
+            if p.id == lastSavedPlaceID { marks.append(("map.pin.last", p.coordinate)) }
+        }
+        let points: [GpsCIMark] = marks.compactMap { m in
+            guard let pt = proxy.convert(m.1, to: .local) else { return nil }
+            return GpsCIMark(id: m.0, point: pt)
+        }
+        return ZStack {
+            ForEach(points) { mark in
+                Color.white.opacity(0.001)
+                    .frame(width: 24, height: 24)
+                    .position(x: mark.point.x, y: mark.point.y - 18)
+                    .accessibilityElement()
+                    .accessibilityLabel(mark.id)
+                    .accessibilityIdentifier(mark.id)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
     }
 
     /// Screen-space hit test: the pin (up to 44 pt above the centre), a 22 pt touch radius
@@ -1884,6 +2128,14 @@ struct GpsSimHomeView: View {
         lastFly = (p.id, Date())
         clearToast()
         searchFocused = false
+        pinMenuID = nil
+        if Self.ciMode {
+            // CI scenario: no phone behind the simulator, so show what a successful send leaves.
+            demoStopped = false
+            engine.applyDemoSimulation(name: p.name, coordinate: p.coordinate)
+            focus(on: p.coordinate, radius: GpsGeo.radius(of: p))
+            return
+        }
         sendingPlaceID = p.id
         focus(on: p.coordinate, radius: GpsGeo.radius(of: p))
         engine.send(place: p) { code in sendFinished(code, placeID: p.id) }
@@ -1940,7 +2192,7 @@ struct GpsSimHomeView: View {
                         showSettings = true
                     }
                 } else {
-                    GpsBannerRow(banner: b, compact: draft != nil || managing,
+                    GpsBannerRow(banner: b, compact: draft != nil || managing || pinMenuID != nil,
                                  foldSteps: UIScreen.main.bounds.height < 700 || largeText)
                 }
             }
@@ -1953,6 +2205,8 @@ struct GpsSimHomeView: View {
                 draftCard(d)
             } else if managing {
                 manageCard
+            } else if let p = pinMenuPlace {
+                pinMenuCard(p)
             } else if store.places.isEmpty {
                 emptyCard
             } else {
@@ -2213,6 +2467,74 @@ struct GpsSimHomeView: View {
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
+    // MARK: - Pin menu (one tap on a saved pin)
+
+    /// Tap = this card; press-and-hold on the pin = drag (see pressMoved). Two actions only.
+    private func pinMenuCard(_ p: GpsPlace) -> some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(p.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    Text("範圍 \(Int(GpsGeo.radius(of: p).rounded())) 公尺")
+                        .font(.footnote)
+                        .foregroundStyle(GpsTheme.sub)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .accessibilityElement(children: .combine)
+                Button {
+                    pinMenuID = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(GpsTheme.sub)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("關閉")
+                .accessibilityIdentifier("pin.menu.close")
+            }
+            HStack(spacing: 8) {
+                Button {
+                    startEditDraft(p)
+                } label: {
+                    Text("編輯")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(GpsTheme.mint)
+                        .overlay(Capsule().stroke(GpsTheme.mint, lineWidth: 1.5))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("名稱、範圍、位置")
+                .accessibilityIdentifier("pin.menu.edit")
+                Button {
+                    fly(p)
+                } label: {
+                    Text("前往")
+                        .font(.body.weight(.bold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(GpsTheme.background)
+                        .background(GpsTheme.mint, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(engine.isBusy)
+                .accessibilityHint("模擬到這個地點")
+                .accessibilityIdentifier("pin.menu.go")
+            }
+        }
+        .padding(12)
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GpsTheme.mint.opacity(0.45), lineWidth: 1))
+    }
+
     // MARK: - New place card
 
     private func draftCard(_ d: GpsDraft) -> some View {
@@ -2221,9 +2543,10 @@ struct GpsSimHomeView: View {
             set: { draft?.name = $0; draft?.nameEdited = true }
         )
         let sizeBinding = Binding<GpsSize?>(
-            get: { draft?.size },
-            set: { if let s = $0 { draft?.size = s } }
+            get: { draft?.keptRadius == nil ? draft?.size : nil },
+            set: { if let s = $0 { draft?.size = s; draft?.keptRadius = nil } }
         )
+        let isEdit = d.editing != nil
         return VStack(spacing: 10) {
             if d.followsCenter {
                 Text("拖動地圖，讓十字對準位置")
@@ -2253,7 +2576,7 @@ struct GpsSimHomeView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("取消新增")
+                .accessibilityLabel(isEdit ? "取消編輯" : "取消新增")
                 .accessibilityIdentifier("draft.cancel")
             }
             if let address = d.address, !address.isEmpty {
@@ -2265,12 +2588,31 @@ struct GpsSimHomeView: View {
                     .padding(.horizontal, 12)
                     .accessibilityIdentifier("draft.address")
             }
+            if !d.followsCenter {
+                // Tells sighted users the pin can be dragged; for VoiceOver it is the adjustable
+                // position (the map itself is hidden from VoiceOver), moved in 10 m steps.
+                Label("按住拖動", systemImage: "hand.point.up.left")
+                    .font(.footnote)
+                    .foregroundStyle(GpsTheme.sub)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("位置")
+                    .accessibilityValue(String(format: "緯度 %.5f，經度 %.5f",
+                                               d.coordinate.latitude, d.coordinate.longitude))
+                    .accessibilityHint("以動作往東、南、西、北移動 10 公尺")
+                    .accessibilityAction(named: "往北移 10 公尺") { nudgeDraft(north: 10, east: 0, label: "往北移 10 公尺") }
+                    .accessibilityAction(named: "往南移 10 公尺") { nudgeDraft(north: -10, east: 0, label: "往南移 10 公尺") }
+                    .accessibilityAction(named: "往東移 10 公尺") { nudgeDraft(north: 0, east: 10, label: "往東移 10 公尺") }
+                    .accessibilityAction(named: "往西移 10 公尺") { nudgeDraft(north: 0, east: -10, label: "往西移 10 公尺") }
+                    .accessibilityIdentifier("draft.moveHint")
+            }
             GpsSizePicker(selection: sizeBinding)
             HStack(spacing: 8) {
                 Button {
-                    flyDraftOnly()
+                    if isEdit { openFullEdit() } else { flyDraftOnly() }
                 } label: {
-                    Text("只飛過去")
+                    Text(isEdit ? "更多設定" : "只飛過去")
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
@@ -2280,12 +2622,12 @@ struct GpsSimHomeView: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("僅定位")
-                .accessibilityIdentifier("draft.flyOnly")
+                .accessibilityHint(isEdit ? "隱藏、刪除" : "僅定位")
+                .accessibilityIdentifier(isEdit ? "draft.more" : "draft.flyOnly")
                 Button {
                     saveDraft()
                 } label: {
-                    Text("＋ 存成地點")
+                    Text(isEdit ? "儲存變更" : "＋ 存成地點")
                         .font(.body.weight(.bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
@@ -2309,15 +2651,55 @@ struct GpsSimHomeView: View {
         clearToast()
         searchMode = false
         managing = false
-        draft = GpsDraft(coordinate: c, name: name ?? defaultDraftName, nameEdited: name != nil, address: address)
+        pinMenuID = nil
+        // A search / link name is not typed by hand: moving the pin may rename it (nameEdited stays false).
+        draft = GpsDraft(coordinate: c, name: name ?? defaultDraftName, address: address)
         focus(on: c, radius: GpsSize.small.meters)
         if name == nil { suggestName(for: c) }
+    }
+
+    /// Pin menu 「編輯」 (or a hold on a saved pin): the place becomes the draft on the map, so it can be
+    /// dragged, renamed and resized in place. Its saved name counts as typed and is never replaced.
+    private func startEditDraft(_ p: GpsPlace, refocus: Bool = true) {
+        clearToast()
+        searchMode = false
+        managing = false
+        pinMenuID = nil
+        var d = GpsDraft(coordinate: p.coordinate, name: p.name, nameEdited: true)
+        d.editing = p
+        if let s = GpsSize.matching(p.radius) {
+            d.size = s
+        } else {
+            d.keptRadius = GpsGeo.radius(of: p)
+        }
+        draft = d
+        if refocus { focus(on: p.coordinate, radius: d.radius) }
+    }
+
+    /// 「更多設定」 in map editing: the full sheet (hide, delete) with the changes made so far.
+    private func openFullEdit() {
+        guard let d = draft, let place = editedPlace(from: d) else { return }
+        draftNameFocused = false
+        draft = nil
+        editing = place
+    }
+
+    private func editedPlace(from d: GpsDraft) -> GpsPlace? {
+        guard var place = d.editing else { return nil }
+        let trimmed = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { place.name = trimmed }
+        place.lat = d.coordinate.latitude
+        place.lon = d.coordinate.longitude
+        // nil = untouched odd radius: upsert keeps the stored one.
+        place.radius = d.keptRadius == nil ? d.size.meters : nil
+        return place
     }
 
     private func startDraftAtCenter() {
         clearToast()
         managing = false
         let c = mapCenter ?? GpsTheme.taiwanRegion.center
+        pinMenuID = nil
         draft = GpsDraft(coordinate: c, name: defaultDraftName, followsCenter: true)
         suggestName(for: c)
     }
@@ -2356,6 +2738,17 @@ struct GpsSimHomeView: View {
     private func saveDraft() {
         guard let d = draft else { return }
         draftNameFocused = false
+        if let place = editedPlace(from: d) {
+            store.upsert(place)
+            draft = nil
+            lastSavedPlaceID = place.id
+            flashFreshID = place.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                if flashFreshID == place.id { flashFreshID = nil }
+            }
+            showToast("已儲存「\(place.name)」", autoClear: true)
+            return
+        }
         let trimmed = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let point = draftPoint ?? d.coordinate
         let place = GpsPlace(name: trimmed.isEmpty ? defaultDraftName : trimmed,
@@ -2368,10 +2761,10 @@ struct GpsSimHomeView: View {
             if flashFreshID == place.id { flashFreshID = nil }
         }
         guard canSend else {
-            showToast("已存「\(place.name)」", autoClear: true)
+            showToast("已儲存「\(place.name)」", autoClear: true)
             return
         }
-        showToast("已存「\(place.name)」", actionTitle: "飛過去", action: {
+        showToast("已儲存「\(place.name)」", actionTitle: "飛過去", action: {
             fly(store.places.first(where: { $0.id == place.id }) ?? place)
         }, autoClear: true, duration: 6)
     }
@@ -2897,6 +3290,34 @@ private struct GpsPinView: View {
         .frame(width: 28, height: 37)
         .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
     }
+}
+
+/// The new-place pin. While dragged it lifts (bigger, higher) and a shadow marks the real point,
+/// like Apple Maps' dropped pin; with Reduce Motion it changes without the spring.
+private struct GpsDraftPinView: View {
+    let lifted: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Ellipse()
+                .fill(Color.black.opacity(lifted ? 0.5 : 0))
+                .frame(width: 16, height: 6)
+                .offset(y: 3)
+            GpsPinView(color: GpsTheme.mint)
+                .scaleEffect(lifted ? 1.25 : 1, anchor: .bottom)
+                .offset(y: lifted ? -14 : 0)
+        }
+        .frame(width: 28, height: 37, alignment: .bottom)
+        .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.7), value: lifted)
+        .allowsHitTesting(false)
+    }
+}
+
+/// CI marker over one pin (see ciPinMarkers).
+private struct GpsCIMark: Identifiable {
+    let id: String
+    let point: CGPoint
 }
 
 /// Status dot. Rings pulse only while the last confirmation is fresh; static with Reduce Motion.

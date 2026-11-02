@@ -122,9 +122,74 @@ for n, step in enumerate(steps, 1):
                 time.sleep(1.5)
                 r = sh("axe", "tap", "-x", val[0], "-y", val[1], "--udid", udid, check=False)
             ok, detail = r.returncode == 0, r.stderr.strip()[:200]
+        elif kind == "drag":  # ["<accessibility id>", dx, dy]: press-and-hold that element, then move by (dx, dy) pt
+            def find_frame(node, uid):
+                if isinstance(node, list):
+                    for x in node:
+                        hit = find_frame(x, uid)
+                        if hit:
+                            return hit
+                elif isinstance(node, dict):
+                    f = node.get("frame") or {}
+                    if node.get("AXUniqueId") == uid and f.get("height", 0) > 0:
+                        return f
+                    return find_frame(node.get("children") or [], uid)
+                return None
+            try:
+                frame = find_frame(json.loads(tree_dump().stdout), val[0])
+            except ValueError:
+                frame = None
+            if frame is None:
+                ok, detail = False, "no element with id " + val[0]
+            else:
+                sx, sy = int(frame["x"] + frame["width"] / 2), int(frame["y"] + frame["height"] / 2)
+                ex, ey = sx + int(val[1]), sy + int(val[2])
+                # The app needs a 0.45 s hold before the finger moves (else the map pans). `axe drag` has no
+                # hold flag (--pre-delay waits BEFORE touch-down), but its event list is fixed (AXe
+                # HIDInteractor.makeCompositeDragEvent): down, 0.05 s, then per step delay(duration/steps) + move,
+                # then up. duration 3 / steps 3 = first move at 1.05 s after touch-down, i.e. held still past 0.45 s.
+                # No swipe fallback: swipe's timing is not documented, a silent non-hold would look like a pass.
+                r = sh("axe", "drag", "--start-x", str(sx), "--start-y", str(sy), "--end-x", str(ex), "--end-y", str(ey),
+                       "--duration", "3", "--steps", "3", "--udid", udid, check=False)
+                ok, detail = r.returncode == 0, ("%d,%d -> %d,%d " % (sx, sy, ex, ey) + (r.stderr or r.stdout).strip())[:200]
+        elif kind == "expect":  # text (or "!text" = must be absent) somewhere in the accessibility tree
+            want = not val.startswith("!")
+            text = val if want else val[1:]
+            raw = tree_dump().stdout or ""
+            try:  # compare decoded text, in case the dump escapes non-ASCII as \uXXXX
+                raw = json.dumps(json.loads(raw), ensure_ascii=False)
+            except ValueError:
+                pass
+            found = text in raw
+            ok, detail = found == want, ("" if found == want else ("missing: " if want else "still shown: ") + text)
+        elif kind == "expectRow":  # ["<id prefix>", "text"]: some element with that id prefix has text in its label
+            def rows(node, out):
+                if isinstance(node, list):
+                    for x in node:
+                        rows(x, out)
+                elif isinstance(node, dict):
+                    if (node.get("AXUniqueId") or "").startswith(val[0]):
+                        out.append(node.get("AXLabel") or "")
+                    rows(node.get("children") or [], out)
+                return out
+            try:
+                labels = rows(json.loads(tree_dump().stdout), [])
+            except ValueError:
+                labels = []
+            ok = any(val[1] in lab for lab in labels)
+            detail = "" if ok else ("no %s* row with %s; rows: %s" % (val[0], val[1], " | ".join(labels)))[:200]
         elif kind == "longPress":  # touch down, hold 1 s, up (AXe `touch --down --up --delay`)
-            r = sh("axe", "touch", "-x", val[0], "-y", val[1], "--down", "--up", "--delay", str(val[2] if len(val) > 2 else 1.0),
-                   "--udid", udid, check=False)
+            # Optional 4th item = an accessibility id that must show up afterwards; if it does not (the
+            # first touch after a relaunch is sometimes swallowed while the map is still settling), press
+            # again, up to 3 presses in all.
+            for attempt in range(3 if len(val) > 3 else 1):
+                r = sh("axe", "touch", "-x", val[0], "-y", val[1], "--down", "--up", "--delay", str(val[2] if len(val) > 2 else 1.0),
+                       "--udid", udid, check=False)
+                if len(val) <= 3 or r.returncode:
+                    break
+                time.sleep(2)
+                if val[3] in (tree_dump().stdout or ""):
+                    break
             ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
         elif kind == "type":
             enter = val.endswith(chr(10))

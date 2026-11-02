@@ -227,12 +227,12 @@ enum PinFlyGuideContent {
                                 image: img("guide_ch2_05", "長按地圖後出現的「新地點」卡片")),
                 PinFlyGuideStep(text: "輸入地點名稱，選擇範圍「小」「中」或「大」。"),
                 PinFlyGuideStep(text: "按「＋ 存成地點」；放棄時按「取消新增」。"),
-            ]),
+            ], note: "位置不對時，按住圖釘拖到正確位置，或點一下地圖上的正確位置；名稱會依新位置更新（自行輸入的名稱不會被取代）。"),
             PinFlyGuideSection(title: "開始定位", steps: [
                 PinFlyGuideStep(text: "點下方地點列表中的地點。",
                                 image: img("guide_ch2_06", "模擬中的首頁，地點已標示為目前位置")),
                 PinFlyGuideStep(text: "第一次定位時，依提示允許 PinFly 使用位置。"),
-            ], note: "首頁出現「還沒配對」「連不到手機」時，請見「常見錯誤」。"),
+            ], note: "也可點地圖上的圖釘，選「前往」；選「編輯」可在地圖上改名稱、範圍或拖動位置。首頁出現「還沒配對」「連不到手機」時，請見「常見錯誤」。"),
         ]
     )
 
