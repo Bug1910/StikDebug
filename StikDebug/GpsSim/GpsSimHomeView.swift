@@ -7,7 +7,7 @@
 //  - one floating status line + search on top, map tools on the right
 //  - a bottom card with the saved places by name: one tap = fly (random point in its circle)
 //  - long-press the map (or the ＋ button, or a search result) -> card with the name prefilled,
-//    size 小/中/大, 「＋ 存成地點」 saves in one tap
+//    size 小/中/大, 「儲存地點」 saves in one tap
 //  - stop is one tap and always on screen while simulating; stop and switch both get a 10 s undo
 //  No radius numbers, distances or "N seconds ago": the owner only wants to fly somewhere.
 //
@@ -210,7 +210,7 @@ private enum GpsCoordinateInput {
         let second = Double(parts[1])
         guard let lat = first, let lon = second else {
             let which = first == nil ? "緯度" : "經度"
-            return .malformed("座標格式不對：\(which)不是數字（範例：48.8584, 2.2945）")
+            return .malformed("座標格式錯誤：\(which)不是數字（範例：48.8584, 2.2945）")
         }
         guard (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else {
             let swappedValid = (-90.0...90.0).contains(lon) && (-180.0...180.0).contains(lat)
@@ -228,6 +228,8 @@ struct GpsSimHomeView: View {
     @ObservedObject private var mounting = MountingProgress.shared
     @ObservedObject private var network = GpsSimNetwork.shared
     @ObservedObject private var renew = GpsRenewCenter.shared
+    /// 模擬移動／原地漫步的狀態（每秒更新）。
+    @ObservedObject private var mover = GpsSimRouteMover.shared
     /// Sign-in sheet for 「登入並續簽」 on the home reminder card.
     @State private var showRenewSignIn = false
     @Environment(\.scenePhase) private var scenePhase
@@ -313,6 +315,28 @@ struct GpsSimHomeView: View {
     @State private var dragOrigin: CLLocationCoordinate2D?
     /// Resets itself when the press gesture ends or is cancelled, so the map is never left locked.
     @GestureState private var pressActive = false
+
+    // MARK: 模擬移動（規格 3、8、9 節）
+    /// 「移動」底部卡片要去的地點；nil＝卡片沒開。
+    @State private var moveSetup: GpsPlace?
+    /// 卡片開啟時抽好的落點（圓內隨機，與「前往」一致）。
+    @State private var moveDestination: CLLocationCoordinate2D?
+    /// 卡片的預覽路徑（路線查詢最多 8 秒，失敗改直線）。
+    @State private var movePreview: MovePlan?
+    @State private var movePlanning = false
+    @State private var confirmLongMove = false
+    /// 進行中的路線查詢（關卡片時立刻取消）。
+    @State private var moveQuery: GpsSimRouteQuery?
+    /// 這一趟用單車速度（畫面註記「沿步行路線」）。
+    @State private var moveUsesBikePreset = false
+    /// 正在原地漫步的地點（漫步開關的狀態）。
+    @State private var wanderPlaceID: String?
+    @AppStorage("gpsSim.moveMode") var moveModeRaw = MoveMode.route.rawValue
+    @AppStorage("gpsSim.moveSpeed") var moveSpeedRaw = MoveSpeedPreset.walk.rawValue
+    /// 自訂速度（km/h）；選了預設速度就跟著改成該值。moveCustom＝目前用自訂滑桿。
+    @AppStorage("gpsSim.moveKmh") var moveKmh = MoveSpeedPreset.walk.kmh
+    @AppStorage("gpsSim.moveCustom") var moveCustom = false
+    @AppStorage("gpsSim.wanderSize") var wanderSizeRaw = WanderSize.medium.rawValue
 
     private var visiblePlaces: [GpsPlace] { store.sorted.filter { !$0.isHidden } }
 
@@ -411,6 +435,20 @@ struct GpsSimHomeView: View {
                 VStack(spacing: 8) {
                     topControls
                         .layoutPriority(1)
+                    // Without internet the map stays a grey grid with no word why (owner 2026-11-02, 047).
+                    // Under the search bar, not mid-map, so it never covers the ＋ crosshair.
+                    // Only a real "no network path" shows this; slow tiles have no public loading signal.
+                    if !network.hasNetwork, Self.demoState == nil {
+                        Label("無網路，地圖無法載入。已存地點仍可前往。", systemImage: "wifi.slash")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(GpsTheme.card.opacity(0.92), in: Capsule())
+                            .frame(maxWidth: Self.controlWidth)
+                            .allowsHitTesting(false)
+                            .accessibilityIdentifier("map.offline")
+                    }
                     // While search results or a search message are open they get the room
                     // (on an iPhone SE the map area is short; the list was squeezed to nothing).
                     HStack {
@@ -479,26 +517,45 @@ struct GpsSimHomeView: View {
             guard let value else { return }
             // After a stop the previous target is the one just stopped: offer an undo. 3 s as the
             // owner asked; VoiceOver keeps 10 s so 復原 can still be reached (WCAG 2.2.1).
-            if value.hasPrefix("已回到真實位置") || value.hasPrefix("已經是真實位置"), engine.previous != nil {
+            if engine.toastKind == .stopped, engine.previous != nil {
                 showToast(value, actionTitle: "復原", action: { engine.undoLastSend() }, autoClear: true,
                           duration: voiceOverOn ? 10 : 3)
             } else {
                 showToast(value, autoClear: true)
             }
             engine.toast = nil
+            engine.toastKind = .plain
         }
         // `landing` changes only on a real send (resend ticks only move `current`), so keying on it
         // avoids re-toasting every 4 s heartbeat.
         .onChange(of: engine.landing.map { "\($0.latitude),\($0.longitude)" }) { _, key in
             guard key != nil else { return }
+            // 移動中第一點、抵達或結束移動也會改 landing：那不是「換地點」，不出「已換到」。
+            if engine.isMoving || engine.lastMoveEndedAt.map({ Date().timeIntervalSince($0) < 2 }) == true {
+                failedPlaceID = nil
+                return
+            }
             // Any successful send (undo, shortcut, link, search) clears the failed mark; the 4 s
             // heartbeat does not change `landing`, so it cannot clear a newer failure.
             failedPlaceID = nil
             let name = engine.activeName ?? "新位置"
             if engine.previous != nil {
-                showToast("已換到 \(name)", actionTitle: "復原", action: { engine.undoLastSend() }, autoClear: true, duration: 10)
+                showToast("已前往 \(name)", actionTitle: "復原", action: { engine.undoLastSend() }, autoClear: true, duration: 10)
             } else {
-                showToast("已飛到 \(name)", autoClear: true)
+                showToast("已前往 \(name)", autoClear: true)
+            }
+        }
+        .onChange(of: mover.wanderAutoStoppedAt) { _, at in
+            guard at != nil else { return }
+            wanderPlaceID = nil
+            showToast("原地漫步已滿 4 小時，已結束", autoClear: true, duration: 5)
+        }
+        .onChange(of: mover.state) { old, new in
+            if case .paused(let reason) = new, reason != .user, old != new {
+                showToast("連線中斷，已暫停", autoClear: true, duration: 5)
+            }
+            if new == .idle || new == .arrived {
+                if mover.wanderStartedAt == nil { wanderPlaceID = nil }
             }
         }
         // Only the first places (empty -> some) refit the camera; adding one more must not jump away.
@@ -532,6 +589,11 @@ struct GpsSimHomeView: View {
             } else if engine.activeName != nil {
                 AccessibilityAnnouncer.announce("和手機的連線中斷")
             }
+        }
+        // The check at launch runs before the tunnel is up and is skipped (MountingProgress needs the
+        // tunnel), so an image already mounted by a computer kept showing 「未掛載」 (owner 2026-11-02).
+        .onChange(of: tunnel.isConnected) { _, connected in
+            if connected, Self.demoState == nil { mounting.checkforMounted() }
         }
         // Wi-Fi came back (e.g. the 4G airplane + Wi-Fi trick): the JIT tunnel can come up now.
         .onChange(of: network.onWiFi) { _, onWiFi in
@@ -677,13 +739,13 @@ struct GpsSimHomeView: View {
             .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(line + (statusTail(fresh: fresh) ?? ""))
-            .accessibilityHint("點一下看說明")
+            .accessibilityHint("點選以顯示說明")
             .accessibilityIdentifier("status.pill")
             .onTapGesture {
                 if engine.activeName != nil, !fresh {
-                    showToast("和手機的連線中斷。假定位通常還在，不用重按；要換地點或停止，先連上 LocalDevVPN。", autoClear: true, duration: 8)
+                    showToast("連線已中斷，模擬位置仍保留。如需前往其他地點或停止模擬，請先連線 LocalDevVPN。", autoClear: true, duration: 8)
                 } else if !isSimulating {
-                    showToast("現在是手機的真實位置。點下方地點開始模擬。", autoClear: true, duration: 6)
+                    showToast("目前為真實位置。點選下方地點即可前往。", autoClear: true, duration: 6)
                 }
             }
         }
@@ -695,10 +757,11 @@ struct GpsSimHomeView: View {
             return fresh ? "在 \(name)" : name
         }
         if session.isActive { return "在外部連結的位置" }
-        if let stale = engine.staleTarget { return "上次在 \(stale.name)（定位可能仍保留）" }
+        if let stale = engine.staleTarget { return "上次在 \(stale.name)（模擬位置可能仍保留）" }
         if isConnecting { return "連線中…" }
-        if isMountingNow { return "準備中…" }
-        return "點下方地點開始模擬"
+        if isMountingNow { return "掛載中…" }
+        // Short enough not to be cut beside the stop button (021: 「點下方地點開始…」); the tap toast explains more.
+        return "真實位置"
     }
 
     /// Orange tail shown after the place name when the phone has not confirmed the point lately.
@@ -876,7 +939,7 @@ struct GpsSimHomeView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(approximateRows.contains(i) ? "\(item.name ?? "未命名")，最接近的結果，名稱不同"
                                                                     : (item.name ?? "未命名"))
-                    .accessibilityHint("在地圖上標出，可以存成地點")
+                    .accessibilityHint("在地圖上標示，可儲存為地點")
                     .accessibilityIdentifier("search.result.\(i)")
                     if i < searchResults.count - 1 {
                         Rectangle().fill(GpsTheme.line).frame(height: 1).padding(.leading, 14)
@@ -922,7 +985,7 @@ struct GpsSimHomeView: View {
         case .outOfRange(let swapped):
             swappedSuggestion = swapped
             searchResults = []
-            searchMessage = "座標超出範圍：緯度要在 -90～90、經度要在 -180～180，請檢查有沒有填反。"
+            searchMessage = "座標超出範圍。緯度須介於 -90～90、經度須介於 -180～180，請確認是否填反。"
             return
         case .notCoordinate:
             break
@@ -930,7 +993,7 @@ struct GpsSimHomeView: View {
         let normalizedQuery = Self.normalizeQuery(q)
         guard !normalizedQuery.isEmpty else {
             searchResults = []
-            searchMessage = "找不到「\(q)」。試試英文名稱，或長按地圖直接新增。"
+            searchMessage = "找不到「\(q)」。請改用英文名稱，或長按地圖新增。"
             return
         }
         searchFocused = false
@@ -1000,18 +1063,18 @@ struct GpsSimHomeView: View {
                     let shown = Array((close + ff.filter { !Self.nameMatches(query: q, name: $0.name) }).prefix(6))
                     searchResults = shown
                     approximateRows = Set(shown.indices.filter { !Self.nameMatches(query: q, name: shown[$0].name) })
-                    searchMessage = close.isEmpty ? "沒有名稱完全相符的結果，請看清楚再選；也可以試試英文名稱。" : nil
+                    searchMessage = close.isEmpty ? "沒有名稱完全相符的結果。請改用英文名稱，或長按地圖新增。" : nil
                 } else if fslow {
                     searchResults = []
                     // No seconds in the text: the name search and the vague-name fallback each get
                     // searchBudgetSeconds, so the wait can be anything up to twice that.
-                    searchMessage = "網路太慢，搜尋等太久沒有回應。請換個網路再試，或長按地圖直接新增。"
+                    searchMessage = "搜尋逾時，請更換網路後重試。"
                 } else if fnf {
                     searchResults = []
-                    searchMessage = "搜尋需要網路，請確認連線後再試"
+                    searchMessage = "搜尋需要網路。請確認網路連線後重試。"
                 } else {
                     searchResults = []
-                    searchMessage = "找不到「\(q)」。試試英文名稱，或長按地圖直接新增。"
+                    searchMessage = "找不到「\(q)」。請改用英文名稱，或長按地圖新增。"
                 }
             }
         }
@@ -1056,7 +1119,7 @@ struct GpsSimHomeView: View {
                     startDraft(at: c, name: name ?? Self.mapLinkName(final), address: link.address)
                 } else if resolved.networkFailed {
                     searchResults = []
-                    searchMessage = "打開連結需要網路，請確認連線後再試"
+                    searchMessage = "開啟連結需要網路。請確認網路連線後重試。"
                 } else {
                     searchLinkText(name ?? resolved.url.flatMap { Self.mapLinkName($0) } ?? link.address)
                 }
@@ -1600,7 +1663,7 @@ struct GpsSimHomeView: View {
                 Button {
                     openShortcut(url)
                 } label: {
-                    Label("打開捷徑 App", systemImage: "square.stack.3d.up")
+                    Label("開啟「捷徑」App", systemImage: "square.stack.3d.up")
                 }
             }
         } label: {
@@ -1615,7 +1678,7 @@ struct GpsSimHomeView: View {
         // Keep the written order; the system would otherwise flip it when the menu opens upward.
         .menuOrder(.fixed)
         .accessibilityLabel("捷徑")
-        .accessibilityHint("執行「出門改定位續簽」或「出門改定位」，或打開「捷徑」App")
+        .accessibilityHint("執行「出門改定位續簽」或「出門改定位」，或開啟「捷徑」App")
         .accessibilityIdentifier("btn.shortcuts")
     }
 
@@ -1623,7 +1686,7 @@ struct GpsSimHomeView: View {
     private func openShortcut(_ url: URL) {
         clearToast()
         openURL(url) { accepted in
-            if !accepted { showToast("打不開「捷徑」App，請確認它沒有被刪除", autoClear: true) }
+            if !accepted { showToast("無法開啟「捷徑」App。", autoClear: true) }
         }
     }
 
@@ -1678,6 +1741,20 @@ struct GpsSimHomeView: View {
                     MapPolygon(coordinates: legalScrim)
                         .foregroundStyle(Color.black)
                         .mapOverlayLevel(level: .aboveLabels)
+                }
+                if moveSetup != nil, let preview = movePreview, preview.path.count > 1 {
+                    MapPolyline(coordinates: Self.thinned(preview.path))
+                        .stroke(GpsTheme.mint, style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [6, 5]))
+                }
+                if let lines = moveLines {
+                    if lines.walked.count > 1 {
+                        MapPolyline(coordinates: lines.walked)
+                            .stroke(GpsTheme.blue, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    }
+                    if lines.remaining.count > 1 {
+                        MapPolyline(coordinates: lines.remaining)
+                            .stroke(GpsTheme.blue.opacity(0.85), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [6, 5]))
+                    }
                 }
                 if let point = simulatedPoint, isSimulating {
                     Annotation("模擬位置", coordinate: point) {
@@ -2146,6 +2223,8 @@ struct GpsSimHomeView: View {
         guard code != GpsSimEngine.busyCode else { return }
         if code == 0 {
             failedPlaceID = nil
+            // A send that worked proves the image is mounted: drop a stale 「未掛載」 line.
+            if !mounting.coolisMounted { mounting.checkforMounted() }
             return
         }
         // A failed new-place send (no id) must not wipe an earlier failed place's mark.
@@ -2162,20 +2241,20 @@ struct GpsSimHomeView: View {
             || (kind == .pairing && shownIDs.contains("pairing"))
             || (kind == .ddi && shownIDs.contains("ddi"))
         if !explained {
-            showToast("沒送出：\(shortReason(code))", autoClear: true, duration: 8)
+            showToast("前往失敗：\(shortReason(code))", autoClear: true, duration: 8)
         }
     }
 
     private func shortReason(_ code: Int32) -> String {
         switch GpsSimIssue.from(code: code).kind {
-        case .pairing: return "沒有配對檔"
-        case .tunnel: return network.onWiFi ? "連不到手機" : "未連線（只有 4G）"
-        case .ddi: return "DDI 還沒掛載"
+        case .pairing: return "尚未配對"
+        case .tunnel: return network.onWiFi ? "無法連線" : "未連線（僅有行動網路）"
+        case .ddi: return "開發者映像未掛載"
         case .other: return "錯誤 \(code)"
         }
     }
 
-    /// Sending can work now (otherwise the save toast does not offer 飛過去).
+    /// Sending can work now (otherwise the save toast does not offer 前往).
     private var canSend: Bool { demoReady || (pairingExists && linkUp) }
 
     // MARK: - Bottom: toast, banners, then the place card / new-place card / stop bar
@@ -2201,8 +2280,14 @@ struct GpsSimHomeView: View {
 
     private var bottomPanel: some View {
         VStack(spacing: 10) {
-            if let d = draft {
+            if mover.isActive || mover.isPlanning {
+                // 移動中仍可點地圖上的地點：卡片疊在進度卡下方，「前往」會先取消移動再瞬移（規格 3.4）。
+                moveProgressCard
+                if let p = pinMenuPlace { pinMenuCard(p) }
+            } else if let d = draft {
                 draftCard(d)
+            } else if let target = moveSetup {
+                moveSetupCard(target)
             } else if managing {
                 manageCard
             } else if let p = pinMenuPlace {
@@ -2514,6 +2599,22 @@ struct GpsSimHomeView: View {
                 .accessibilityHint("名稱、範圍、位置")
                 .accessibilityIdentifier("pin.menu.edit")
                 Button {
+                    openMoveSetup(p)
+                } label: {
+                    Text("移動")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(GpsTheme.mint)
+                        .overlay(Capsule().stroke(GpsTheme.mint, lineWidth: 1.5))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                // 移動中先結束目前的移動才能設定下一趟（避免在進度卡下偷開設定卡片）。
+                .disabled(engine.isBusy || mover.isActive)
+                .accessibilityHint("以步行、單車或駕車速度沿途移動到這個地點")
+                .accessibilityIdentifier("pin.menu.move")
+                Button {
                     fly(p)
                 } label: {
                     Text("前往")
@@ -2529,6 +2630,7 @@ struct GpsSimHomeView: View {
                 .accessibilityHint("模擬到這個地點")
                 .accessibilityIdentifier("pin.menu.go")
             }
+            wanderRow(p)
         }
         .padding(12)
         .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -2612,7 +2714,7 @@ struct GpsSimHomeView: View {
                 Button {
                     if isEdit { openFullEdit() } else { flyDraftOnly() }
                 } label: {
-                    Text(isEdit ? "更多設定" : "只飛過去")
+                    Text(isEdit ? "更多設定" : "僅前往")
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
@@ -2622,12 +2724,12 @@ struct GpsSimHomeView: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint(isEdit ? "隱藏、刪除" : "僅定位")
+                .accessibilityHint(isEdit ? "隱藏、刪除" : "不儲存，直接模擬到這裡")
                 .accessibilityIdentifier(isEdit ? "draft.more" : "draft.flyOnly")
                 Button {
                     saveDraft()
                 } label: {
-                    Text(isEdit ? "儲存變更" : "＋ 存成地點")
+                    Text(isEdit ? "儲存變更" : "儲存地點")
                         .font(.body.weight(.bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
@@ -2764,7 +2866,7 @@ struct GpsSimHomeView: View {
             showToast("已儲存「\(place.name)」", autoClear: true)
             return
         }
-        showToast("已儲存「\(place.name)」", actionTitle: "飛過去", action: {
+        showToast("已儲存「\(place.name)」", actionTitle: "前往", action: {
             fly(store.places.first(where: { $0.id == place.id }) ?? place)
         }, autoClear: true, duration: 6)
     }
@@ -2847,7 +2949,7 @@ struct GpsSimHomeView: View {
             guard code != 0, code != GpsSimEngine.busyCode else { return }
             // The toast carries the reason and 重試; the duplicate red banner is dropped.
             engine.issue = nil
-            showToast("沒停止：\(GpsSimIssue.from(code: code).message)", actionTitle: "重試",
+            showToast("停止失敗：\(GpsSimIssue.from(code: code).message)", actionTitle: "重試",
                       action: { runStop() }, autoClear: true, duration: 8)
         }
     }
@@ -2883,7 +2985,7 @@ struct GpsSimHomeView: View {
     private var signLineTitle: String {
         if renew.isRunning { return "續簽中…" }
         if renew.failure != nil { return "續簽失敗" }
-        if renew.status.pendingInstall { return "新簽名已下載，等安裝" }
+        if renew.status.pendingInstall { return "描述檔已下載，尚未安裝" }
         guard let expiry = GpsSigning.expiration else { return "簽名快到期" }
         let state = GpsSignState(expiry: expiry, now: signNow)
         return state.level == .expired ? "簽名已過期" : "簽名\(state.remaining)"
@@ -2901,8 +3003,8 @@ struct GpsSimHomeView: View {
                 // The x button hides it so places can be saved first (same as the old 「先存地點」).
                 list.append(GpsBanner(
                     id: "pairing", color: GpsTheme.orange,
-                    title: "還沒配對",
-                    detail: "第一次使用：配對檔是讓 PinFly 改這支手機定位的鑰匙，要用電腦產生一次。沒有電腦也可以先存地點，之後再匯入。",
+                    title: "尚未配對",
+                    detail: "首次使用需以電腦產生配對檔，PinFly 才能變更這支手機的位置。沒有電腦時仍可先儲存地點，之後再匯入。",
                     secondaryTitle: "先隱藏，之後在設定匯入",
                     secondaryAction: { pairingCardDismissed = true },
                     settingsTarget: .pairing
@@ -2912,7 +3014,7 @@ struct GpsSimHomeView: View {
             if tunnelGraceOver {
                 var banner = GpsBanner(
                     id: "tunnel", color: GpsTheme.orange,
-                    title: network.onWiFi ? "連不到手機" : GpsSimNetwork.noWifiTitle,
+                    title: network.onWiFi ? "無法連線" : GpsSimNetwork.noWifiTitle,
                     detail: engine.activeName != nil ? GpsSimNetwork.disconnectedHint : (network.onWiFi ? GpsSimNetwork.checkVPNMessage : GpsSimNetwork.noWifiMessage),
                     buttonTitle: "重試",
                     action: { retryTunnel() }
@@ -2922,8 +3024,8 @@ struct GpsSimHomeView: View {
                     // the numbered 4G steps + shortcut live in Settings › 進階 › 連不上手機時.
                     banner = GpsBanner(
                         id: "tunnel", color: GpsTheme.orange,
-                        title: "未連線（只有 4G）",
-                        detail: engine.activeName != nil ? "假定位仍保留。" : "",
+                        title: "未連線（僅有行動網路）",
+                        detail: engine.activeName != nil ? "模擬位置仍保留。" : "",
                         buttonTitle: "重試",
                         action: { retryTunnel() },
                         secondaryTitle: "步驟",
@@ -2937,8 +3039,8 @@ struct GpsSimHomeView: View {
             // Owner 2026-10-27: one line on home; 掛載 DDI lives in Settings › 進階 › 開發者映像（DDI）.
             list.append(GpsBanner(
                 id: "ddi", color: GpsTheme.orange,
-                title: "DDI 還沒掛載",
-                detail: "模擬定位需要先掛載 DDI（開發者映像）。第一次會先下載，約數十 MB。",
+                title: "開發者映像未掛載",
+                detail: "模擬定位需要 iOS 的開發者映像（DDI）。點這行到設定按「掛載」；電腦已掛載時會自動偵測。",
                 settingsTarget: .ddi
             ))
         }
@@ -2949,11 +3051,24 @@ struct GpsSimHomeView: View {
            !(deviceBannerShown && [.tunnel, .pairing, .ddi].contains(issue.kind)) {
             var banner = GpsBanner(
                 id: "issue", color: GpsTheme.red,
-                title: "定位沒有送出",
-                detail: issue.message,
-                buttonTitle: "知道了",
+                title: "前往失敗",
+                // The engine's error-10 text still points at a 「掛載 DDI」 button that moved to Settings.
+                detail: issue.kind == .ddi
+                    ? "無法開啟定位服務，開發者映像未掛載。請至「設定」點選「掛載」後重試。（錯誤 10）"
+                    : issue.message,
+                buttonTitle: "好",
                 action: { engine.issue = nil }
             )
+            // Every cause that is fixed in Settings gets a way there from the error itself.
+            let fixTarget: GpsSettingsTarget? = issue.kind == .ddi ? .ddi : (issue.kind == .pairing ? .pairing : nil)
+            if let fixTarget {
+                banner.secondaryTitle = "設定"
+                banner.secondaryAction = {
+                    engine.issue = nil
+                    settingsTarget = fixTarget
+                    showSettings = true
+                }
+            }
             // Error code 1 = target IP changed away from LocalDevVPN's default. DeviceConnectionContext
             // has no reset function, so write the default back to the same UserDefaults key it reads.
             if issue.message.hasPrefix("目標 IP") {
@@ -2988,7 +3103,7 @@ struct GpsSimHomeView: View {
                 signBanner.secondaryTitle = nil
                 signBanner.secondaryAction = nil
                 // Installs the waiting signature (no Apple, no sign-in needed).
-                signBanner.buttonTitle = "裝上"
+                signBanner.buttonTitle = "安裝"
                 signBanner.action = {
                     if !renew.renewNow() { settingsTarget = .renew; showSettings = true }
                 }
@@ -3005,7 +3120,7 @@ struct GpsSimHomeView: View {
                 id: "file", color: GpsTheme.orange,
                 title: "地點檔有問題",
                 detail: err,
-                buttonTitle: "知道了",
+                buttonTitle: "好",
                 action: { store.lastLoadError = nil }
             ))
         }
@@ -3077,6 +3192,7 @@ struct GpsSimHomeView: View {
 
     private func handleAppear() {
         if let state = Self.demoState {
+            GpsSimEngine.demoMoveSends = Self.ciMode
             runDemo(state)
             return
         }
@@ -3189,7 +3305,7 @@ struct GpsSimHomeView: View {
                 await MainActor.run { MountingProgress.shared.pubMount() }
             } catch {
                 await MainActor.run {
-                    engine.issue = GpsSimIssue(kind: .ddi, message: "DDI 下載失敗：\(error.localizedDescription)。請確認手機有網路後再按一次。")
+                    engine.issue = GpsSimIssue(kind: .ddi, message: "開發者映像下載失敗：\(error.localizedDescription)。請確認手機已連上網路後重試。")
                 }
             }
         }
@@ -3390,7 +3506,7 @@ private struct GpsStatusLineRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(banner.title + "。" + banner.detail)
-            .accessibilityHint("點兩下打開設定")
+            .accessibilityHint("點兩下開啟設定")
             .accessibilityIdentifier("banner." + banner.id)
             if let title = banner.buttonTitle, let action = banner.action {
                 Button(action: action) {
@@ -3469,7 +3585,7 @@ private struct GpsBannerRow: View {
                 Button {
                     withAnimation { expanded.toggle() }
                 } label: {
-                    Label(expanded ? "收起步驟" : "看步驟", systemImage: expanded ? "chevron.up" : "chevron.down")
+                    Label(expanded ? "收起步驟" : "顯示步驟", systemImage: expanded ? "chevron.up" : "chevron.down")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .frame(minHeight: 44)
@@ -3533,7 +3649,7 @@ private struct GpsBannerRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("打開「捷徑」App 執行")
+                .accessibilityHint("開啟「捷徑」App 執行")
                 .accessibilityIdentifier("banner.shortcut")
             }
         }
@@ -3726,5 +3842,481 @@ private struct GpsStopButtonStyle: ButtonStyle {
             }
             .overlay(Capsule().stroke(armed ? GpsTheme.stopBorder : GpsTheme.idleBorder,
                                       lineWidth: armed ? 1 : 1.5))
+    }
+}
+
+// MARK: - 模擬移動與原地漫步（規格第 3、8、9 節）
+//
+// 「移動」底部卡片（方式、速度、預估）→ 開始後換成進度卡（剩餘、抵達時間、三顆獨立按鈕）。
+// 地圖：卡片開著時畫預覽虛線；移動中已走實線、未走虛線。地點卡片下方是「原地漫步」開關。
+// 引擎在 GpsSimRouteMover／GpsSimRoutePlanner，這裡只有畫面。用語依使用者 11/02 指定的正式用語。
+
+extension GpsSimHomeView {
+    private var moveMode: MoveMode { MoveMode(rawValue: moveModeRaw) ?? .route }
+    private var moveSpeed: MoveSpeedPreset { MoveSpeedPreset(rawValue: moveSpeedRaw) ?? .walk }
+    private var wanderSize: WanderSize { WanderSize(rawValue: wanderSizeRaw) ?? .medium }
+    /// 實際用的速度：自訂＝滑桿值，否則＝預設值。
+    private var moveKmhInUse: Double { moveCustom ? MoveSpeedPreset.clampCustom(moveKmh) : moveSpeed.kmh }
+
+    /// 地圖線條最多畫這麼多點（直線跨洲時路徑有幾十萬點，每秒重畫會卡）。
+    static func thinned(_ path: [CLLocationCoordinate2D], cap: Int = 400) -> [CLLocationCoordinate2D] {
+        guard !path.isEmpty else { return [] }
+        return thinned(path, from: 0, to: path.count - 1, cap: cap)
+    }
+
+    /// path[from...to] 取最多 cap 點（含首尾），不複製整段陣列。
+    static func thinned(_ path: [CLLocationCoordinate2D], from: Int, to: Int, cap: Int) -> [CLLocationCoordinate2D] {
+        guard from <= to, from >= 0, to < path.count else { return [] }
+        let count = to - from + 1
+        guard count > cap, cap > 1 else { return Array(path[from...to]) }
+        let step = Double(count - 1) / Double(cap - 1)
+        return (0..<cap).map { path[min(to, from + Int((Double($0) * step).rounded()))] }
+    }
+
+    /// 移動中：已走（實線）與未走（虛線）兩段，接在目前位置。
+    var moveLines: (walked: [CLLocationCoordinate2D], remaining: [CLLocationCoordinate2D])? {
+        guard mover.isActive, mover.wanderStartedAt == nil, let plan = mover.plan, plan.path.count > 1,
+              let here = plan.coordinate(atDistance: mover.traveledMeters) else { return nil }
+        let cum = plan.cumulative
+        var lo = 0
+        var hi = cum.count - 1
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2
+            if cum[mid] <= mover.traveledMeters { lo = mid } else { hi = mid }
+        }
+        let last = plan.path.count - 1
+        let walked = Self.thinned(plan.path, from: 0, to: lo, cap: 200) + [here]
+        let remaining = [here] + Self.thinned(plan.path, from: min(lo + 1, last), to: last, cap: 200)
+        return (walked, remaining)
+    }
+
+    static func distanceText(_ meters: Double) -> String {
+        meters < 1000 ? "\(Int(meters.rounded())) 公尺" : String(format: "%.1f 公里", meters / 1000)
+    }
+
+    static func durationText(_ seconds: Double) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded(.up)))
+        if minutes < 60 { return "\(minutes) 分" }
+        let h = minutes / 60
+        let m = minutes % 60
+        return m == 0 ? "\(h) 小時" : "\(h) 小時 \(m) 分"
+    }
+
+    static func clockText(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_TW")
+        f.dateFormat = Calendar.current.isDateInToday(date) ? "HH:mm" : "M/d HH:mm"
+        return f.string(from: date)
+    }
+
+    // MARK: 出發點與開卡
+
+    /// 出發點：正在模擬＝最近送出的點；沒在模擬＝系統最後一次的真實位置；都沒有就 nil（不猜）。
+    var moveStartPoint: CLLocationCoordinate2D? {
+        if let c = engine.current ?? session.coordinate { return c }
+        // 系統快取的真實位置：超過 5 分鐘或精度差於 100 公尺就不用（不猜起點）。
+        guard let loc = CLLocationManager().location,
+              loc.horizontalAccuracy >= 0, loc.horizontalAccuracy <= 100,
+              Date().timeIntervalSince(loc.timestamp) <= 5 * 60 else { return nil }
+        return loc.coordinate
+    }
+
+    func openMoveSetup(_ p: GpsPlace) {
+        guard !mover.isActive else { return }
+        guard moveStartPoint != nil else {
+            showToast("請先前往一個地點作為起點", autoClear: true, duration: 4)
+            return
+        }
+        pinMenuID = nil
+        clearToast()
+        moveDestination = GpsGeo.sampleLanding(p, among: store.places)
+        movePreview = nil
+        moveSetup = p
+    }
+
+    private var movePreviewKey: String {
+        "\(moveSetup?.id ?? "-")|\(moveModeRaw)|\(moveSpeed.transportType.rawValue)"
+    }
+
+    private func refreshMovePreview() async {
+        guard moveSetup != nil, let start = moveStartPoint, let dest = moveDestination else { return }
+        moveQuery?.cancel()
+        let query = GpsSimRouteQuery()
+        moveQuery = query
+        movePlanning = true
+        let plan = await GpsSimRoutePlanner.plan(from: start, to: dest, mode: moveMode, speed: moveSpeed, query: query)
+        // 卡片已關、或已有更新的查詢：丟掉這份結果。
+        guard !Task.isCancelled, !query.isCancelled, moveQuery === query, moveSetup != nil else { return }
+        moveQuery = nil
+        movePreview = plan
+        movePlanning = false
+    }
+
+    /// 關掉「模擬移動」卡片：立刻停止路線查詢。
+    private func closeMoveSetup() {
+        moveQuery?.cancel()
+        moveQuery = nil
+        movePlanning = false
+        moveSetup = nil
+        movePreview = nil
+    }
+
+    // MARK: 底部卡片「模擬移動」
+
+    func moveSetupCard(_ p: GpsPlace) -> some View {
+        let estimate = movePreview?.estimatedSeconds(kmh: moveKmhInUse)
+        let ready = movePreview != nil && !movePlanning
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("模擬移動")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text(p.name)
+                        .font(.footnote)
+                        .foregroundStyle(GpsTheme.sub)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+                Button {
+                    closeMoveSetup()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(GpsTheme.sub)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("關閉")
+                .accessibilityIdentifier("move.cancel")
+            }
+            HStack(spacing: 8) {
+                moveChoice("路線", selected: moveMode == .route, id: "move.mode.route") {
+                    moveModeRaw = MoveMode.route.rawValue
+                }
+                moveChoice("直線", selected: moveMode == .straight, id: "move.mode.straight") {
+                    moveModeRaw = MoveMode.straight.rawValue
+                }
+            }
+            HStack(spacing: 8) {
+                ForEach(MoveSpeedPreset.allCases, id: \.self) { preset in
+                    moveChoice(preset.label, selected: !moveCustom && moveSpeed == preset,
+                               id: "move.speed.\(preset.rawValue)") {
+                        moveSpeedRaw = preset.rawValue
+                        moveKmh = preset.kmh
+                        moveCustom = false
+                    }
+                }
+                moveChoice("自訂", selected: moveCustom, id: "move.speed.custom") { moveCustom = true }
+            }
+            if moveCustom {
+                HStack(spacing: 8) {
+                    Slider(value: Binding(get: { MoveSpeedPreset.clampCustom(moveKmh) },
+                                          set: { moveKmh = ($0 * 10).rounded() / 10 }),
+                           in: MoveSpeedPreset.customRange)
+                        .accessibilityLabel("自訂速度")
+                        .accessibilityValue("時速 \(Int(moveKmhInUse.rounded())) 公里")
+                        .accessibilityIdentifier("move.speed.slider")
+                    Text("\(Int(moveKmhInUse.rounded())) km/h")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 64, alignment: .trailing)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                if !ready {
+                    Text("查詢路線中…")
+                } else if let plan = movePreview, let estimate {
+                    Text("\(plan.mode == .route ? "路線距離" : "直線距離") \(Self.distanceText(plan.totalMeters))・約 \(Self.durationText(estimate))")
+                    if plan.fellBackToStraight { Text("已改為直線") }
+                }
+                if moveSpeed.borrowsWalkingRoute && !moveCustom && moveMode == .route {
+                    Text(MoveSpeedPreset.borrowedRouteNote)
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(GpsTheme.sub)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("move.estimate")
+            Button {
+                if (estimate ?? 0) > 12 * 3600 { confirmLongMove = true } else { startMove(p) }
+            } label: {
+                Text("開始")
+                    .font(.body.weight(.bold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .foregroundStyle(GpsTheme.background)
+                    .background(GpsTheme.mint, in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(!ready || engine.isBusy)
+            .opacity(ready ? 1 : 0.5)
+            .accessibilityIdentifier("move.start")
+        }
+        .padding(12)
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GpsTheme.mint.opacity(0.45), lineWidth: 1))
+        .task(id: movePreviewKey) { await refreshMovePreview() }
+        .alert("預估超過 12 小時", isPresented: $confirmLongMove) {
+            Button("開始") { startMove(p) }
+                .accessibilityIdentifier("move.confirmLong.start")
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("直線不代表實際可行，移動期間請讓手機保持開啟。")
+        }
+    }
+
+    private func moveChoice(_ title: String, selected: Bool, id: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(selected ? GpsTheme.background : GpsTheme.mint)
+                .background(selected ? GpsTheme.mint : Color.clear, in: Capsule())
+                .overlay(Capsule().stroke(GpsTheme.mint, lineWidth: 1.5))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(id)
+    }
+
+    /// 開始前比對起點：卡片開著時位置可能變了，差超過 30 公尺就重查路線，不用預覽那份。
+    private func startMove(_ p: GpsPlace) {
+        guard let plan = movePreview, let dest = moveDestination else { return }
+        if let now = moveStartPoint, let planned = plan.start, GpsGeo.meters(now, planned) > 30 {
+            moveQuery?.cancel()
+            let query = GpsSimRouteQuery()
+            moveQuery = query
+            movePlanning = true
+            let mode = moveMode
+            let speed = moveSpeed
+            Task { @MainActor in
+                let fresh = await GpsSimRoutePlanner.plan(from: now, to: dest, mode: mode, speed: speed, query: query)
+                guard !query.isCancelled, moveQuery === query, moveSetup?.id == p.id else { return }
+                moveQuery = nil
+                movePlanning = false
+                movePreview = fresh
+                beginMove(fresh, place: p)
+            }
+            return
+        }
+        beginMove(plan, place: p)
+    }
+
+    private func beginMove(_ plan: MovePlan, place p: GpsPlace) {
+        wanderPlaceID = nil
+        moveUsesBikePreset = !moveCustom && moveSpeed.borrowsWalkingRoute && plan.mode == .route
+        mover.start(plan: plan, name: p.name, placeID: p.id, center: p.coordinate, kmh: moveKmhInUse)
+        if plan.fellBackToStraight { showToast("已改為直線", autoClear: true, duration: 4) }
+        moveQuery = nil
+        moveSetup = nil
+        movePreview = nil
+    }
+
+    // MARK: 進度卡
+
+    private var moveTitle: String {
+        switch mover.state {
+        case .paused(.user): return "已暫停"
+        case .paused(.connectionLost): return "連線中斷，已暫停"
+        case .paused(.deviceLocked): return "請解鎖手機"
+        case .wandering: return "原地漫步"
+        default:
+            if mover.isPlanning { return "查詢路線中…" }
+            return mover.wanderStartedAt != nil ? "原地漫步" : "模擬移動"
+        }
+    }
+
+    private var isMovePaused: Bool {
+        if case .paused = mover.state { return true }
+        return false
+    }
+
+    private var isMoveLinkPaused: Bool {
+        if case .paused(let reason) = mover.state { return reason != .user }
+        return false
+    }
+
+    var moveProgressCard: some View {
+        let plan = mover.plan
+        let wandering = mover.wanderStartedAt != nil
+        let total = plan?.totalMeters ?? 0
+        let remainingMeters = max(0, total - mover.traveledMeters)
+        let remainingSeconds = mover.targetKmh > 0 ? remainingMeters / (mover.targetKmh / 3.6) : 0
+        return VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(moveTitle)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(isMoveLinkPaused ? GpsTheme.orange : Color.white)
+                if let name = mover.destinationName {
+                    Text(name)
+                        .font(.footnote)
+                        .foregroundStyle(GpsTheme.sub)
+                        .lineLimit(1)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("move.title")
+            if !wandering, plan != nil {
+                ProgressView(value: total > 0 ? min(1, mover.traveledMeters / total) : 1)
+                    .tint(GpsTheme.blue)
+                    .accessibilityLabel("進度")
+                HStack {
+                    Text("剩餘 \(Self.durationText(remainingSeconds))")
+                    Spacer()
+                    Text("抵達時間 \(Self.clockText(Date().addingTimeInterval(remainingSeconds)))")
+                }
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(Color.white)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("move.remaining")
+                HStack {
+                    Text("\(Self.distanceText(mover.traveledMeters))／\(Self.distanceText(total))")
+                    Spacer()
+                    Text("時速 \(Int(mover.currentKmh.rounded())) 公里")
+                }
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(GpsTheme.sub)
+                .accessibilityElement(children: .combine)
+                if let plan, plan.fellBackToStraight || moveUsesBikePreset {
+                    Text(plan.fellBackToStraight ? "直線" : MoveSpeedPreset.borrowedRouteNote)
+                        .font(.footnote)
+                        .foregroundStyle(GpsTheme.sub)
+                }
+            } else if wandering {
+                Text(mover.state == .wandering(waiting: true)
+                     ? "停留 \(mover.dwellRemaining) 秒"
+                     : "時速 \(Int(mover.currentKmh.rounded())) 公里")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(GpsTheme.sub)
+            }
+            HStack(spacing: 8) {
+                Button {
+                    if isMovePaused {
+                        mover.resume()
+                    } else {
+                        mover.pause()
+                        showToast("已暫停", autoClear: true)
+                    }
+                } label: {
+                    Text(isMovePaused ? "繼續" : "暫停")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(GpsTheme.mint)
+                        .overlay(Capsule().stroke(GpsTheme.mint, lineWidth: 1.5))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(mover.isPlanning)
+                .accessibilityIdentifier("move.pause")
+                Button {
+                    wanderPlaceID = nil
+                    mover.stopMoving()
+                } label: {
+                    Text("結束移動")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(GpsTheme.background)
+                        .background(GpsTheme.mint, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("停在目前位置，模擬繼續")
+                .accessibilityIdentifier("move.stop")
+                Button {
+                    wanderPlaceID = nil
+                    UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                    runStop()
+                } label: {
+                    Text("停止模擬")
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .foregroundStyle(Color.white)
+                        .background(GpsTheme.stopRed, in: Capsule())
+                        .overlay(Capsule().stroke(GpsTheme.stopBorder, lineWidth: 1))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(engine.isBusy || stopping)
+                .accessibilityHint("讓手機回到真實位置")
+                .accessibilityIdentifier("move.stopSim")
+            }
+        }
+        .padding(12)
+        .background(GpsTheme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(GpsTheme.blue.opacity(0.55), lineWidth: 1))
+    }
+
+    // MARK: 原地漫步（地點卡片）
+
+    func wanderRow(_ p: GpsPlace) -> some View {
+        let on = wanderPlaceID == p.id && mover.wanderStartedAt != nil
+        return VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: Binding(get: { on }, set: { setWander($0, place: p) })) {
+                Text("原地漫步")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.white)
+            }
+            .tint(GpsTheme.mint)
+            .disabled(engine.isBusy)
+            .accessibilityHint("在範圍內隨機移動，4 小時後自動結束")
+            .accessibilityIdentifier("wander.toggle")
+            HStack(spacing: 8) {
+                ForEach(WanderSize.allCases, id: \.self) { size in
+                    moveChoice(Self.wanderSizeLabel(size), selected: wanderSize == size,
+                               id: "wander.size.\(size.rawValue)") { wanderSizeRaw = size.rawValue }
+                        .accessibilityValue("範圍 \(Int(size.meters)) 公尺")
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    static func wanderSizeLabel(_ size: WanderSize) -> String {
+        switch size {
+        case .small: return "小"
+        case .medium: return "中"
+        case .large: return "大"
+        }
+    }
+
+    private func setWander(_ on: Bool, place p: GpsPlace) {
+        guard on else {
+            wanderPlaceID = nil
+            mover.stopMoving()
+            return
+        }
+        let radius = GpsSimWanderPlanner.radius(size: wanderSize, placeRadius: GpsGeo.radius(of: p))
+        let begin = {
+            wanderPlaceID = p.id
+            pinMenuID = nil
+            mover.startWander(center: p.coordinate, radius: radius, name: p.name, placeID: p.id,
+                              from: engine.current)
+        }
+        if isActivePlace(p) {
+            begin()
+        } else if Self.ciMode {
+            engine.applyDemoSimulation(name: p.name, coordinate: p.coordinate)
+            begin()
+        } else {
+            // 還沒在這個地點：先前往，成功後才開始漫步。
+            sendingPlaceID = p.id
+            focus(on: p.coordinate, radius: GpsGeo.radius(of: p))
+            engine.send(place: p) { code in
+                sendFinished(code, placeID: p.id)
+                if code == 0 { begin() }
+            }
+        }
     }
 }

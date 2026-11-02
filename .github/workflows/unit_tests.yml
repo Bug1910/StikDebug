@@ -1,0 +1,74 @@
+# 單元測試：只跑 StikDebugTests/RoutePlannerTests（移動引擎的純幾何測試，不需要手機與 MKDirections）。
+# build 參數照 sim_testers.yml 的「Build for iphonesimulator」，模擬器用 iPhone 16（沒有就退回第一台可用的 iPhone）。
+name: Unit Tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "StikDebug/GpsSim/**"
+      - "StikDebugTests/**"
+      - ".github/workflows/unit_tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  route-planner-tests:
+    name: RoutePlannerTests
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Retag prebuilt idevice lib for simulator (CI workspace copy only)
+        run: bash ci/retag_idevice_sim.sh
+
+      - name: Pick simulator (iPhone 16, else first available iPhone)
+        id: sim
+        run: |
+          if xcrun simctl list devices available | grep -q "iPhone 16 ("; then
+            echo "name=iPhone 16" >> "$GITHUB_OUTPUT"
+          else
+            name=$(xcrun simctl list devices available | grep -oE "iPhone [^(]+" | head -1 | sed 's/ *$//')
+            echo "iPhone 16 not available, using: $name"
+            echo "name=$name" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run RoutePlannerTests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project StikDebug.xcodeproj \
+            -scheme "StikDebug" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.name }}" \
+            -derivedDataPath build \
+            -only-testing:StikDebugTests/RoutePlannerTests \
+            -resultBundlePath TestResults.xcresult \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_OPTIMIZATION_LEVEL="-Onone" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            | tee xcodebuild-test.log
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-tests-${{ github.run_number }}
+          path: |
+            TestResults.xcresult
+            xcodebuild-test.log
+          retention-days: 7

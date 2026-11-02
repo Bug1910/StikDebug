@@ -61,79 +61,79 @@ enum RenewErrorTable {
     static func entry(for kind: RenewProblem.Kind) -> Entry {
         switch kind {
         case .appleRefused80045:
-            return Entry(code: "-80045", title: "Apple 拒絕這次登入",
-                         advice: "10/12 起 Apple 擋這類工具登入。隔幾小時再試一次，不要連續重試（連試會被限速）。")
+            return Entry(code: "-80045", title: "Apple 拒絕此次登入",
+                         advice: "請數小時後再試，避免連續重試，以免遭到限速。")
         case .appleRefused80046:
             // Meaning not documented by Apple (未驗證); seen next to -80045 in SideStore reports.
-            return Entry(code: "-80046", title: "Apple 拒絕這次登入",
-                         advice: "Apple 沒說明原因。隔幾小時再試一次，不要連續重試。")
+            return Entry(code: "-80046", title: "Apple 拒絕此次登入",
+                         advice: "請數小時後再試，避免連續重試。")
         case .serviceUnavailable503:
-            return Entry(code: "503", title: "Apple 或 anisette 伺服器暫時不能用",
-                         advice: "對方伺服器忙或維修中。過一段時間再按一次。")
+            return Entry(code: "503", title: "Apple 或驗證伺服器暫時無法使用",
+                         advice: "伺服器忙碌或維護中。請稍後再試。")
         case .appleSession1100:
-            return Entry(code: "1100", title: "Apple 開發者服務回 1100",
-                         advice: "10/22 紀錄：anisette 回應太慢時出現。已自動重試 1 次；還是不行就過幾分鐘再按。")
+            return Entry(code: "1100", title: "Apple 開發者服務回傳錯誤",
+                         advice: "驗證伺服器回應過慢時會發生，已自動重試 1 次。請數分鐘後再試。")
         case .anisetteTimeout:
-            return Entry(code: nil, title: "驗證伺服器太慢（每台超過 6 秒）",
-                         advice: "主伺服器和備用伺服器都沒及時回應，已自動重試 2 次。換個網路或稍後再試。")
+            return Entry(code: nil, title: "驗證伺服器回應逾時",
+                         advice: "主要與備用伺服器皆未在 6 秒內回應，已自動重試 2 次。請更換網路或稍後再試。")
         case .anisetteUnavailable:
-            return Entry(code: nil, title: "連不上 anisette 伺服器",
-                         advice: "anisette 是讓 Apple 以為這是一台 Mac 的身分資料。稍後再試。")
+            return Entry(code: nil, title: "無法連線至驗證伺服器",
+                         advice: "請稍後再試。")
         case .network:
-            return Entry(code: nil, title: "網路不通",
-                         advice: "確認手機有網路（Wi-Fi 或 4G）後再試。")
+            return Entry(code: nil, title: "沒有網路連線",
+                         advice: "請連上 Wi-Fi 或行動網路後再試。")
         case .wrongPassword:
-            return Entry(code: "-22406", title: "Apple ID 或密碼不對", advice: "重新輸入一次。")
+            return Entry(code: "-22406", title: "Apple ID 或密碼不正確", advice: "請重新輸入。")
         case .appSpecificPassword:
-            return Entry(code: "-20101", title: "這個帳號要用 App 專用密碼",
-                         advice: "到 appleid.apple.com 產生 App 專用密碼，用它登入。")
+            return Entry(code: "-20101", title: "此帳號需使用 App 專用密碼",
+                         advice: "請至 appleid.apple.com 產生 App 專用密碼，再以此密碼登入。")
         case .twoFactorFailed:
-            return Entry(code: nil, title: "雙重認證沒有完成", advice: "重新登入，收到 6 位數驗證碼後輸入。")
+            return Entry(code: nil, title: "雙重認證未完成", advice: "請重新登入，並輸入收到的 6 位數驗證碼。")
         case .wrongCode:
-            return Entry(code: "-21669", title: "驗證碼不對", advice: "再輸入一次收到的 6 位數。")
+            return Entry(code: "-21669", title: "驗證碼不正確", advice: "請重新輸入收到的 6 位數驗證碼。")
         case .tooManyAttempts:
-            return Entry(code: "-21668", title: "嘗試次數太多", advice: "Apple 暫時不讓再試，等幾小時。")
+            return Entry(code: "-21668", title: "嘗試次數過多", advice: "Apple 暫時限制登入。請數小時後再試。")
         case .notSignedIn:
-            return Entry(code: nil, title: "還沒登入 Apple ID", advice: "先在續簽頁登入一次。")
+            return Entry(code: nil, title: "尚未登入 Apple ID", advice: "請至「設定 › 簽名」登入。")
         case .sessionExpired:
-            return Entry(code: nil, title: "登入已過期", advice: "重新登入一次（要再收一次驗證碼）。")
+            return Entry(code: nil, title: "登入已過期", advice: "請重新登入，並輸入新的驗證碼。")
         case .signInInProgress:
-            return Entry(code: nil, title: "登入還在進行中", advice: "先完成或取消目前的登入。")
+            return Entry(code: nil, title: "登入尚未完成", advice: "請完成或取消目前的登入。")
         case .cancelled:
-            return Entry(code: nil, title: "已取消", advice: "需要時再重新開始。")
+            return Entry(code: nil, title: "已取消", advice: "需要時請重新開始。")
         case .teamMismatch:
-            return Entry(code: nil, title: "這個 Apple ID 不是簽這個 App 的帳號",
-                         advice: "請用當初簽 PinFly 的 Apple ID 登入。什麼都沒有改動。")
+            return Entry(code: nil, title: "此 Apple ID 與安裝 PinFly 的帳號不同",
+                         advice: "請改用安裝 PinFly 時的 Apple ID 登入。目前設定未變更。")
         case .appIDMissing:
-            return Entry(code: nil, title: "Apple 帳號裡找不到 PinFly 的 App ID",
-                         advice: "為了不多吃 App ID，這裡不會新建。請用電腦續簽一次。")
+            return Entry(code: nil, title: "Apple 帳號中找不到 PinFly 的 App ID",
+                         advice: "為避免占用 App ID 數量，不會自動建立。請用電腦重新安裝 PinFly。")
         case .certMismatch:
-            return Entry(code: nil, title: "新描述檔的簽名憑證和 App 現在用的不同",
-                         advice: "換了 App 會打不開，所以已停止，什麼都沒裝。請用電腦續簽。")
+            return Entry(code: nil, title: "新描述檔的憑證與目前的 App 不同",
+                         advice: "安裝後 App 將無法開啟，因此未安裝。請用電腦重新安裝 PinFly。")
         case .profileNotNewer:
-            return Entry(code: nil, title: "沒有比較新的描述檔", advice: "目前的簽名已經是最新的。")
+            return Entry(code: nil, title: "沒有較新的描述檔", advice: "目前的簽名已是最新。")
         case .tunnelRwAfc:
-            return Entry(code: "RwAfc", title: "手機的本機連線沒通",
-                         advice: "打開 LocalDevVPN 後再試；只有 4G 時先關掉行動數據。")
+            return Entry(code: "RwAfc", title: "LocalDevVPN 未連線",
+                         advice: "請開啟 LocalDevVPN 後重試；僅使用行動網路時，請先關閉行動數據。")
         case .deviceEndpointNil:
-            return Entry(code: "deviceEndpointIp nil", title: "拿不到手機自己的連線位址",
-                         advice: "打開 LocalDevVPN 後再試；只有 4G 時先關掉行動數據。")
+            return Entry(code: "deviceEndpointIp nil", title: "無法取得手機的連線位址",
+                         advice: "請開啟 LocalDevVPN 後重試；僅使用行動網路時，請先關閉行動數據。")
         case .needTunnel:
-            return Entry(code: nil, title: "需要 LocalDevVPN",
-                         advice: "打開 LocalDevVPN 後再試；只有 4G 時先關掉行動數據。")
+            return Entry(code: nil, title: "需要 LocalDevVPN 連線",
+                         advice: "請開啟 LocalDevVPN 後重試；僅使用行動網路時，請先關閉行動數據。")
         case .install:
-            return Entry(code: nil, title: "描述檔沒有裝上", advice: "什麼都沒換掉。稍後再試。")
+            return Entry(code: nil, title: "描述檔安裝失敗", advice: "目前的描述檔未變更。請稍後再試。")
         case .pendingNeedsTunnel:
-            return Entry(code: nil, title: "新簽名已下載，還沒裝上",
-                         advice: "關掉行動數據、打開 LocalDevVPN 後，跑「安裝 PinFly 描述檔」或在 PinFly 再按一次續簽（不會重新下載，也不用再登入）。")
+            return Entry(code: nil, title: "描述檔已下載，尚未安裝",
+                         advice: "請關閉行動數據並開啟 LocalDevVPN，再執行捷徑動作「安裝 PinFly 描述檔」，或在 PinFly 點選「安裝描述檔」。不需要重新下載或登入。")
         case .downloadInProgress:
-            return Entry(code: nil, title: "下載還沒完成",
-                         advice: "等「下載 PinFly 描述檔」跑完（約 1 分鐘內）再跑「安裝 PinFly 描述檔」。")
+            return Entry(code: nil, title: "下載尚未完成",
+                         advice: "請待「下載 PinFly 描述檔」完成（約 1 分鐘）後，再執行「安裝 PinFly 描述檔」。")
         case .keychain:
-            return Entry(code: "keychain", title: "登入成功，但存不了登入資料",
-                         advice: "這支手機不讓 PinFly 把登入資料存進鑰匙圈（Keychain）。請重新安裝 PinFly 後再試。")
+            return Entry(code: "keychain", title: "登入成功，但無法儲存登入資料",
+                         advice: "PinFly 無法將登入資料存入鑰匙圈。請重新安裝 PinFly 後再試。")
         case .unknown:
-            return Entry(code: nil, title: "續簽失敗", advice: "稍後再試；一直失敗就用電腦續簽。")
+            return Entry(code: nil, title: "續簽失敗", advice: "請稍後再試；持續失敗時，請用電腦重新安裝 PinFly。")
         }
     }
 

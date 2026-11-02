@@ -232,7 +232,7 @@ final class RenewService: ObservableObject {
         guard current.phase == .idle else {
             // The install action also sits in the everyday 出門改定位 Shortcut: never a failure there.
             if op == .install {
-                return RenewOutcome(expiry: nil, message: "登入畫面還開著，這次先不安裝。", nothingToInstall: true,
+                return RenewOutcome(expiry: nil, message: "登入畫面仍在開啟中，此次不安裝。", nothingToInstall: true,
                                     skippedBusy: true)
             }
             throw RenewProblem(.signInInProgress)
@@ -254,13 +254,13 @@ final class RenewService: ObservableObject {
                     if !isMock { try LiveRenewBackend.requireSameCertificates(newProfile: pending.profile) }
                     RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); not signed in, Apple not contacted")
                     refreshStatus()
-                    return RenewOutcome(expiry: pending.expiry, message: "新簽名已下載好，等安裝。",
+                    return RenewOutcome(expiry: pending.expiry, message: "描述檔已下載，尚未安裝。",
                                         pendingOnly: true, reusedPending: true)
                 } catch let problem as RenewProblem where problem.kind == .profileNotNewer {
                     RenewDiagLog.write("pending dropped: phone already as new; not signed in, Apple not contacted")
                     RenewPendingProfile.delete(mock: isMock)
                     refreshStatus()
-                    return RenewOutcome(expiry: current.profileExpiry, message: "手機上的簽名已經是最新的，不用續簽。",
+                    return RenewOutcome(expiry: current.profileExpiry, message: "簽名已是最新，不需要續簽。",
                                         alreadyUpToDate: true)
                 } catch {
                     RenewDiagLog.write("pending dropped \(RenewDiagLog.describe(error))")

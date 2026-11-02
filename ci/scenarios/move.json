@@ -1,0 +1,214 @@
+[
+ {
+  "persona": "出門玩的人想讓位置沿途移動",
+  "situation": "已經定位在東京鐵塔，想從這裡沿途移動到雪梨歌劇院看進度與抵達時間，中途暫停再繼續、結束移動停在原地；再回東京鐵塔開原地漫步，最後停止模擬",
+  "note": "move, iPhone 16 393x852, -GpsSimCI: 前往 pretends the send worked and every move step is a fake successful send (GpsSimEngine.demoMoveSends), so no phone is needed. Tokyo -> Sydney is ~7,800 km: MKDirections has no route, so 已改為直線 and the >12 h confirm alert are expected. Checks pin.menu.move, move.mode.*, move.speed.* (bike shows 沿步行路線 in 路線 mode), move.start, progress card (剩餘 / 抵達時間), move.pause (暫停/繼續), move.stop (結束移動), wander.size.*, wander.toggle, move.stopSim."
+ },
+ {
+  "relaunch": ["-GpsSimDemo", "home", "-GpsSimCI"]
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "01_start"
+ },
+ {
+  "tapId": "place.row.3"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "btn.fitAll"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "map.pin.4"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "shot": "02_pin_menu"
+ },
+ {
+  "tree": "pin_menu"
+ },
+ {
+  "expect": "pin.menu.move"
+ },
+ {
+  "expect": "wander.toggle"
+ },
+ {
+  "tapId": "pin.menu.move"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "03_move_card"
+ },
+ {
+  "tree": "move_card"
+ },
+ {
+  "expect": "模擬移動"
+ },
+ {
+  "tapId": "move.mode.route"
+ },
+ {
+  "tapId": "move.speed.bike"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "expect": "沿步行路線"
+ },
+ {
+  "tapId": "move.speed.custom"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "expect": "move.speed.slider"
+ },
+ {
+  "shot": "04_custom_speed"
+ },
+ {
+  "tapId": "move.mode.straight"
+ },
+ {
+  "tapId": "move.speed.drive"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "expect": "!沿步行路線"
+ },
+ {
+  "shot": "05_straight_drive"
+ },
+ {
+  "tree": "straight_drive"
+ },
+ {
+  "tapId": "move.start"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "shot": "06_long_alert"
+ },
+ {
+  "tree": "long_alert"
+ },
+ {
+  "expect": "預估超過 12 小時"
+ },
+ {
+  "tapId": "move.confirmLong.start"
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "07_moving"
+ },
+ {
+  "tree": "moving"
+ },
+ {
+  "expect": "剩餘"
+ },
+ {
+  "expect": "抵達時間"
+ },
+ {
+  "tapId": "move.pause"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "expectRow": ["move.pause", "繼續"]
+ },
+ {
+  "shot": "08_paused"
+ },
+ {
+  "tapId": "move.pause"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "expectRow": ["move.pause", "暫停"]
+ },
+ {
+  "tapId": "move.stop"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "expect": "!結束移動"
+ },
+ {
+  "shot": "09_move_ended"
+ },
+ {
+  "tapId": "btn.fitAll"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "tapId": "map.pin.3"
+ },
+ {
+  "wait": 1
+ },
+ {
+  "tapId": "wander.size.small"
+ },
+ {
+  "tapId": "wander.toggle"
+ },
+ {
+  "wait": 4
+ },
+ {
+  "shot": "10_wandering"
+ },
+ {
+  "tree": "wandering"
+ },
+ {
+  "expect": "原地漫步"
+ },
+ {
+  "expect": "move.stopSim"
+ },
+ {
+  "tapId": "move.stopSim"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "expect": "!結束移動"
+ },
+ {
+  "shot": "11_stopped"
+ }
+]

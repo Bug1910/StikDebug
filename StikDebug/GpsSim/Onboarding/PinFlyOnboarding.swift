@@ -45,7 +45,7 @@ enum PinFlyOnboardingStep: Int, CaseIterable {
         case .vpn: return "連線說明"
         case .signIn: return "登入"
         case .testLocation: return "回到地圖"
-        case .shortcuts: return "打開捷徑 App"
+        case .shortcuts: return "開啟「捷徑」App"
         }
     }
 

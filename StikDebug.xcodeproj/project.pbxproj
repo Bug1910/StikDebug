@@ -470,9 +470,9 @@
 				INFOPLIST_FILE = StikDebug/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PinFly要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PinFly 需經由 LocalDevVPN 連線至此 iPhone，才能變更位置。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "PinFly 在此 iPhone 上模擬位置。需要位置權限，才能在鎖定螢幕或切換 App 時維持模擬；捷徑動作「查看真實位置」也會使用此權限讀取目前的真實位置（地名由 Apple 服務查詢）。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PinFly 在此 iPhone 上模擬位置。使用 App 期間需要位置權限以維持模擬；捷徑動作「查看真實位置」也會使用此權限讀取目前的真實位置（地名由 Apple 服務查詢）。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -532,9 +532,9 @@
 				INFOPLIST_FILE = StikDebug/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PinFly要透過 LocalDevVPN 連到這支手機自己，才能改定位。";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；需要定位權限，鎖螢幕或切到別的 App 時模擬才不會中斷，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PinFly在你自己的 iPhone 上模擬定位；使用 App 時用定位權限讓模擬持續，捷徑「看真實位置」也用它讀取你目前的真實位置（地名透過 Apple 的服務查詢）。";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "PinFly 需經由 LocalDevVPN 連線至此 iPhone，才能變更位置。";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "PinFly 在此 iPhone 上模擬位置。需要位置權限，才能在鎖定螢幕或切換 App 時維持模擬；捷徑動作「查看真實位置」也會使用此權限讀取目前的真實位置（地名由 Apple 服務查詢）。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PinFly 在此 iPhone 上模擬位置。使用 App 期間需要位置權限以維持模擬；捷徑動作「查看真實位置」也會使用此權限讀取目前的真實位置（地名由 Apple 服務查詢）。";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

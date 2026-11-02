@@ -1,5 +1,5 @@
 [
- {"persona": "第一次打開 PinFly 的新用戶", "situation": "從設定開啟使用引導，逐步看 6 個步驟並全部略過", "note": "onboarding: guide never auto-shows in CI (simulator); open from Settings > 使用引導, shot + tree each step, skip all 6"},
+ {"persona": "第一次開啟 PinFly 的新用戶", "situation": "從設定開啟使用引導，逐步看 6 個步驟並全部略過", "note": "onboarding: guide never auto-shows in CI (simulator); open from Settings > 使用引導, shot + tree each step, skip all 6"},
  {"relaunch": ["-GpsSimDemo", "signNotLoggedIn"]},
  {"wait": 4},
  {"tapId": "btn.settings"},

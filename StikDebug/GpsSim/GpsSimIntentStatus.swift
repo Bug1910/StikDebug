@@ -20,7 +20,7 @@ enum GpsIntentOutcome: String, AppEnum {
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "結果"
     static var caseDisplayRepresentations: [GpsIntentOutcome: DisplayRepresentation] = [
         .renewed: "已續簽",
-        .notNeeded: "不用續簽",
+        .notNeeded: "不需要續簽",
         .failed: "失敗",
         .succeeded: "成功",
     ]
@@ -36,10 +36,10 @@ struct GpsSimStatusEntity: TransientAppEntity {
     var signingExpiry: Date?
 
     /// Whole days left, rounded down (5.9 days -> 5); 0 once expired.
-    @Property(title: "簽名剩幾天")
+    @Property(title: "簽名剩餘天數")
     var daysLeft: Int?
 
-    @Property(title: "簽名剩幾小時")
+    @Property(title: "簽名剩餘小時數")
     var hoursLeft: Int?
 
     @Property(title: "模擬中")
@@ -77,7 +77,7 @@ struct GpsSimStatusEntity: TransientAppEntity {
     static func label(_ outcome: GpsIntentOutcome) -> String {
         switch outcome {
         case .renewed: return "已續簽"
-        case .notNeeded: return "不用續簽"
+        case .notNeeded: return "不需要續簽"
         case .failed: return "失敗"
         case .succeeded: return "成功"
         }

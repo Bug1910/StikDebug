@@ -15,7 +15,7 @@ import SwiftUI
 import UIKit
 
 enum GpsLocationPrimer {
-    static let text = "為了在鎖螢幕或切到別的 App 時讓定位模擬不中斷，下一步系統會詢問定位權限。"
+    static let text = "鎖定螢幕或切換 App 時，需要位置權限才能維持模擬。系統將詢問兩次：請先選擇「使用 App 期間允許」，再選擇「改為永遠允許」。"
 
     /// Shows the card; `completion(true)` runs after 繼續 closes it. With no window to show it
     /// on, `completion(false)` runs at once so the caller is never left waiting.
@@ -129,7 +129,7 @@ struct GpsLocationPrimerView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
-            .accessibilityHint("打開系統的定位權限詢問")
+            .accessibilityHint("開啟系統的位置權限詢問")
             .accessibilityIdentifier("btn.primerContinue")
         }
         .padding(18)

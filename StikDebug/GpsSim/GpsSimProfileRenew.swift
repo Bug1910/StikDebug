@@ -17,7 +17,7 @@ enum GpsProfileRenew {
     static let maxFileBytes = 64 * 1024
     private static let renewedExpiryKey = "gpssim.renewedProfileExpiry"
     private static let renewedForUUIDKey = "gpssim.renewedForEmbeddedUUID"
-    static let needTunnelMessage = "需要 Wi-Fi 並且 LocalDevVPN 已連線（只有 4G 不行）。請在 Wi-Fi 下重新連線 LocalDevVPN 後再試。"
+    static let needTunnelMessage = "需要 Wi-Fi 且 LocalDevVPN 已連線，僅有行動網路時無法安裝。請連上 Wi-Fi 並重新連線 LocalDevVPN 後重試。"
 
     static let fileTypes: [UTType] = {
         var types: [UTType] = []
@@ -42,8 +42,8 @@ enum GpsProfileRenew {
         /// The phone already had an equal or newer profile: nothing was installed, and that is fine.
         var alreadyUpToDate = false
         var message: String {
-            if alreadyUpToDate { return note ?? "不用續簽" }
-            if let expiry { return "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(expiry))" }
+            if alreadyUpToDate { return note ?? "不需要續簽" }
+            if let expiry { return "已安裝新描述檔，簽名可用至 \(GpsProfileRenew.expiryText(expiry))" }
             return note ?? "已安裝"
         }
     }
@@ -62,7 +62,7 @@ enum GpsProfileRenew {
 
     static func parse(_ data: Data) throws -> Parsed {
         guard !data.isEmpty, data.count <= maxFileBytes else {
-            throw Failure(message: "這不是描述檔（檔案大小不對）。")
+            throw Failure(message: "此檔案不是描述檔（檔案大小不符）。")
         }
         guard let xml = try? CMSDecoderHelper.decodeCMSData(data),
               let plist = try? PropertyListSerialization.propertyList(from: xml, format: nil) as? [String: Any],
@@ -71,7 +71,7 @@ enum GpsProfileRenew {
               let expiration = plist["ExpirationDate"] as? Date,
               let entitlements = plist["Entitlements"] as? [String: Any],
               let appID = entitlements["application-identifier"] as? String
-        else { throw Failure(message: "讀不出這個描述檔，請確認選的是 .mobileprovision 檔。") }
+        else { throw Failure(message: "無法讀取此描述檔。請確認選取的是 .mobileprovision 檔案。") }
         return Parsed(
             uuid: uuid, team: team, appID: appID, expiration: expiration,
             certs: Set(plist["DeveloperCertificates"] as? [Data] ?? []),
@@ -92,26 +92,26 @@ enum GpsProfileRenew {
     static func validate(_ data: Data, now: Date = Date()) throws -> Parsed {
         let new = try parse(data)
         guard let current = embedded(), let bundleID = Bundle.main.bundleIdentifier else {
-            throw Failure(message: "讀不到這個 App 目前的簽名，無法檢查描述檔。")
+            throw Failure(message: "無法讀取 App 目前的簽名，因此無法檢查描述檔。")
         }
-        guard new.team == current.team else { throw Failure(message: "描述檔的開發者隊伍和目前的簽名不同，已拒絕。") }
+        guard new.team == current.team else { throw Failure(message: "描述檔的開發團隊與目前的簽名不同，已拒絕。") }
         guard new.appID == "\(current.team).\(bundleID)" else {
-            throw Failure(message: "描述檔不是給 PinFly 的（App 識別碼不符），已拒絕。")
+            throw Failure(message: "此描述檔不屬於 PinFly（App 識別碼不符），已拒絕。")
         }
-        guard new.expiration > now else { throw Failure(message: "這個描述檔已經過期了。") }
+        guard new.expiration > now else { throw Failure(message: "此描述檔已過期。") }
         guard new.expiration > current.expiration else {
-            throw Failure(message: "這個描述檔不比目前的新，沒有必要換。")
+            throw Failure(message: "此描述檔未比目前的新，不需要更換。")
         }
         guard !new.certs.isDisjoint(with: current.certs) else {
-            throw Failure(message: "描述檔的簽名憑證和目前的不同，換了會打不開，已拒絕。")
+            throw Failure(message: "描述檔的憑證與目前的不同，安裝後 App 將無法開啟，已拒絕。")
         }
         // The app cannot read its own UDID, so the current profile's device list stands in for it.
         guard current.devices.isEmpty || current.devices.isSubset(of: new.devices) else {
-            throw Failure(message: "這份描述檔沒有包含這支手機，已拒絕。")
+            throw Failure(message: "此描述檔未包含此手機，已拒絕。")
         }
         // Same keys AND same values (application-identifier, team, keychain groups, get-task-allow...).
         guard NSDictionary(dictionary: new.entitlements).isEqual(to: current.entitlements) else {
-            throw Failure(message: "描述檔的權限內容和目前的不一樣（多了、少了或不同），已拒絕。")
+            throw Failure(message: "描述檔的權限與目前的不同，已拒絕。")
         }
         return new
     }
@@ -136,7 +136,7 @@ enum GpsProfileRenew {
             let before = try ownProfiles(appID: parsed.appID).map(\.expiration).max() ?? .distantPast
             guard parsed.expiration > before else {
                 remember(before)
-                return InstallOutcome(expiry: before, note: "手機上的簽名已經是最新的，不用續簽。", alreadyUpToDate: true)
+                return InstallOutcome(expiry: before, note: "簽名已是最新，不需要續簽。", alreadyUpToDate: true)
             }
             try withTunnelRetry { try JITEnableContext.shared.addProfile(data) }
             // Read back instead of trusting the install call. From here on the install HAS happened,
@@ -145,10 +145,10 @@ enum GpsProfileRenew {
             do {
                 newest = try ownProfiles(appID: parsed.appID).map(\.expiration).max()
             } catch {
-                return InstallOutcome(expiry: nil, note: "已安裝，但讀回失敗：\(error.localizedDescription)；請稍後在設定頁重新整理")
+                return InstallOutcome(expiry: nil, note: "已安裝，但無法確認結果：\(error.localizedDescription)。請稍後重新開啟設定頁確認。")
             }
             guard let newest, newest >= parsed.expiration else {
-                throw Failure(message: "裝完後在手機上沒讀到新的描述檔，請再試一次。")
+                throw Failure(message: "安裝後未在手機上找到新的描述檔。請重試。")
             }
             remember(newest)
             return InstallOutcome(expiry: newest, note: nil)
@@ -159,10 +159,10 @@ enum GpsProfileRenew {
     /// after an install of ours succeeded. Allow-list: exact app id match; other apps are never touched.
     static func removeOwnExpired() async throws -> Int {
         guard let current = embedded(), let bundleID = Bundle.main.bundleIdentifier else {
-            throw Failure(message: "讀不到這個 App 目前的簽名。")
+            throw Failure(message: "無法讀取 App 目前的簽名。")
         }
         guard UserDefaults.standard.double(forKey: renewedExpiryKey) > 0 else {
-            throw Failure(message: "要先成功匯入一次新的描述檔，才能清舊的。")
+            throw Failure(message: "需先成功匯入新的描述檔，才能清除舊的描述檔。")
         }
         let ownID = "\(current.team).\(bundleID)"
         try await requireTunnel()
@@ -178,7 +178,7 @@ enum GpsProfileRenew {
         try await Task.detached(priority: .userInitiated) { () throws -> Int in
             let own = try ownProfiles(appID: ownID)
             guard let newest = own.map(\.expiration).max(), newest > Date() else {
-                throw Failure(message: "手機上沒有還有效的新描述檔，不清除。")
+                throw Failure(message: "手機上沒有有效的新描述檔，因此不清除。")
             }
             let doomed = own.filter { $0.expiration <= Date() && $0.expiration < newest && $0.uuid != currentUUID }
             for profile in doomed { try withTunnelRetry { try JITEnableContext.shared.removeProfile(withUUID: profile.uuid) } }
@@ -270,7 +270,7 @@ enum GpsProfileRenew {
     static func requireTunnel() async throws {
         let tunnel = TunnelManager.shared
         if !tunnel.isConnected {
-            guard GpsSimEngine.pairingExists else { throw Failure(message: "還沒有配對檔。") }
+            guard GpsSimEngine.pairingExists else { throw Failure(message: "尚無配對檔。") }
             startTunnelInBackground(showErrorUI: false)
             for _ in 0..<40 where !tunnel.isConnected { try? await Task.sleep(nanoseconds: 250_000_000) }
         }
@@ -282,7 +282,7 @@ enum GpsProfileRenew {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        guard size <= maxFileBytes else { throw Failure(message: "這不是描述檔（檔案太大）。") }
+        guard size <= maxFileBytes else { throw Failure(message: "此檔案不是描述檔（檔案過大）。") }
         return try Data(contentsOf: url)
     }
 
@@ -296,7 +296,7 @@ enum GpsProfileRenew {
 
 struct ImportProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "匯入描述檔"
-    static var description = IntentDescription("把新的描述檔（.mobileprovision）裝到手機，不用重裝 PinFly。需要 Wi-Fi 且 LocalDevVPN 已連線；檢查有任何一項不過就什麼都不做。")
+    static var description = IntentDescription("將新的描述檔（.mobileprovision）安裝到手機，不需要重新安裝 PinFly。需要 Wi-Fi 且 LocalDevVPN 已連線；任一項檢查未通過時不做任何變更。")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "描述檔")

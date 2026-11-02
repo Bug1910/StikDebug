@@ -21,11 +21,11 @@ import Network
 final class GpsSimNetwork: ObservableObject {
     static let shared = GpsSimNetwork()
 
-    nonisolated static let noWifiTitle = "沒有連上 Wi-Fi"
+    nonisolated static let noWifiTitle = "未連上 Wi-Fi"
     /// The 4G route the owner confirmed on his phone 2026-10-15 (the fake point stays after airplane mode is off).
-    nonisolated static let fourGSteps = "只有 4G 時：開 LocalDevVPN → 開飛航 → 開 Wi-Fi → 回 PinFly 點地點 → 關飛航（假定位會保留）。或用捷徑一鍵完成。"
+    nonisolated static let fourGSteps = "僅有行動網路時：開啟 LocalDevVPN → 開啟飛航模式 → 開啟 Wi-Fi → 回到 PinFly 點選地點 → 關閉飛航模式（模擬位置會保留）。也可執行捷徑一次完成。"
     /// The same route as numbered steps for the banner (each short enough for an iPhone SE column).
-    nonisolated static let fourGStepList = ["開 LocalDevVPN", "開飛航模式", "開 Wi-Fi", "回來點地點", "關飛航模式"]
+    nonisolated static let fourGStepList = ["開啟 LocalDevVPN", "開啟飛航模式", "開啟 Wi-Fi", "點選地點", "關閉飛航模式"]
     /// The owner's own shortcut that runs the route above (built and tested by him 2026-10-15).
     nonisolated static let shortcutName = "出門改定位"
     nonisolated static var shortcutURL: URL? { runShortcutURL(named: shortcutName) }
@@ -39,10 +39,13 @@ final class GpsSimNetwork: ObservableObject {
         return c?.url
     }
     nonisolated static let noWifiMessage = fourGSteps
-    nonisolated static let disconnectedHint = "連線中斷，定位仍保留。要換地點：" + fourGSteps
-    nonisolated static let checkVPNMessage = "LocalDevVPN 開著還是連不到：請把它關掉再打開，然後按「重試」。"
+    nonisolated static let disconnectedHint = "連線已中斷，模擬位置仍保留。如需前往其他地點：" + fourGSteps
+    nonisolated static let checkVPNMessage = "LocalDevVPN 已開啟但無法連線。請關閉後重新開啟 LocalDevVPN，再點選「重試」。"
 
     @Published private(set) var onWiFi = true
+    /// 有沒有任何可用網路（Wi-Fi 或行動數據都算）：同一個 NWPathMonitor 的 path.status == .satisfied。
+    /// 給「移動過去」判斷要不要問路線、畫面顯示離線提示用。
+    @Published private(set) var hasNetwork = true
     /// A utun interface holding a 10.7.0.x address was seen (LocalDevVPN's range). Used only as a
     /// positive signal; "not seen" is never reported as "VPN is off" because this is unverified on device.
     @Published private(set) var vpnSeen = false
@@ -57,13 +60,15 @@ final class GpsSimNetwork: ObservableObject {
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
             let wifi = path.usesInterfaceType(.wifi)
+            let online = path.status == .satisfied
             let vpn = Self.detectVPNUp()
-            Task { @MainActor in self?.apply(wifi: wifi, vpn: vpn) }
+            Task { @MainActor in self?.apply(wifi: wifi, online: online, vpn: vpn) }
         }
         monitor.start(queue: DispatchQueue(label: "gpssim.netmonitor"))
     }
 
-    private func apply(wifi: Bool, vpn: Bool) {
+    private func apply(wifi: Bool, online: Bool, vpn: Bool) {
+        hasNetwork = online
         guard demoOnWiFi == nil else { return }
         onWiFi = wifi
         vpnSeen = vpn
@@ -79,7 +84,7 @@ final class GpsSimNetwork: ObservableObject {
     /// Row hint when the device chain is not ready. `tunnelConnected` is StikDebug's own tunnel flag.
     func deviceHint(tunnelConnected: Bool) -> String {
         if !onWiFi { return Self.noWifiMessage }
-        return tunnelConnected ? "先掛載開發者映像（DDI）" : Self.checkVPNMessage
+        return tunnelConnected ? "請先掛載開發者映像（DDI）。" : Self.checkVPNMessage
     }
 
     nonisolated private static func detectVPNUp() -> Bool {
@@ -113,24 +118,30 @@ struct GpsSimIssue: Equatable {
     static func from(code: Int32) -> GpsSimIssue {
         switch code {
         case 1:
-            return GpsSimIssue(kind: .other, message: "目標 IP 錯誤，請按「改回預設」")
+            return GpsSimIssue(kind: .other, message: "目標 IP 錯誤。請點選「改回預設」。（錯誤 1）")
         case 2:
-            return GpsSimIssue(kind: .pairing, message: "配對檔讀不到或已失效。請依安裝教學以電腦產生配對檔。")
+            return GpsSimIssue(kind: .pairing, message: "配對檔無法讀取或已失效。請依使用教學以電腦產生配對檔。（錯誤 2）")
         case 3, 9:
             if !GpsSimNetwork.onWiFiNow {
                 return GpsSimIssue(kind: .tunnel, message: "\(GpsSimNetwork.noWifiMessage)（錯誤 \(code)）")
             }
-            return GpsSimIssue(kind: .tunnel, message: "連不到手機的定位服務。請先確認手機已連上 Wi-Fi，再確認 LocalDevVPN 已連線，然後再按一次。（錯誤 \(code)）")
+            return GpsSimIssue(kind: .tunnel, message: "無法連線至手機的定位服務。請確認已連上 Wi-Fi 且 LocalDevVPN 已連線，再點選「重試」。（錯誤 \(code)）")
         case 10:
-            return GpsSimIssue(kind: .ddi, message: "定位服務打不開，多半是開發者磁碟映像（DDI）還沒掛載。請按上方「掛載 DDI」後再試。（錯誤 10）")
+            return GpsSimIssue(kind: .ddi, message: "開發者映像未掛載。請至「設定 › 開發者映像」掛載。（錯誤 10）")
         case 11:
-            return GpsSimIssue(kind: .other, message: "位置送不進手機（錯誤 11）。請解鎖手機後再按一次。")
+            return GpsSimIssue(kind: .other, message: "模擬位置無法送至手機。請解鎖手機後重試。（錯誤 11）")
         case 12:
-            return GpsSimIssue(kind: .other, message: "沒能清掉手機上的模擬定位（錯誤 12），手機可能還停在假的位置。請解鎖手機、確認 LocalDevVPN 已連線後再按一次停止。")
+            return GpsSimIssue(kind: .other, message: "無法清除手機上的模擬位置，手機可能仍停在模擬位置。請解鎖手機並確認 LocalDevVPN 已連線，再點選「停止模擬」。（錯誤 12）")
         default:
-            return GpsSimIssue(kind: .other, message: "定位失敗（錯誤 \(code)）。請確認 LocalDevVPN 已連線、DDI 已掛載後再試。")
+            return GpsSimIssue(kind: .other, message: "定位失敗。請確認 LocalDevVPN 已連線且開發者映像已掛載，再重試。（錯誤 \(code)）")
         }
     }
+}
+
+/// 引擎 toast 的種類：stopped＝停止模擬的結果（首頁附「復原」）。
+enum GpsSimToastKind {
+    case plain
+    case stopped
 }
 
 /// Where a send put the blue dot; used for "回上一個" (undo).
@@ -170,6 +181,18 @@ final class GpsSimEngine: ObservableObject {
     @Published private(set) var staleTarget: GpsSendTarget?
     @Published var issue: GpsSimIssue?
     @Published var toast: String?
+    /// 這則 toast 是哪一種（首頁依此決定要不要附「復原」），取代比對 toast 開頭字。
+    @Published var toastKind: GpsSimToastKind = .plain
+    /// 移動過去／原地漫步進行中：GpsSimRouteMover 每秒自己送點，4 秒重送與微飄暫停。
+    @Published private(set) var isMoving = false
+    /// 最近一次移動結束（抵達或結束移動）的時間：首頁據此不把 landing 變動當成「已換到」。
+    @Published private(set) var lastMoveEndedAt: Date?
+    /// CI 劇本（-GpsSimCI）專用：移動中的每一點假裝送成功、不碰手機，結束後也不開 4 秒重送。
+    static var demoMoveSends = false
+    /// 移動開始時還沒在模擬（從真實位置出發）：第一點送成功才把這組名稱設成目前模擬目標。
+    private var pendingMoveIdentity: (name: String, placeID: String?, center: CLLocationCoordinate2D?)?
+    /// beginMove 前的「回上一個」目標；移動沒真的開始時還原。
+    private var previousBeforeMove: GpsSendTarget??
 
     /// Completion code meaning "another send/stop was already running" (not a device status code).
     static let busyCode: Int32 = -100
@@ -223,6 +246,8 @@ final class GpsSimEngine: ObservableObject {
     /// The landing sits `landingOffsetMeters` from the centre (north 60 % / east 80 %), so the
     /// status line's 「離圓心 N 公尺」 is a real, non-zero distance.
     func applyDemoSimulation(name: String, coordinate: CLLocationCoordinate2D, landingOffsetMeters: Double = 18) {
+        // CI「前往」在移動中按下：和真的 send 一樣先取消移動。
+        takeOverFromMove()
         let north = landingOffsetMeters * 0.6
         let east = landingOffsetMeters * 0.8
         let landed = CLLocationCoordinate2D(
@@ -265,10 +290,12 @@ final class GpsSimEngine: ObservableObject {
         guard !isBusy else { completion?(Self.busyCode); return }
         let path = Self.pairingFilePath
         guard FileManager.default.fileExists(atPath: path) else {
-            issue = GpsSimIssue(kind: .pairing, message: "尚無配對檔。請依安裝教學以電腦產生配對檔。")
+            issue = GpsSimIssue(kind: .pairing, message: "尚未配對。請依使用教學以電腦產生配對檔。")
             completion?(2)
             return
         }
+        // 移動中又點「前往」：先取消移動再瞬移（規格 3.4，不彈確認）。失敗時從移動停下的點恢復微飄。
+        takeOverFromMove()
         isBusy = true
         // The old 4 s timer would otherwise fire during this send and could pull the dot back
         // to the previous place after the new one landed.
@@ -334,7 +361,8 @@ final class GpsSimEngine: ObservableObject {
     }
 
     private func resendTick() {
-        guard !isBusy, let landing, let path = sessionPairingPath, let ip = sessionIP else { return }
+        // 移動中由 GpsSimRouteMover 每秒送點；這裡再送會把藍點拉回 landing（規格第 5 節「微飄與移動互打」）。
+        guard !isMoving, !isBusy, let landing, let path = sessionPairingPath, let ip = sessionIP else { return }
         let next = driftEnabled ? GpsGeo.offset(landing.latitude, landing.longitude, GpsGeo.jitter) : landing
         current = next
         LocationSimulationSession.shared.updateCoordinate(next)
@@ -371,6 +399,8 @@ final class GpsSimEngine: ObservableObject {
     /// because it has a 24 s budget and puts the point back right after.
     func stop(full: Bool = true, completion: ((Int32) -> Void)? = nil) {
         guard !isBusy else { completion?(Self.busyCode); return }
+        // 抵達前按停止模擬：取消移動，照既有 stop() 流程（規格 3.5）。
+        takeOverFromMove()
         isBusy = true
         beginBackgroundTask()
         let wasSimulating = activeName != nil || LocationSimulationSession.shared.isActive
@@ -414,7 +444,8 @@ final class GpsSimEngine: ObservableObject {
                 self.lastLinkOK = Date()
                 self.issue = nil
                 // Idle phone + red button = clearing leftovers of an earlier run: say that, not "returned".
-                self.toast = wasSimulating ? "已回到真實位置，地圖約 10 秒內更新" : "已經是真實位置（已清除殘留）"
+                self.toastKind = .stopped
+                self.toast = wasSimulating ? "已回到真實位置，地圖約 10 秒內更新" : "目前已是真實位置，已清除殘留的模擬位置。"
                 // An idle press must not wipe a pending 10 s undo of an earlier stop.
                 if let stopped = self.activeTarget { self.previous = stopped }
                 self.activeName = nil
@@ -430,14 +461,154 @@ final class GpsSimEngine: ObservableObject {
         }
     }
 
+    // MARK: - 移動過去／原地漫步（GpsSimRouteMover 呼叫）
+
+    /// 開始移動：暫停 4 秒重送與微飄，備好配對檔與 IP。start＝出發點（目前模擬點或真實位置）。
+    /// 已在模擬就沿用目前的名稱直到第一點送成功；沒在模擬則第一點送成功才算開始模擬。
+    func beginMove(name: String, placeID: String?, center: CLLocationCoordinate2D?,
+                   at start: CLLocationCoordinate2D) {
+        isMoving = true
+        LocationSimulationSession.shared.pauseResending()
+        if sessionPairingPath == nil { sessionPairingPath = Self.pairingFilePath }
+        if sessionIP == nil { sessionIP = DeviceConnectionContext.targetIPAddress }
+        previousBeforeMove = previous
+        if let before = activeTarget { previous = before }
+        pendingMoveIdentity = (name, placeID, center)
+        failStreak = 0
+        beginBackgroundTask()
+    }
+
+    /// 送移動中的一點：只送、不動 landing（抵達時 endMove 才設）；失敗不跳錯誤橫幅，
+    /// 由移動器數連續失敗次數。引擎正在「前往／停止」時回 busyCode。
+    func sendMoveStep(_ point: CLLocationCoordinate2D, completion: @escaping (Int32) -> Void) {
+        guard isMoving else { completion(Self.busyCode); return }
+        guard !isBusy else { completion(Self.busyCode); return }
+        if Self.demoMoveSends {
+            Task { @MainActor in
+                guard self.isMoving else { completion(Self.busyCode); return }
+                if let id = self.pendingMoveIdentity {
+                    self.previousBeforeMove = nil
+                    self.activeName = id.name
+                    self.activePlaceID = id.placeID
+                    self.activeCenter = id.center
+                    if self.landing == nil { self.landing = point }
+                    self.pendingMoveIdentity = nil
+                }
+                self.current = point
+                LocationSimulationSession.shared.updateCoordinate(point)
+                completion(0)
+            }
+            return
+        }
+        let path = sessionPairingPath ?? Self.pairingFilePath
+        let ip = sessionIP ?? DeviceConnectionContext.targetIPAddress
+        LocationSimulationSession.shared.updateCoordinate(point)
+        LocationSimulationCommandQueue.shared.async {
+            let code = simulate_location(ip, point.latitude, point.longitude, path)
+            Task { @MainActor in
+                // 回來時移動已被取消（使用者按了前往／停止）：不改任何狀態。
+                guard self.isMoving else { completion(code); return }
+                if code == 0 {
+                    if let id = self.pendingMoveIdentity {
+                        self.previousBeforeMove = nil
+                        self.activeName = id.name
+                        self.activePlaceID = id.placeID
+                        self.activeCenter = id.center
+                        if self.landing == nil { self.landing = point }
+                        self.pendingMoveIdentity = nil
+                    }
+                    self.current = point
+                    self.issue = nil
+                    self.failStreak = 0
+                    self.connectionLost = false
+                    self.lastSendSucceeded = Date()
+                    self.lastLinkOK = Date()
+                }
+                completion(code)
+            }
+        }
+    }
+
+    /// 移動器連續 3 次送失敗時呼叫：斷線（3/9）沿用 connectionLost 語意，其他才報錯。
+    func noteMoveLinkLost(code: Int32) {
+        if (code == 3 || code == 9) && activeName != nil {
+            connectionLost = true
+        } else {
+            issue = GpsSimIssue.from(code: code)
+        }
+    }
+
+    /// 結束移動（抵達或「停止移動」）：landing＝停下的點，恢復 4 秒微飄；模擬不中斷。
+    func endMove(at point: CLLocationCoordinate2D, arrivedName: String? = nil) {
+        guard isMoving else { return }
+        isMoving = false
+        lastMoveEndedAt = Date()
+        LocationSimulationSession.shared.clearRoute()
+        if pendingMoveIdentity != nil {
+            // 新目的地一點都沒送成功過：手機還停在原本的地方，不能拿舊名字存新座標。
+            pendingMoveIdentity = nil
+            restoreAfterUnstartedMove()
+            return
+        }
+        guard let name = activeName else { return }
+        landing = point
+        current = point
+        persistLastTarget(name: name, placeID: activePlaceID, coordinate: point)
+        if !Self.demoMoveSends { startTimer(at: point) }
+        if let arrivedName {
+            toastKind = .plain
+            toast = "已抵達 \(arrivedName)"
+            Haptics.light()
+        }
+    }
+
+    /// 移動沒真的開始（第一點都沒送成功）：原本在模擬就回到原本的落點繼續微飄；
+    /// 原本是真實位置就收掉 beginMove 開的 session（背景音訊／定位）與背景任務。
+    private func restoreAfterUnstartedMove() {
+        if let saved = previousBeforeMove { previous = saved }
+        previousBeforeMove = nil
+        if activeName != nil, let landing {
+            current = landing
+            startTimer(at: landing)
+        } else {
+            current = nil
+            LocationSimulationSession.shared.stop()
+            endBackgroundTask()
+        }
+    }
+
+    /// 前往／停止模擬接手時：讓移動器作廢（含規劃中的那 8 秒），landing 改成移動停下的點
+    /// （送失敗時從那裡恢復微飄）。新目的地還沒送成功過就維持原本的落點。
+    private func takeOverFromMove() {
+        GpsSimRouteMover.shared.cancelForTakeover()
+        guard isMoving else { return }
+        isMoving = false
+        if pendingMoveIdentity != nil {
+            pendingMoveIdentity = nil
+            if let saved = previousBeforeMove { previous = saved }
+            if activeName == nil {
+                // 從真實位置出發、一點都沒送成功：beginMove 開的 session 與背景任務先收掉，
+                // 接手的 send 成功會自己重開，失敗時才不會留著空轉的背景音訊／定位。
+                LocationSimulationSession.shared.stop()
+                endBackgroundTask()
+            }
+        } else if activeName != nil, let here = current {
+            landing = here
+        }
+        previousBeforeMove = nil
+    }
+
     /// Screenshot-only: what a successful 停止模擬 leaves behind, without touching the device.
     func applyDemoStop() {
+        takeOverFromMove()
+        LocationSimulationSession.shared.stop()
         previous = activeTarget
         activeName = nil
         activePlaceID = nil
         activeCenter = nil
         landing = nil
         current = nil
+        toastKind = .stopped
         toast = "已回到真實位置，地圖約 10 秒內更新"
     }
 

@@ -113,7 +113,7 @@ enum RenewKeychain {
 
     struct WriteError: LocalizedError {
         let status: OSStatus
-        var errorDescription: String? { "無法寫入鑰匙圈（\(status)）。" }
+        var errorDescription: String? { "無法寫入鑰匙圈。（錯誤 \(status)）" }
     }
 
     private static func write(_ data: Data, for account: Account, service: String) throws {

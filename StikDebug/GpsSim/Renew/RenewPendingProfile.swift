@@ -57,7 +57,7 @@ enum RenewPendingProfile {
 
     static func save(_ profile: Data, expiry: Date, mock: Bool) throws {
         guard let url = fileURL(mock: mock) else {
-            throw RenewProblem(.install, detail: "新描述檔存不進手機（找不到 App 的資料夾）。")
+            throw RenewProblem(.install, detail: "無法儲存新描述檔（找不到 App 資料夾）。")
         }
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
@@ -65,7 +65,7 @@ enum RenewPendingProfile {
         do {
             try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         } catch {
-            throw RenewProblem(.install, detail: "新描述檔存不進手機。")
+            throw RenewProblem(.install, detail: "無法儲存新描述檔。")
         }
         RenewDiagLog.write("pending saved (expiry \(GpsProfileRenew.expiryText(expiry)))")
     }

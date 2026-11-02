@@ -26,10 +26,10 @@ enum RenewStep: Int, CaseIterable, Comparable {
 
     var title: String {
         switch self {
-        case .anisette: return "連到驗證伺服器"
+        case .anisette: return "連線至驗證伺服器"
         case .signIn: return "登入 Apple"
         case .fetchProfile: return "取得新的 7 天簽名"
-        case .install: return "裝到這支手機"
+        case .install: return "安裝至手機"
         }
     }
 
@@ -184,7 +184,7 @@ enum GpsRenewCopy {
     /// 「簽名到 10/29 17:46 前照常能用。」 (every failure says it, to take the fright out).
     static func stillWorks(_ expiry: Date?) -> String {
         guard let expiry else { return "" }
-        return "簽名到 \(dateTime(expiry)) 前照常能用。"
+        return "目前的簽名到 \(dateTime(expiry)) 前仍可使用。"
     }
 }
 
@@ -193,12 +193,12 @@ enum RenewAction: Equatable {
     case retry, signInAgain, reenterCode, install, acknowledge, changeServer, signInAndRenew
     var title: String {
         switch self {
-        case .retry: return "再試一次"
+        case .retry: return "重試"
         case .signInAgain: return "重新登入"
         case .reenterCode: return "重新輸入"
-        case .install: return "裝上"
-        case .acknowledge: return "知道了"
-        case .changeServer: return "換伺服器"
+        case .install: return "安裝"
+        case .acknowledge: return "好"
+        case .changeServer: return "更換伺服器"
         case .signInAndRenew: return "登入並續簽"
         }
     }
@@ -218,99 +218,99 @@ struct RenewFailureText {
         let app = GpsRenewCopy.appName
         switch failure {
         case .anisetteTimeout(let seconds):
-            title = "驗證伺服器太慢"
-            let server = "驗證伺服器（幫忙登入 Apple 的公開伺服器，不是 Apple 的）"
-            let waited = seconds.map { "等了 \($0) 秒" } ?? "等太久"
+            title = "驗證伺服器回應逾時"
+            let server = "驗證伺服器（協助登入 Apple 的第三方公開伺服器）"
+            let waited = seconds.map { "\($0) 秒內" } ?? "在時限內"
             // No 「換伺服器」 for now: the build has exactly one server, so the button would do nothing.
-            let text = "\(server)\(waited)沒有回應，這是伺服器端的問題，跟密碼無關。過 1～2 分鐘再按一次通常就會過。"
+            let text = "\(server)\(waited)未回應，與密碼無關。請 1～2 分鐘後重試。"
             detail = text + keep
             primary = .retry
         case .sessionExpired:
             title = "Apple 要求重新驗證"
-            detail = "Apple 不接受這次登入，請按重新登入；仍失敗請回報。" + keep
+            detail = "Apple 未接受此次登入。請點選「重新登入」；仍失敗時請回報問題。" + keep
             primary = .signInAgain
         case .loginBlocked:
-            title = "Apple 暫時擋下登入"
-            let until = expiry.map { "簽名到 \(GpsRenewCopy.dateTime($0)) 前 \(app) 照常能用；" } ?? ""
-            detail = "不是密碼錯。連續重試可能被擋更久，請隔 1 小時再試。\(until)急用時\(GpsRenewCopy.pcReinstall)"
+            title = "Apple 暫時拒絕登入"
+            let until = expiry.map { "目前的簽名到 \(GpsRenewCopy.dateTime($0)) 前 \(app) 仍可使用；" } ?? ""
+            detail = "此錯誤與密碼無關。連續重試會延長限制時間，請 1 小時後再試。\(until)急需使用時，\(GpsRenewCopy.pcReinstall)"
             primary = .acknowledge
         case .wrongPassword:
-            title = "Apple ID 或密碼不對"
+            title = "Apple ID 或密碼不正確"
             detail = "請重新輸入。" + keep
             primary = .signInAgain
         case .wrongCode:
-            title = "驗證碼不對或過期"
-            detail = "請再輸入一次 Apple 傳來的 6 位數。" + keep
+            title = "驗證碼不正確或已過期"
+            detail = "請重新輸入 Apple 傳送的 6 位數驗證碼。" + keep
             primary = .reenterCode
         case .noNetwork:
-            title = "沒有網路"
-            detail = "續簽要連到 Apple。開行動數據或 Wi-Fi 後再按一次。" + keep
+            title = "沒有網路連線"
+            detail = "續簽需要連線至 Apple。請連上 Wi-Fi 或行動網路後重試。" + keep
             primary = .retry
         case .installUnreachable:
-            title = "新簽名已下載，還沒裝上"
-            detail = "有 Wi-Fi：開 LocalDevVPN 再按「裝上」。只有 4G：關行動數據 → 開 LocalDevVPN → 按「裝上」，裝好再開回行動數據。不用重新下載或登入。" + keep
+            title = "描述檔已下載，尚未安裝"
+            detail = "使用 Wi-Fi 時：開啟 LocalDevVPN，再點選「安裝」。僅使用行動網路時：關閉行動數據 → 開啟 LocalDevVPN → 點選「安裝」，完成後再開啟行動數據。不需要重新下載或登入。" + keep
             primary = .install
         case .appIDLimit(let again):
-            title = "這週 Apple 帳號能簽的數量用完了"
+            title = "本週 Apple 帳號的 App ID 數量已用完"
             let back = again.map { "\(GpsRenewCopy.day($0)) 後恢復。" } ?? ""
-            let now = expiry.map { "現在的簽名到 \(GpsRenewCopy.dateTime($0)) 前照常能用。" } ?? ""
+            let now = expiry.map { "目前的簽名到 \(GpsRenewCopy.dateTime($0)) 前仍可使用。" } ?? ""
             detail = "免費 Apple ID 每 7 天最多 10 個 App ID。\(back)\(now)"
             primary = .acknowledge
         case .deviceNotRegistered:
-            title = "這支手機還沒登記到 Apple 帳號"
-            detail = "請依安裝教學以電腦安裝一次 \(app)，手機即會登記。" + keep
+            title = "此手機尚未登記至 Apple 帳號"
+            detail = "請依使用教學以電腦安裝 \(app)，即可完成登記。" + keep
             primary = .acknowledge
         case .other(let code):
-            title = "沒續簽成功"
+            title = "續簽失敗"
             detail = keep
-            codeLine = "錯誤代碼：\(code)"
+            codeLine = "（錯誤 \(code)）"
             primary = .retry
         case .notSignedIn:
-            title = "還沒登入 Apple"
-            detail = "登入一次之後，\(app) 可以自己續簽。" + keep
+            title = "尚未登入 Apple"
+            detail = "登入後，\(app) 即可自動續簽。" + keep
             primary = .signInAndRenew
         case .anisetteUnavailable:
-            title = "驗證伺服器回了錯誤"
-            detail = "驗證伺服器（幫忙登入 Apple 的公開伺服器，不是 Apple 的）不是太慢，是回了無法使用的資料。過幾分鐘再按一次。" + keep
+            title = "驗證伺服器回傳錯誤"
+            detail = "驗證伺服器回傳了無法使用的資料。請數分鐘後重試。" + keep
             primary = .retry
         case .appSpecificPassword:
-            title = "這個帳號要用 App 專用密碼"
-            detail = "到 appleid.apple.com 產生「App 專用密碼」，用它登入。" + keep
+            title = "此帳號需使用 App 專用密碼"
+            detail = "請至 appleid.apple.com 產生「App 專用密碼」，再以此密碼登入。" + keep
             primary = .signInAgain
         case .signInBusy:
-            title = "登入還在進行中"
-            detail = "先完成或取消目前的登入，再按一次。" + keep
+            title = "登入尚未完成"
+            detail = "請完成或取消目前的登入後重試。" + keep
             primary = .acknowledge
         case .accountMismatch:
-            title = "這個 Apple ID 不是簽 \(app) 的帳號"
-            detail = "請用當初裝 \(app) 時的 Apple ID 登入。什麼都沒有改動。" + keep
+            title = "此 Apple ID 與安裝 \(app) 的帳號不同"
+            detail = "請改用安裝 \(app) 時的 Apple ID 登入。目前設定未變更。" + keep
             primary = .signInAgain
         case .needsComputer(let code):
-            title = "這支手機沒辦法自己續簽"
-            detail = "為了不把 \(app) 弄壞，已停止，未安裝任何檔案。\(GpsRenewCopy.pcReinstall)" + keep
-            codeLine = "錯誤代碼：\(code)"
+            title = "此手機無法在 App 內續簽"
+            detail = "為避免 \(app) 無法開啟，已停止續簽，未安裝任何檔案。\(GpsRenewCopy.pcReinstall)" + keep
+            codeLine = "（錯誤 \(code)）"
             primary = .acknowledge
         case .keychain:
-            title = "登入成功，但存不了登入資料"
-            detail = "這支手機不讓 \(app) 把登入資料存進鑰匙圈（Keychain）。請重新安裝 \(app) 後再試。" + keep
-            codeLine = "錯誤代碼：keychain"
+            title = "登入成功，但無法儲存登入資料"
+            detail = "\(app) 無法將登入資料存入鑰匙圈。請重新安裝 \(app) 後再試。" + keep
+            codeLine = "（錯誤 keychain）"
             primary = .acknowledge
         case .notNeeded:
-            title = "不用續簽"
-            detail = "手機上的簽名已經是最新的。" + keep
+            title = "不需要續簽"
+            detail = "目前的簽名已是最新。" + keep
             primary = .acknowledge
         case .unavailable:
-            title = "這個版本還不能在手機上續簽"
+            title = "此版本不支援在手機上續簽"
             detail = "此版本無法在手機續簽，請用電腦重新安裝。" + keep
             primary = .acknowledge
         case .pendingUnusable:
-            title = "下載的簽名不能用，已刪掉"
+            title = "下載的描述檔無法使用，已刪除"
             // 再試一次 = a normal renew now that nothing waits (needs internet).
-            detail = "請按「續簽」重新拿一份。" + keep
+            detail = "請點選「重試」重新下載。" + keep
             primary = .retry
         case .downloadBusy:
-            title = "下載還沒完成"
-            detail = "等一下再按「裝上」。" + keep
+            title = "下載尚未完成"
+            detail = "請稍後再點選「安裝」。" + keep
             primary = .acknowledge
         }
     }
@@ -560,7 +560,7 @@ final class GpsRenewCenter: ObservableObject {
         timeoutStreak = 0
         sessionStreak = 0
         signTick += 1
-        let text = "簽名已經是最新的，不用續簽"
+        let text = "簽名已是最新，不需要續簽"
         successToast = text
         AccessibilityAnnouncer.announce(text)
         Task { await refreshStatus() }
@@ -667,7 +667,7 @@ final class GpsRenewCenter: ObservableObject {
             externalRenewFinished(expiry: outcome.expiry, failure: nil, alreadyUpToDate: outcome.alreadyUpToDate,
                                   nothingInstalled: !installed)
             if installed {
-                let text = outcome.expiry.map { "新簽名已裝好，到 \(GpsRenewCopy.dateTime($0))" } ?? "新簽名已裝好"
+                let text = outcome.expiry.map { "已安裝新描述檔，簽名可用至 \(GpsRenewCopy.dateTime($0))" } ?? "已安裝新描述檔"
                 successToast = text
                 AccessibilityAnnouncer.announce(text)
             }
@@ -791,7 +791,7 @@ final class GpsDemoRenewService: RenewServicing {
             RenewRecord(at: now.addingTimeInterval(-5.5 * 86_400), succeeded: true,
                         expiry: now.addingTimeInterval(1.5 * 86_400)),
             RenewRecord(at: now.addingTimeInterval(-5.9 * 86_400), succeeded: false,
-                        reason: "驗證伺服器太慢（12 秒）"),
+                        reason: "驗證伺服器回應逾時（12 秒）"),
         ]
     }
 
@@ -877,7 +877,7 @@ enum GpsRenewReminders {
                 guard let fire = fireDate(expiry: expiry, hoursBefore: hours), fire > now else { continue }
                 let content = UNMutableNotificationContent()
                 content.title = "\(GpsRenewCopy.appName) 簽名\(leftText(from: fire, to: expiry))"
-                content.body = "到期後 \(GpsRenewCopy.appName) 會打不開。點這裡打開 \(GpsRenewCopy.appName)，按「立即續簽」。"
+                content.body = "到期後 \(GpsRenewCopy.appName) 將無法開啟。請開啟 \(GpsRenewCopy.appName) 並點選「立即續簽」。"
                 content.sound = .default
                 // Seconds from now, not a wall-clock date: a calendar trigger would fire at the wrong
                 // moment after the phone changes time zone (travel), while the expiry is an absolute time.
@@ -895,8 +895,8 @@ enum GpsRenewReminders {
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
             let content = UNMutableNotificationContent()
-            content.title = "\(GpsRenewCopy.appName) 新簽名已下載"
-            content.body = "打開 \(GpsRenewCopy.appName)、連上 LocalDevVPN 就會裝上。只有 4G 時先關行動數據。"
+            content.title = "\(GpsRenewCopy.appName) 描述檔已下載"
+            content.body = "開啟 \(GpsRenewCopy.appName) 並連線 LocalDevVPN 後即會安裝。僅使用行動網路時，請先關閉行動數據。"
             content.sound = .default
             center.add(UNNotificationRequest(identifier: "gpssim.sign.downloaded", content: content, trigger: nil))
         }

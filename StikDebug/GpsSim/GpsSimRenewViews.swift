@@ -37,10 +37,10 @@ struct GpsSignState {
 
     func headline(signedIn: Bool) -> String {
         if level == .expired { return "簽名已過期" }
-        if !signedIn { return "\(remaining)（尚未登入 Apple，不能自動續簽）" }
+        if !signedIn { return "\(remaining)（尚未登入 Apple，無法自動續簽）" }
         switch level {
-        case .today: return "\(remaining)，今天要續簽"
-        case .soon: return "\(remaining)，該續簽了"
+        case .today: return "\(remaining)，請於今天續簽"
+        case .soon: return "\(remaining)，建議續簽"
         default: return remaining
         }
     }
@@ -145,7 +145,7 @@ private func lastRenewLine(_ renew: GpsRenewCenter) -> String? {
             // The expiry is already the line above: no second date here.
             return "上次續簽：\(when) 成功"
         }
-        return "上次續簽：\(when) 沒成功（\(r.reason ?? "原因不明")）"
+        return "上次續簽：\(when) 失敗（\(r.reason ?? "原因不明")）"
     }
     if let last = renew.status.lastSuccess { return "上次續簽：\(GpsRenewCopy.dateTime(last)) 成功" }
     return nil
@@ -207,7 +207,7 @@ struct GpsRenewProgressView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("第 \(s.rawValue) 步，\(s.title)，" + (done ? "已完成" : (active ? "進行中" : "還沒開始")))
+        .accessibilityLabel("第 \(s.rawValue) 步，\(s.title)，" + (done ? "已完成" : (active ? "進行中" : "尚未開始")))
     }
 
     private var cancelButton: some View {
@@ -215,7 +215,7 @@ struct GpsRenewProgressView: View {
         return Button {
             renew.cancel()
         } label: {
-            Text(canCancel ? "取消續簽" : (renew.currentStep == .install ? "正在裝，請稍候" : "續簽中，請稍候"))
+            Text(canCancel ? "取消續簽" : (renew.currentStep == .install ? "安裝中，請稍候" : "續簽中，請稍候"))
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(GpsOutlineButtonStyle())
@@ -308,7 +308,7 @@ struct GpsSignSection: View {
         } header: {
             Text("簽名")
         } footer: {
-            Text("免費 Apple ID 簽的 App 每 7 天到期，到期後 \(GpsRenewCopy.appName) 會打不開。續簽只換新的 7 天簽名，地點不會不見。")
+            Text("以免費 Apple ID 簽名的 App 每 7 天到期，到期後 \(GpsRenewCopy.appName) 將無法開啟。續簽只更新 7 天簽名，不會刪除地點。")
         }
     }
 
@@ -324,7 +324,7 @@ struct GpsSignSection: View {
                     }
                 }
                 .font(.subheadline).accessibilityHidden(true)
-                Text(renew.status.pendingInstall ? "新簽名已下載，還沒裝上" : state.headline(signedIn: renew.status.signedIn))
+                Text(renew.status.pendingInstall ? "描述檔已下載，尚未安裝" : state.headline(signedIn: renew.status.signedIn))
                     .font(.title2.weight(.bold))
                     .foregroundStyle(state.level == .expired ? GpsTheme.dangerText : Color.white)
                     .lineLimit(nil)
@@ -334,7 +334,7 @@ struct GpsSignSection: View {
                 .font(.subheadline)
                 .foregroundStyle(GpsTheme.sub)
             if renew.status.pendingInstall {
-                Text("只有 4G：關行動數據 → 開 LocalDevVPN → 按「裝上新簽名」，裝好再開回行動數據。")
+                Text("僅使用行動網路時：關閉行動數據 → 開啟 LocalDevVPN → 點選「安裝描述檔」，完成後再開啟行動數據。")
                     .font(.subheadline)
                     .foregroundStyle(GpsTheme.sub)
                     .fixedSize(horizontal: false, vertical: true)
@@ -363,7 +363,7 @@ struct GpsRenewButton: View {
     private var title: String {
         if renew.isRunning { return "續簽中…" }
         // A downloaded signature waits: this button installs it (no Apple, no sign-in).
-        if renew.status.pendingInstall { return "裝上新簽名" }
+        if renew.status.pendingInstall { return "安裝描述檔" }
         return renew.status.signedIn ? "立即續簽" : "登入並續簽"
     }
 
@@ -433,7 +433,7 @@ struct GpsRenewAccountPage: View {
                 if renew.status.signedIn {
                     Text(renew.status.appleID.map(GpsRenewCopy.masked) ?? renew.status.maskedAppleID ?? "已登入")
                         .frame(minHeight: 44, alignment: .leading)
-                    Text(renew.status.lastSuccess.map { "已登入・最後成功 \(GpsRenewCopy.dateTime($0))" } ?? "已登入")
+                    Text(renew.status.lastSuccess.map { "已登入・上次續簽 \(GpsRenewCopy.dateTime($0))" } ?? "已登入")
                         .font(.subheadline)
                         .foregroundStyle(GpsTheme.sub)
                 } else {
@@ -482,18 +482,18 @@ struct GpsRenewAccountPage: View {
             } header: {
                 Text("續簽")
             } footer: {
-                Text("打開 \(GpsRenewCopy.appName) 時，如果簽名剩不到 3 天，會自動續簽（每 6 小時最多試一次）。如果 Apple 暫時不讓登入，會等 6 小時再試，不影響你的帳號。")
+                Text("開啟 \(GpsRenewCopy.appName) 時，若簽名剩不到 3 天即自動續簽，每 6 小時最多 1 次。Apple 暫時拒絕登入時，6 小時後再試，不影響帳號。")
             }
             .id(renew.signTick)
 
             Section {
                 if renew.history.isEmpty {
-                    Text("還沒有紀錄").foregroundStyle(GpsTheme.sub)
+                    Text("尚無紀錄").foregroundStyle(GpsTheme.sub)
                 }
                 ForEach(renew.history) { r in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(GpsRenewCopy.dateTime(r.at)).monospacedDigit()
-                        Text(r.succeeded ? "成功" : "沒成功")
+                        Text(r.succeeded ? "成功" : "失敗")
                             .foregroundStyle(r.succeeded ? GpsTheme.mint : GpsTheme.sub)
                         Text(r.succeeded ? (r.expiry.map { "到 \(GpsRenewCopy.dateTime($0))" } ?? "") : (r.reason ?? ""))
                             .foregroundStyle(GpsTheme.sub)
@@ -527,7 +527,7 @@ struct GpsRenewAccountPage: View {
                     .disabled(renew.isRunning)
                     .accessibilityIdentifier("renew.signOut")
                 } footer: {
-                    Text("登出後要重新輸入密碼和驗證碼。")
+                    Text("登出後需重新輸入密碼與驗證碼。")
                 }
                 // A wide gap keeps 登出 away from everything else (it was a one-tap corner button in SideStore).
                 .listSectionSpacing(48)
@@ -554,9 +554,9 @@ struct GpsRenewAccountPage: View {
     }
 
     private var signOutMessage: String {
-        var text = "登出後要重新輸入密碼和驗證碼。Apple 最近常擋這類登入，可能好幾天登不回來；登不回來的話，簽名到期後 \(GpsRenewCopy.appName) 就打不開。"
+        var text = "登出後需重新輸入密碼與驗證碼。Apple 近期經常拒絕此類登入，可能數天無法重新登入；若無法登入，簽名到期後 \(GpsRenewCopy.appName) 將無法開啟。"
         if let expiry = GpsSigning.expiration {
-            text += "現在的簽名不受影響，到 \(GpsRenewCopy.dateTime(expiry)) 前照常能用。"
+            text += "目前的簽名不受影響，到 \(GpsRenewCopy.dateTime(expiry)) 前仍可使用。"
         }
         return text
     }
@@ -578,7 +578,7 @@ struct GpsRenewAdvancedPage: View {
     var body: some View {
         Form {
             Section {
-                Text("這裡的設定只在續簽一直失敗時才需要動。")
+                Text("僅在續簽持續失敗時才需要變更此頁設定。")
                     .font(.subheadline)
                     .foregroundStyle(GpsTheme.sub)
             }
@@ -600,7 +600,7 @@ struct GpsRenewAdvancedPage: View {
                     .disabled(measuring)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("renew.measure")
-                Button("還原成預設伺服器") {
+                Button("還原預設伺服器") {
                     guard let def = servers.first(where: \.isDefault) else { return }
                     Task {
                         await renew.service.selectAnisetteServer(id: def.id)
@@ -612,14 +612,14 @@ struct GpsRenewAdvancedPage: View {
             } header: {
                 Text("驗證伺服器（anisette）")
             } footer: {
-                Text("驗證伺服器只負責產生「這台像 Mac」的驗證資料，不會收到 Apple ID 或密碼。每台伺服器等候 6 秒，主伺服器未回應時改用備用伺服器。")
+                Text("驗證伺服器只產生模擬 Mac 的驗證資料，不會收到 Apple ID 或密碼。每台伺服器等候 6 秒，主要伺服器未回應時改用備用伺服器。")
             }
 
             Section {
                 Button {
                     showProfileImporter = true
                 } label: {
-                    Label("匯入描述檔（不用重裝）", systemImage: "doc.badge.plus").frame(minHeight: 44)
+                    Label("匯入描述檔", systemImage: "doc.badge.plus").frame(minHeight: 44)
                 }
                 .disabled(profileBusy)
                 .accessibilityIdentifier("settings.importProfile")
@@ -631,14 +631,14 @@ struct GpsRenewAdvancedPage: View {
                         runProfileImport(result)
                     }
                 }
-                Button("清掉過期的舊描述檔（只清 \(GpsRenewCopy.appName) 自己的）") { runProfileCleanup() }
+                Button("清除過期的描述檔（僅限 \(GpsRenewCopy.appName)）") { runProfileCleanup() }
                     .disabled(profileBusy)
                     .frame(minHeight: 44)
                 if let profileMessage {
                     Text(profileMessage).font(.footnote).foregroundStyle(.secondary)
                 }
             } header: {
-                Text("描述檔（給電腦做好的檔案用）")
+                Text("描述檔（電腦產生的檔案）")
             }
 
             Section {
@@ -654,7 +654,7 @@ struct GpsRenewAdvancedPage: View {
             } header: {
                 Text("驗證資料")
             } footer: {
-                Text("只在 Apple 一直要求重新驗證時才用。重設後要重新登入一次。")
+                Text("僅在 Apple 持續要求重新驗證時使用。重設後需重新登入。")
             }
         }
         .navigationTitle("進階")
@@ -665,7 +665,7 @@ struct GpsRenewAdvancedPage: View {
                 Task { await renew.resetAuthData() }
             }
         } message: {
-            Text("重設後要重新登入 Apple（密碼＋驗證碼）。Apple 最近常擋登入，可能好幾天登不回來。")
+            Text("重設後需重新登入 Apple（密碼與驗證碼）。Apple 近期經常拒絕此類登入，可能數天無法重新登入。")
         }
         .task {
             servers = await renew.service.anisetteServers()
@@ -696,11 +696,11 @@ struct GpsRenewAdvancedPage: View {
 
     /// <5 s mint 快, 5-15 s yellow 慢, >15 s or no answer red text.
     private func speedText(_ seconds: Double?) -> Text {
-        guard let s = seconds else { return Text("沒有回應，續簽會失敗").foregroundColor(GpsTheme.dangerText) }
+        guard let s = seconds else { return Text("無回應，續簽將失敗").foregroundColor(GpsTheme.dangerText) }
         let value = String(format: "%.1f 秒", s)
         if s < 5 { return Text("\(value)　快").foregroundColor(GpsTheme.mint) }
         if s <= 15 { return Text("\(value)　慢").foregroundColor(GpsTheme.yellow) }
-        return Text("\(value)　太慢，續簽會失敗").foregroundColor(GpsTheme.dangerText)
+        return Text("\(value)　過慢，續簽將失敗").foregroundColor(GpsTheme.dangerText)
     }
 
     private func measure() {
@@ -723,7 +723,7 @@ struct GpsRenewAdvancedPage: View {
                 profileMessage = outcome.message
                 renew.bumpSign()
             } catch {
-                profileMessage = "沒有換：\(error.localizedDescription)"
+                profileMessage = "未更換：\(error.localizedDescription)"
             }
         }
     }
@@ -734,7 +734,7 @@ struct GpsRenewAdvancedPage: View {
             defer { profileBusy = false }
             do {
                 let count = try await GpsProfileRenew.removeOwnExpired()
-                profileMessage = count == 0 ? "沒有過期的舊描述檔。" : "已清掉 \(count) 個過期的舊描述檔。"
+                profileMessage = count == 0 ? "沒有過期的描述檔。" : "已清除 \(count) 個過期的描述檔。"
             } catch {
                 profileMessage = "清除失敗：\(error.localizedDescription)"
             }
@@ -823,13 +823,13 @@ struct GpsRenewSignInSheet: View {
     // 1/3
     private var intro: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("為什麼要登入").font(.headline).foregroundStyle(.white)
-            Text("免費 Apple ID 簽的 App 只能用 7 天。登入一次之後，\(GpsRenewCopy.appName) 可以自己換新的 7 天簽名，不用接電腦。")
+            Text("登入的用途").font(.headline).foregroundStyle(.white)
+            Text("以免費 Apple ID 簽名的 App 只能使用 7 天。登入後，\(GpsRenewCopy.appName) 可自動續簽 7 天簽名，不需要連接電腦。")
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 8) {
-                bullet("Apple ID 和密碼只存在這支手機的鑰匙圈（Keychain），只送給 Apple。")
-                bullet("用你裝 \(GpsRenewCopy.appName) 時用的同一個 Apple ID。")
+                bullet("Apple ID 與密碼只儲存在此手機的鑰匙圈，只傳送給 Apple。")
+                bullet("請使用安裝 \(GpsRenewCopy.appName) 時的 Apple ID。")
             }
             Button("下一步") {
                 stage = .credentials
@@ -854,7 +854,7 @@ struct GpsRenewSignInSheet: View {
     // 2/3
     private var credentials: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("需要網路（Wi-Fi 或行動網路都可以）。登入後 Apple 會傳 6 位數驗證碼給你。")
+            Text("需要網路連線（Wi-Fi 或行動網路皆可）。登入後 Apple 會傳送 6 位數驗證碼。")
                 .font(.subheadline)
                 .foregroundStyle(GpsTheme.sub)
                 .fixedSize(horizontal: false, vertical: true)
@@ -930,7 +930,7 @@ struct GpsRenewSignInSheet: View {
     private var codeEntry: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("輸入驗證碼").font(.headline).foregroundStyle(.white)
-            Text("Apple 會把 6 位數驗證碼送到：這支 iPhone 上方跳出的「Apple ID 登入」提示，按「允許」就看到號碼；或你的其他 Apple 裝置。")
+            Text("Apple 會將 6 位數驗證碼傳送至此 iPhone 的「Apple ID 登入」提示（點選「允許」後顯示），或你的其他 Apple 裝置。")
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("6 位數驗證碼", text: $code)
@@ -982,7 +982,7 @@ struct GpsRenewSignInSheet: View {
             if askNotifications {
                 // An ordinary card with no primary button: the page's one primary is 立即續簽 / 完成 below.
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("簽名快到期時通知我（不會傳任何資料出去）")
+                    Text("簽名即將到期時通知我（不會傳送任何資料）")
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("開啟通知") {
@@ -997,7 +997,7 @@ struct GpsRenewSignInSheet: View {
                     Button {
                         askNotifications = false
                     } label: {
-                        Text("不用")
+                        Text("略過")
                             .font(.subheadline)
                             .foregroundStyle(GpsTheme.mint)
                             .frame(maxWidth: .infinity, minHeight: 44)
@@ -1010,7 +1010,7 @@ struct GpsRenewSignInSheet: View {
             }
             switch origin {
             case .renewAfter:
-                Text(renew.isRunning ? "已登入。正在續簽…" : "已登入。")
+                Text(renew.isRunning ? "已登入。續簽中…" : "已登入。")
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
                 // A renewal that fails right after sign-in is explained here, on the finished page,

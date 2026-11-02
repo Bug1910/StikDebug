@@ -22,7 +22,7 @@ struct GpsSimLicensesView: View {
 
     static let items: [Item] = [
         Item(name: "StikDebug", license: "AGPL-3.0", url: "https://github.com/StikDebug/StikDebug",
-             note: "PinFly 是從它修改來的。"),
+             note: "PinFly 以此專案為基礎修改。"),
         Item(name: "SideSign (commit 752d1ef)", license: "GPL-3.0", url: "https://github.com/SideStore/SideSign",
              note: "登入 Apple ID、下載描述檔（續簽用）。"),
         Item(name: "AnisetteKit (db8b410)", license: "AGPL-3.0", url: "https://github.com/mahee96/AnisetteKit",

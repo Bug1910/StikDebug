@@ -28,12 +28,12 @@ struct GpsSimShortcutsSection: View {
             NavigationLink {
                 GpsSimDailyRenewGuideView()
             } label: {
-                Text("每天自動續簽（要自己建一次）")
+                Text("每天自動續簽")
             }
         } header: {
             Text("捷徑")
         } footer: {
-            Text("Apple 不允許 App 自己建立自動化，要在「捷徑」App 照步驟建一次。")
+            Text("Apple 不允許 App 自行建立自動化，需在「捷徑」App 依步驟建立一次。")
         }
     }
 }
@@ -42,12 +42,12 @@ struct GpsSimDailyRenewGuideView: View {
     @Environment(\.openURL) private var openURL
 
     private let steps: [String] = [
-        "打開「捷徑」→ 下方「自動化」→ 右上「＋」",
-        "選「鬧鐘」→「被停止時」→ 選你平日早上的鬧鐘 →「立即執行」",
-        "加動作「LocalDevVPN：Enable」",
-        "加動作「PinFly：剩幾天內才續簽 PinFly」（天數填 3，剩 3 天內才續簽）",
-        "加動作「如果」：結果 是 失敗",
-        "在「如果」裡加「顯示通知」：內容選「原因」",
+        "開啟「捷徑」App → 點選下方「自動化」→ 點選右上角「＋」",
+        "點選「鬧鐘」→「被停止時」→ 選擇平日早上的鬧鐘 →「立即執行」",
+        "加入動作「LocalDevVPN：Enable」",
+        "加入動作「PinFly：到期前續簽 PinFly」，天數設為 3",
+        "加入動作「如果」：結果 是 失敗",
+        "在「如果」中加入「顯示通知」，內容選擇「原因」",
     ]
 
     var body: some View {
@@ -66,12 +66,12 @@ struct GpsSimDailyRenewGuideView: View {
                     .accessibilityLabel("第 \(index + 1) 步，\(step)")
                 }
             } header: {
-                Text("在「捷徑」App 建一個自動化（約 2 分鐘）")
+                Text("在「捷徑」App 建立自動化（約 2 分鐘）")
             } footer: {
-                Text("建議以鬧鐘觸發。手機鎖定時可能執行失敗，屆時會收到通知，請開啟 PinFly 按「立即續簽」。")
+                Text("建議以鬧鐘觸發。手機鎖定時可能執行失敗，屆時會收到通知，請開啟 PinFly 並點選「立即續簽」。")
             }
             Section {
-                Button("打開「捷徑」App") {
+                Button("開啟「捷徑」App") {
                     if let url = URL(string: "shortcuts://") { openURL(url) }
                 }
             }

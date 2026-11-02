@@ -79,7 +79,7 @@ enum GpsSigning {
     /// Settings row: 「簽名到期：10/23 01:26（剩 6 天）」 or 「簽名已過期，需要重簽」.
     static func settingsText(now: Date = Date()) -> String? {
         guard let expiration, let remaining = remainingText(now: now) else { return nil }
-        if isExpired(now: now) { return "簽名已過期，需要重簽" }
+        if isExpired(now: now) { return "簽名已過期，請續簽" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "zh_Hant_TW")
         f.dateFormat = "M/d HH:mm"

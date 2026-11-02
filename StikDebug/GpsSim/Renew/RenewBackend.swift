@@ -197,13 +197,13 @@ struct LiveRenewBackend: RenewBackend {
             if preferred == .trustedDevice || phones.isEmpty { return .requestTrustedDevice }
             return .requestSMS(phoneID: phones[0].id)
         case .trustedDevice(let error):
-            prompt = RenewTwoFactorPrompt(channel: .trustedDevice, maskedPhone: nil, errorMessage: error.map { _ in "驗證碼不對，請再輸入一次。" })
+            prompt = RenewTwoFactorPrompt(channel: .trustedDevice, maskedPhone: nil, errorMessage: error.map { _ in "驗證碼不正確。請重新輸入。" })
         case .sms(let phones, let activeID, let error):
             prompt = RenewTwoFactorPrompt(channel: .sms, maskedPhone: phones.first(where: { $0.id == activeID })?.number,
-                                          errorMessage: error.map { _ in "驗證碼不對，請再輸入一次。" })
+                                          errorMessage: error.map { _ in "驗證碼不正確。請重新輸入。" })
         case .voice(let phones, let activeID, let error):
             prompt = RenewTwoFactorPrompt(channel: .voice, maskedPhone: phones.first(where: { $0.id == activeID })?.number,
-                                          errorMessage: error.map { _ in "驗證碼不對，請再輸入一次。" })
+                                          errorMessage: error.map { _ in "驗證碼不正確。請重新輸入。" })
         }
         switch try await codeProvider(prompt) {
         case .code(let code): return .verificationCode(code)
@@ -225,7 +225,7 @@ struct LiveRenewBackend: RenewBackend {
 
     private func downloadBody(session stored: RenewStoredSession, quick: Bool) async throws -> RenewOutcome {
         guard let bundleID = Bundle.main.bundleIdentifier, let embedded = GpsProfileRenew.embedded() else {
-            throw RenewProblem(.install, detail: "讀不到這個 App 目前的簽名（模擬器沒有）。")
+            throw RenewProblem(.install, detail: "無法讀取 App 目前的簽名（模擬器不支援）。")
         }
         RenewDiagLog.write("download start\(quick ? " (no retries)" : "")")
         // A profile downloaded earlier and still fresh (≤24 h old, ≥6 days left): keep it instead of asking
@@ -239,7 +239,7 @@ struct LiveRenewBackend: RenewBackend {
                 if RenewPendingProfile.isFresh(pending) {
                     RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); Apple not contacted")
                     return RenewOutcome(expiry: pending.expiry,
-                                        message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(pending.expiry))），等安裝。",
+                                        message: "描述檔已下載（簽名可用至 \(GpsProfileRenew.expiryText(pending.expiry))），尚未安裝。",
                                         pendingOnly: true, reusedPending: true)
                 }
                 RenewDiagLog.write("pending stale; asking Apple, old one kept until a new one is saved")
@@ -248,7 +248,7 @@ struct LiveRenewBackend: RenewBackend {
                 RenewDiagLog.write("pending dropped: phone already as new; Apple not contacted")
                 RenewPendingProfile.delete(mock: false)
                 return RenewOutcome(expiry: GpsProfileRenew.effectiveExpiration(embedded: embedded.expiration),
-                                    message: "手機上已有同樣新或更新的描述檔，不用續簽。", alreadyUpToDate: true)
+                                    message: "手機上已有相同或更新的描述檔，不需要續簽。", alreadyUpToDate: true)
             } catch {
                 RenewDiagLog.write("pending dropped \(RenewDiagLog.describe(error))")
                 RenewPendingProfile.delete(mock: false)
@@ -303,14 +303,14 @@ struct LiveRenewBackend: RenewBackend {
             RenewDiagLog.write("download ok; phone already up to date, nothing saved")
             RenewPendingProfile.delete(mock: false)   // a kept stale one is older still: useless now
             return RenewOutcome(expiry: GpsProfileRenew.effectiveExpiration(embedded: embedded.expiration),
-                                message: "手機上已有同樣新或更新的描述檔，不用續簽。", alreadyUpToDate: true)
+                                message: "手機上已有相同或更新的描述檔，不需要續簽。", alreadyUpToDate: true)
         }
         // requireSameCertificates just parsed it, so this cannot fail; kept as try for the type.
         let expiry = try GpsProfileRenew.parse(profileData).expiration
         RenewDiagLog.write("download ok")
         try RenewPendingProfile.save(profileData, expiry: expiry, mock: false)
         return RenewOutcome(expiry: expiry,
-                            message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(expiry))），等安裝。",
+                            message: "描述檔已下載（簽名可用至 \(GpsProfileRenew.expiryText(expiry))），尚未安裝。",
                             pendingOnly: true)
     }
 
@@ -331,7 +331,7 @@ struct LiveRenewBackend: RenewBackend {
         // error (it must not stop that Shortcut). A failed download is reported by the download step itself.
         guard let pending = RenewPendingProfile.load(mock: false) else {
             RenewDiagLog.write("install: nothing pending, nothing to do")
-            return RenewOutcome(expiry: nil, message: "沒有等著安裝的描述檔，不用裝。", nothingToInstall: true)
+            return RenewOutcome(expiry: nil, message: "沒有待安裝的描述檔。", nothingToInstall: true)
         }
         // Recheck before touching the phone: it may have been renewed another way since the download
         // (no longer newer), or the profile cannot be used (other certificate / entitlements). Either way
@@ -345,7 +345,7 @@ struct LiveRenewBackend: RenewBackend {
             let notNewer = (error as? RenewProblem)?.kind == .profileNotNewer
             // alreadyUpToDate too when not newer, so a one-shot renew stops there instead of asking Apple.
             return RenewOutcome(expiry: nil,
-                                message: notNewer ? "手機上已有同樣新或更新的描述檔，不用安裝。" : "下載的描述檔不能用，已丟掉，不用安裝。",
+                                message: notNewer ? "手機上已有相同或更新的描述檔，不需要安裝。" : "下載的描述檔無法使用，已刪除。",
                                 alreadyUpToDate: notNewer, nothingToInstall: true, droppedUnusable: !notNewer)
         }
         RenewDiagLog.write("tunnel check start")
@@ -380,7 +380,7 @@ struct LiveRenewBackend: RenewBackend {
     static func requireSameCertificates(newProfile: Data) throws {
         guard let embedded = GpsProfileRenew.embedded() else { throw RenewProblem(.certMismatch) }
         let new: GpsProfileRenew.Parsed
-        do { new = try GpsProfileRenew.parse(newProfile) } catch { throw RenewProblem(.install, detail: "下載的描述檔讀不出來。") }
+        do { new = try GpsProfileRenew.parse(newProfile) } catch { throw RenewProblem(.install, detail: "無法讀取下載的描述檔。") }
         let current = serials(embedded.certs)
         let incoming = serials(new.certs)
         guard !current.isEmpty, current.isSubset(of: incoming) else { throw RenewProblem(.certMismatch) }
@@ -440,7 +440,7 @@ struct MockRenewBackend: RenewBackend {
                                           tokenExpiry: Date().addingTimeInterval(30 * 86_400),
                                           xcodeVersion: LiveRenewBackend.xcodeVersion, signedInAt: Date())
             case .code:
-                error = "驗證碼不對，請再輸入一次。"
+                error = "驗證碼不正確。請重新輸入。"
             }
         }
     }
@@ -464,7 +464,7 @@ struct MockRenewBackend: RenewBackend {
         if let pending = RenewPendingProfile.load(mock: true), RenewPendingProfile.isFresh(pending) {
             RenewDiagLog.write("pending reused (expiry \(GpsProfileRenew.expiryText(pending.expiry))); Apple not contacted (mock)")
             return RenewOutcome(expiry: pending.expiry,
-                                message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(pending.expiry))），等安裝。（模擬）",
+                                message: "描述檔已下載（簽名可用至 \(GpsProfileRenew.expiryText(pending.expiry))），尚未安裝。（模擬）",
                                 pendingOnly: true, reusedPending: true)
         }
         try await Task.sleep(nanoseconds: 600_000_000)
@@ -474,7 +474,7 @@ struct MockRenewBackend: RenewBackend {
             RenewDiagLog.write("download ok (mock)")
             try RenewPendingProfile.save(Data("mock-profile".utf8), expiry: expiry, mock: true)
             return RenewOutcome(expiry: expiry,
-                                message: "新描述檔已下載（簽名可到 \(GpsProfileRenew.expiryText(expiry))），等安裝。（模擬）",
+                                message: "描述檔已下載（簽名可用至 \(GpsProfileRenew.expiryText(expiry))），尚未安裝。（模擬）",
                                 pendingOnly: true)
         case .mismatch:
             RenewDiagLog.write("download FAILED certMismatch (mock)")
@@ -489,7 +489,7 @@ struct MockRenewBackend: RenewBackend {
         RenewDiagLog.write("install start (mock)")
         guard let pending = RenewPendingProfile.load(mock: true) else {
             RenewDiagLog.write("install: nothing pending, nothing to do (mock)")
-            return RenewOutcome(expiry: nil, message: "沒有等著安裝的描述檔，不用裝。（模擬）", nothingToInstall: true)
+            return RenewOutcome(expiry: nil, message: "沒有待安裝的描述檔。（模擬）", nothingToInstall: true)
         }
         try await Task.sleep(nanoseconds: 300_000_000)
         guard !Self.tunnelMissing else {
@@ -499,7 +499,7 @@ struct MockRenewBackend: RenewBackend {
         RenewDiagLog.write("tunnel ok (mock)")
         RenewDiagLog.write("install ok (expiry \(GpsProfileRenew.expiryText(pending.expiry))) (mock)")
         RenewPendingProfile.delete(mock: true)
-        return RenewOutcome(expiry: pending.expiry, message: "已換新描述檔，簽名到 \(GpsProfileRenew.expiryText(pending.expiry))（模擬）")
+        return RenewOutcome(expiry: pending.expiry, message: "已安裝新描述檔，簽名可用至 \(GpsProfileRenew.expiryText(pending.expiry))（模擬）")
     }
 
     func pendingProfileExpiry() -> Date? { RenewPendingProfile.expiry(mock: true) }

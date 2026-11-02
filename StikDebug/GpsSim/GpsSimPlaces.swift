@@ -365,7 +365,7 @@ final class GpsPlaceStore: ObservableObject {
             let obj = try JSONSerialization.jsonObject(with: data)
             if let root = obj as? [String: Any] { return .ok(root) }
             if let arr = obj as? [Any] { return .ok(["favorites": arr]) }   // tolerate a bare array
-            return .corrupt("內容不是地點清單")
+            return .corrupt("檔案內容不是地點清單")
         } catch {
             return .corrupt(error.localizedDescription)
         }
@@ -384,7 +384,7 @@ final class GpsPlaceStore: ObservableObject {
             return true
         case .corrupt(let reason):
             // Keep what we had; a half-written push from the PC shouldn't wipe the list.
-            lastLoadError = "places.json 讀不懂：\(reason)"
+            lastLoadError = "無法讀取地點檔：\(reason)"
             return false
         }
     }
@@ -492,7 +492,7 @@ final class GpsPlaceStore: ObservableObject {
             reload()
             refreshImportBackupFlag()
         } catch {
-            lastLoadError = "還原匯入前的檔案失敗：\(error.localizedDescription)"
+            lastLoadError = "無法還原匯入前的地點檔：\(error.localizedDescription)"
         }
     }
 
@@ -508,7 +508,7 @@ final class GpsPlaceStore: ObservableObject {
             let fm = FileManager.default
             try? fm.removeItem(at: Self.corruptCopyURL)
             try? fm.copyItem(at: Self.fileURL, to: Self.corruptCopyURL)
-            lastLoadError = "places.json 讀不懂，沒有覆蓋（原檔已複製成 places.json.corrupt）：\(reason)"
+            lastLoadError = "無法讀取地點檔，未覆蓋原檔（已備份為 places.json.corrupt）：\(reason)"
             return
         case .ok(let existing):
             root = existing
@@ -529,7 +529,7 @@ final class GpsPlaceStore: ObservableObject {
             let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try Self.coordinatedWrite(data, to: Self.fileURL)
         } catch {
-            lastLoadError = "存檔失敗：\(error.localizedDescription)"
+            lastLoadError = "儲存失敗：\(error.localizedDescription)"
         }
     }
 

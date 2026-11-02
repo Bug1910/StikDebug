@@ -1,7 +1,7 @@
 [
  {
   "persona": "pending install",
-  "situation": "-GpsSimDemo signPending: a signature is downloaded and waits to be installed; check the home line, the 裝上 button, the run, and the Settings 簽名 wording (demo service)",
+  "situation": "-GpsSimDemo signPending: a signature is downloaded and waits to be installed; check the home line, the 安裝 button, the run, and the Settings 簽名 wording (demo service)",
   "note": "pending install"
  },
  {

@@ -13,7 +13,7 @@ import SwiftUI
 /// Which part of Settings to jump to when a one-line home status is tapped.
 enum GpsSettingsTarget: Equatable {
     case none
-    /// 進階 › 連不上手機時（4G 步驟）
+    /// 進階 › 無法連線時（行動網路步驟）
     case connection
     /// 進階 › 配對檔
     case pairing
@@ -80,6 +80,17 @@ struct GpsSimSettingsView: View {
                     GpsSignSection(onSignIn: { showRenewSignIn = true },
                                    onAdvanced: { showRenewAdvanced = true })
                 }
+                // Signing, then the shortcuts that renew it daily (same subject), then everyday settings,
+                // then help; 進階 last (owner screenshots 041-045: help sat between signing and its shortcut).
+                GpsSimShortcutsSection()
+
+                Section {
+                    Toggle("位置微飄", isOn: $driftEnabled)
+                        .frame(minHeight: 44)
+                } footer: {
+                    Text("模擬實際 GPS 的輕微漂移，與落點的距離不超過 4 公尺。")
+                }
+
                 Section {
                     Button("使用引導") {
                         dismiss()
@@ -96,14 +107,8 @@ struct GpsSimSettingsView: View {
                         Text("使用教學").frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("settings.guide")
-                }
-                GpsSimShortcutsSection()
-
-                Section {
-                    Toggle("位置微飄", isOn: $driftEnabled)
-                        .frame(minHeight: 44)
-                } footer: {
-                    Text("像真手機的 GPS 一樣在落點附近輕微飄動，不會離落點超過 4 公尺。")
+                } header: {
+                    Text("說明")
                 }
 
                 Section {
@@ -127,9 +132,9 @@ struct GpsSimSettingsView: View {
                 if advancedOpen {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("PinFly 要透過 LocalDevVPN（裝 PinFly 時一起裝的 App）才能改定位。")
-                        Text("有 Wi-Fi：打開 LocalDevVPN 按連線，回 PinFly 按「重試」。")
-                        Text("只有 4G：照這 5 步")
+                        Text("PinFly 需經由 LocalDevVPN 連線，才能變更手機位置。")
+                        Text("使用 Wi-Fi 時：開啟 LocalDevVPN 並連線，再回到 PinFly 點選「重試」。")
+                        Text("僅使用行動網路時：依下列 5 個步驟操作")
                             .font(.subheadline.weight(.semibold))
                             .padding(.top, 4)
                         ForEach(Array(GpsSimNetwork.fourGStepList.enumerated()), id: \.offset) { index, step in
@@ -144,39 +149,45 @@ struct GpsSimSettingsView: View {
                                 if !opened { shortcutMessage = "找不到捷徑「\(GpsSimNetwork.shortcutName)」" }
                             }
                         } label: {
-                            Label("用捷徑「\(GpsSimNetwork.shortcutName)」一鍵完成", systemImage: "bolt.fill")
+                            Label("執行捷徑「\(GpsSimNetwork.shortcutName)」", systemImage: "bolt.fill")
                                 .frame(minHeight: 44)
                         }
-                        .accessibilityHint("打開「捷徑」App 執行")
+                        .accessibilityHint("開啟「捷徑」App 並執行")
                         .accessibilityIdentifier("settings.shortcut")
                     }
                     if let shortcutMessage {
                         Text(shortcutMessage).font(.footnote).foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("連不上手機時")
+                    Text("無法連線時")
                 }
 
                 Section {
-                    Button {
-                        onMountDDI()
-                    } label: {
-                        Label("掛載 DDI", systemImage: "externaldrive.badge.plus")
-                            .frame(minHeight: 44)
+                    // State first, then the one action (HIG: say what is wrong, then how to fix it).
+                    LabeledContent("狀態") {
+                        Text(mounting.coolisMounted ? "已掛載" : (mounting.mountingThread != nil ? "掛載中…" : "未掛載"))
+                            .foregroundStyle(mounting.coolisMounted ? GpsTheme.mint : .secondary)
                     }
-                    .disabled(mounting.coolisMounted)
+                    .frame(minHeight: 44)
                     .id(GpsSettingsTarget.ddi.anchorId ?? "")
-
-                    .accessibilityHint("掛載開發者映像，模擬定位需要它")
-                    .accessibilityIdentifier("settings.mountDDI")
-                    if mounting.coolisMounted {
-                        Text("DDI 已掛載。").font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("settings.ddiState")
+                    if !mounting.coolisMounted {
+                        Button {
+                            onMountDDI()
+                        } label: {
+                            Label("掛載", systemImage: "externaldrive.badge.plus")
+                                .frame(minHeight: 44)
+                        }
+                        .disabled(mounting.mountingThread != nil)
+                        .accessibilityHint("回到首頁開始掛載，首頁上方會顯示進度")
+                        .accessibilityIdentifier("settings.mountDDI")
                     }
                 } header: {
                     Text("開發者映像（DDI）")
                 } footer: {
-                    Text("首頁顯示「DDI 還沒掛載」時按這裡，會回到首頁開始掛載（第一次先下載約數十 MB）。需要 LocalDevVPN 已連線。")
+                    Text("iOS 模擬位置所需的系統元件。已由電腦掛載時會自動偵測。在手機上掛載需 LocalDevVPN 已連線，第一次會下載約數十 MB。")
                 }
+                .onAppear { mounting.checkforMounted() }
 
                 Section {
                     if placesFileExists, store.placeCount > 0 {
@@ -192,17 +203,17 @@ struct GpsSimSettingsView: View {
                         Label("匯入地點檔（取代目前 \(store.placeCount) 個）", systemImage: "square.and.arrow.down")
                             .frame(minHeight: 44)
                     }
-                    .accessibilityHint("選一個 places.json 檔，取代現有地點")
+                    .accessibilityHint("選取地點檔，取代現有地點")
                     .accessibilityIdentifier("settings.importPlaces")
                     if store.hasImportBackup {
-                        Button("已匯入 \(store.placeCount) 個｜還原舊的") { store.restoreImportBackup() }
+                        Button("已匯入 \(store.placeCount) 個地點｜還原") { store.restoreImportBackup() }
                             .frame(minHeight: 44)
-                            .accessibilityLabel("還原匯入前的舊地點")
+                            .accessibilityLabel("還原匯入前的地點")
                     }
                 } header: {
                     Text("地點")
                 } footer: {
-                    Text("地點存在這支手機裡，更新 PinFly 不會不見。匯出可存到「檔案」或傳到電腦備份。")
+                    Text("地點儲存於此手機，更新 PinFly 不會遺失。匯出後可存至「檔案」App 或傳送至電腦備份。")
                 }
 
                 Section {
@@ -216,7 +227,7 @@ struct GpsSimSettingsView: View {
                 } header: {
                     Text("配對檔")
                 } footer: {
-                    Text("請依安裝教學以電腦產生配對檔。")
+                    Text("請依使用教學以電腦產生配對檔。")
                 }
 
                 Section {
@@ -233,7 +244,7 @@ struct GpsSimSettingsView: View {
                 } header: {
                     Text("驗證資料")
                 } footer: {
-                    Text("重設會登出 Apple ID 並清除 anisette 身分，下次續簽須重新登入並輸入驗證碼。")
+                    Text("重設會登出 Apple ID 並清除驗證資料，下次續簽需重新登入並輸入驗證碼。")
                 }
                 .confirmationDialog("重設驗證資料？", isPresented: $confirmRenewReset, titleVisibility: .visible) {
                     Button("登出並重設", role: .destructive) { Task { await GpsRenewCenter.shared.resetAuthData() } }
@@ -286,7 +297,7 @@ struct GpsSimSettingsView: View {
             Button("選擇新的配對檔", role: .destructive) { showPairingImporter = true }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("新的配對檔會取代目前這份，匯入後需要重新連線。")
+            Text("新的配對檔會取代目前的配對檔，匯入後需重新連線。")
         }
         .fileImporter(
             isPresented: $showPairingImporter,
@@ -338,7 +349,7 @@ struct GpsSimAdvancedView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Label("回 PinFly", systemImage: "chevron.left")
+                    Label("返回 PinFly", systemImage: "chevron.left")
                         .font(.headline)
                         .frame(minHeight: 44)
                 }

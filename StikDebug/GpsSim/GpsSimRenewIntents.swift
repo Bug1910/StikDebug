@@ -32,21 +32,21 @@ import UIKit
 // owner's existing automations keep working (they now read as the 「剩幾天內才…」 action).
 
 struct RenewSigningIntent: AppIntent {
-    static var title: LocalizedStringResource = "剩幾天內才續簽 PinFly"
-    static var description = IntentDescription("剩下的天數小於等於設定值時才續簽，還夠用就什麼都不做，所以每天固定跑也沒關係。換新的 7 天簽名，不用接電腦。要先在 PinFly › 設定 › 簽名登入 Apple 一次（捷徑裡不能登入，驗證碼要人輸入）。預設最多等 20 秒；失敗時預設不會讓捷徑停下來，請用「如果 結果 是 失敗」判斷。只有 4G 時，改用「下載 PinFly 描述檔」＋「安裝 PinFly 描述檔」兩步（中間關行動數據、開 LocalDevVPN）。")
+    static var title: LocalizedStringResource = "到期前續簽 PinFly"
+    static var description = IntentDescription("簽名剩餘天數小於或等於設定值時才續簽，否則不做任何變更，適合每天自動執行。續簽會更新 7 天簽名，不需要連接電腦。使用前需先在「PinFly › 設定 › 簽名」登入 Apple（捷徑無法輸入驗證碼）。預設最多等候 20 秒；失敗時預設不停止捷徑，可用「如果 結果 是 失敗」判斷。僅使用行動網路時，請改用「下載 PinFly 描述檔」與「安裝 PinFly 描述檔」兩個動作，並在兩者之間關閉行動數據、開啟 LocalDevVPN。")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "只在剩幾天內才續簽", default: 3, inclusiveRange: (1, 7))
+    @Parameter(title: "剩餘天數門檻", default: 3, inclusiveRange: (1, 7))
     var withinDays: Int
 
     @Parameter(title: "失敗時停止捷徑", default: false)
     var stopOnFailure: Bool
 
-    @Parameter(title: "最多等幾秒", default: 20, inclusiveRange: (10, 25))
+    @Parameter(title: "等候上限（秒）", default: 20, inclusiveRange: (10, 25))
     var maxSeconds: Int
 
     static var parameterSummary: some ParameterSummary {
-        Summary("剩 \(\.$withinDays) 天內才續簽 PinFly") {
+        Summary("剩 \(\.$withinDays) 天內時續簽 PinFly") {
             \.$stopOnFailure
             \.$maxSeconds
         }
@@ -63,13 +63,13 @@ struct RenewSigningIntent: AppIntent {
 
 struct RenewNowIntent: AppIntent {
     static var title: LocalizedStringResource = "續簽 PinFly"
-    static var description = IntentDescription("不管還剩幾天，馬上換新的 7 天簽名，不用接電腦。要先在 PinFly › 設定 › 簽名登入 Apple 一次（捷徑裡不能登入，驗證碼要人輸入）。預設最多等 20 秒；失敗時預設不會讓捷徑停下來，請用「如果 結果 是 失敗」判斷。只有 4G 時，改用「下載 PinFly 描述檔」＋「安裝 PinFly 描述檔」兩步（中間關行動數據、開 LocalDevVPN）。")
+    static var description = IntentDescription("不論剩餘天數，立即更新 7 天簽名，不需要連接電腦。使用前需先在「PinFly › 設定 › 簽名」登入 Apple（捷徑無法輸入驗證碼）。預設最多等候 20 秒；失敗時預設不停止捷徑，可用「如果 結果 是 失敗」判斷。僅使用行動網路時，請改用「下載 PinFly 描述檔」與「安裝 PinFly 描述檔」兩個動作，並在兩者之間關閉行動數據、開啟 LocalDevVPN。")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "失敗時停止捷徑", default: false)
     var stopOnFailure: Bool
 
-    @Parameter(title: "最多等幾秒", default: 20, inclusiveRange: (10, 25))
+    @Parameter(title: "等候上限（秒）", default: 20, inclusiveRange: (10, 25))
     var maxSeconds: Int
 
     static var parameterSummary: some ParameterSummary {
@@ -95,22 +95,22 @@ struct RenewNowIntent: AppIntent {
 
 struct DownloadProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "下載 PinFly 描述檔"
-    static var description = IntentDescription("描述檔＝PinFly 的 7 天簽名。續簽的上半段：向 Apple 下載新的 7 天描述檔，先存在 PinFly 裡，還不會裝上。要有網路（4G 可以），不用 LocalDevVPN。預設只在簽名剩 3 天內才下載；之前下載好還能用的也不再找 Apple。接著關掉行動數據、打開 LocalDevVPN，再跑「安裝 PinFly 描述檔」。要先在 PinFly › 設定 › 簽名登入 Apple 一次。失敗時預設不會讓捷徑停下來。")
+    static var description = IntentDescription("續簽的第一步：向 Apple 下載新的 7 天描述檔並暫存於 PinFly，此時尚未安裝。需要網路連線（行動網路亦可），不需要 LocalDevVPN。預設僅在簽名剩 3 天內下載；已下載且仍有效的描述檔不會重新下載。完成後請關閉行動數據、開啟 LocalDevVPN，再執行「安裝 PinFly 描述檔」。使用前需先在「PinFly › 設定 › 簽名」登入 Apple。失敗時預設不停止捷徑。")
     static var openAppWhenRun: Bool = false
 
     /// On by default (3 days): a daily automation does not ask Apple while there is time left.
     /// A Bool + a defaulted Int (like 剩幾天內才續簽PinFly) instead of an optional Int: both always have a
     /// valid stored value, so an unattended automation is never prompted.
-    @Parameter(title: "快到期才下載", default: true)
+    @Parameter(title: "僅在即將到期時下載", default: true)
     var onlyWhenExpiring: Bool
 
-    @Parameter(title: "剩幾天算快到期", default: 3, inclusiveRange: (1, 7))
+    @Parameter(title: "即將到期天數", default: 3, inclusiveRange: (1, 7))
     var withinDays: Int
 
     @Parameter(title: "失敗時停止捷徑", default: false)
     var stopOnFailure: Bool
 
-    @Parameter(title: "最多等幾秒", default: 20, inclusiveRange: (10, 25))
+    @Parameter(title: "等候上限（秒）", default: 20, inclusiveRange: (10, 25))
     var maxSeconds: Int
 
     static var parameterSummary: some ParameterSummary {
@@ -133,13 +133,13 @@ struct DownloadProfileIntent: AppIntent {
 
 struct InstallProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "安裝 PinFly 描述檔"
-    static var description = IntentDescription("描述檔＝PinFly 的 7 天簽名。續簽的下半段：把「下載 PinFly 描述檔」存好的描述檔裝上。放在『開 LocalDevVPN → 等待 3 秒』之後。要 LocalDevVPN 已連線（只有 4G 時先關掉行動數據），不用網路、不找 Apple。沒有等著安裝的就馬上結束、不算失敗，所以放在每天的捷徑裡也沒關係。失敗時預設不會讓捷徑停下來。")
+    static var description = IntentDescription("續簽的第二步：安裝「下載 PinFly 描述檔」暫存的描述檔。請放在「開啟 LocalDevVPN」與「等待 3 秒」之後。需要 LocalDevVPN 已連線（僅使用行動網路時請先關閉行動數據），不需要網路連線。沒有待安裝的描述檔時直接結束，不視為失敗，可放在每天執行的捷徑中。失敗時預設不停止捷徑。")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "失敗時停止捷徑", default: false)
     var stopOnFailure: Bool
 
-    @Parameter(title: "最多等幾秒", default: 20, inclusiveRange: (10, 25))
+    @Parameter(title: "等候上限（秒）", default: 20, inclusiveRange: (10, 25))
     var maxSeconds: Int
 
     static var parameterSummary: some ParameterSummary {
@@ -166,28 +166,28 @@ enum GpsRenewIntentRunner {
         let reason: String
         // A downloaded profile waiting to be installed needs no sign-in.
         if !before.isSignedIn, before.pendingExpiry == nil {
-            reason = "還沒登入 Apple。請打開 PinFly › 設定 › 簽名，登入一次。"
+            reason = "尚未登入 Apple。請開啟「PinFly › 設定 › 簽名」登入。"
         } else {
             if let withinDays, let expiry = before.profileExpiry,
                expiry.timeIntervalSinceNow > Double(withinDays) * 86_400 {
                 let value = await GpsSimIntentStatus.make(.notNeeded)
-                return (value, "簽名還有 \(value.daysLeft ?? withinDays) 天，不用續簽")
+                return (value, "簽名剩 \(value.daysLeft ?? withinDays) 天，不需要續簽")
             }
             switch await GpsRenewRace.run(seconds: min(max(maxSeconds, 10), 25)) {
             case .done(let outcome) where outcome.alreadyUpToDate:
                 let value = await GpsSimIntentStatus.make(.notNeeded)
-                return (value, "簽名已經是最新的，不用續簽")
+                return (value, "簽名已是最新，不需要續簽")
             case .done(let outcome):
                 let value = await GpsSimIntentStatus.make(.renewed, signingExpiry: outcome.expiry)
                 let until = value.signingExpiry.map { "，簽名到 \(GpsProfileRenew.expiryText($0))" } ?? ""
                 return (value, "已續簽\(until)")
             case .failed(let error):
                 let problem = (error as? RenewProblem) ?? RenewErrorClassifier.explain(error)
-                let code = problem.code.map { "（代碼 \($0)）" } ?? ""
+                let code = problem.code.map { "（錯誤 \($0)）" } ?? ""
                 reason = "\(problem.title)。\(problem.advice)\(code)"
             case .timedOut(let seconds):
                 RenewDiagLog.write("intent timeout \(seconds)s (renew keeps running in background)")
-                reason = "驗證伺服器太慢（等了 \(seconds) 秒）。續簽還在背景繼續，過 1 分鐘再用「查簽名剩幾天」確認。"
+                reason = "驗證伺服器回應逾時（已等候 \(seconds) 秒）。續簽仍在背景進行，請 1 分鐘後執行「查詢簽名期限」確認。"
             }
         }
         return try await failed(reason, stopOnFailure: stopOnFailure)
@@ -204,33 +204,33 @@ enum GpsRenewIntentRunner {
             let value = await GpsSimIntentStatus.make(.notNeeded)
             let left = value.daysLeft ?? withinDays
             RenewDiagLog.write("intent download skipped: \(left) days left > \(withinDays)")
-            return (value, "簽名還剩 \(left) 天，不用下載")
+            return (value, "簽名剩 \(left) 天，不需要下載")
         }
         let reason: String
         // Signed out but a profile already waits: RenewService reports it ready (fresh) or asks to sign in.
         if !before.isSignedIn, before.pendingExpiry == nil {
-            reason = "還沒登入 Apple。請打開 PinFly › 設定 › 簽名，登入一次。"
+            reason = "尚未登入 Apple。請開啟「PinFly › 設定 › 簽名」登入。"
         } else {
             switch await GpsRenewRace.run(seconds: min(max(maxSeconds, 10), 25), operation: .download) {
             case .done(let outcome) where outcome.alreadyUpToDate:
                 let value = await GpsSimIntentStatus.make(.notNeeded)
-                return (value, "簽名已經是最新的，不用下載")
+                return (value, "簽名已是最新，不需要下載")
             case .done(let outcome):
                 // 成功 (not 已續簽): nothing is installed yet. 簽名到期 stays the date the app runs on now.
                 let value = await GpsSimIntentStatus.make(.succeeded)
-                let until = outcome.expiry.map { "（可用到 \(GpsProfileRenew.expiryText($0))）" } ?? ""
-                let what = outcome.reusedPending ? "新描述檔之前已下載好" : "新描述檔已下載"
-                return (value, "\(what)\(until)。下一步：安裝 PinFly 描述檔")
+                let until = outcome.expiry.map { "（可用至 \(GpsProfileRenew.expiryText($0))）" } ?? ""
+                let what = outcome.reusedPending ? "描述檔先前已下載" : "描述檔已下載"
+                return (value, "\(what)\(until)。下一步：執行「安裝 PinFly 描述檔」")
             case .failed(let error):
                 let problem = (error as? RenewProblem) ?? RenewErrorClassifier.explain(error)
-                let code = problem.code.map { "（代碼 \($0)）" } ?? ""
+                let code = problem.code.map { "（錯誤 \($0)）" } ?? ""
                 reason = "\(problem.title)。\(problem.advice)\(code)"
             case .timedOut(let seconds):
                 RenewDiagLog.write("intent timeout \(seconds)s (download keeps running in background)")
-                reason = "驗證伺服器太慢（等了 \(seconds) 秒）。下載還在背景繼續，過 1 分鐘再跑一次「下載 PinFly 描述檔」（下載好的不會重抓）。"
+                reason = "驗證伺服器回應逾時（已等候 \(seconds) 秒）。下載仍在背景進行，請 1 分鐘後再執行「下載 PinFly 描述檔」，已下載的描述檔不會重新下載。"
             }
         }
-        return try await failed(reason, stopOnFailure: stopOnFailure, prefix: "下載沒成功")
+        return try await failed(reason, stopOnFailure: stopOnFailure, prefix: "下載失敗")
     }
 
     /// 安裝PinFly描述檔. Never contacts Apple or anisette. Nothing waiting is a quick success (no tunnel,
@@ -240,7 +240,7 @@ enum GpsRenewIntentRunner {
         guard RenewService.shared.hasPendingFile else {
             RenewDiagLog.write("intent install: nothing pending, nothing to do")
             let value = await GpsSimIntentStatus.make(.notNeeded)
-            return (value, "沒有等著安裝的描述檔，不用裝")
+            return (value, "沒有待安裝的描述檔")
         }
         let reason: String
         switch await GpsRenewRace.run(seconds: min(max(maxSeconds, 10), 25), operation: .install) {
@@ -249,30 +249,30 @@ enum GpsRenewIntentRunner {
             return (value, outcome.message)
         case .done(let outcome) where outcome.alreadyUpToDate:
             let value = await GpsSimIntentStatus.make(.notNeeded)
-            return (value, "簽名已經是最新的，不用安裝")
+            return (value, "簽名已是最新，不需要安裝")
         case .done(let outcome):
             let value = await GpsSimIntentStatus.make(.renewed, signingExpiry: outcome.expiry)
             let until = value.signingExpiry.map { "，簽名到 \(GpsProfileRenew.expiryText($0))" } ?? ""
             return (value, "已續簽\(until)")
         case .failed(let error):
             let problem = (error as? RenewProblem) ?? RenewErrorClassifier.explain(error)
-            let code = problem.code.map { "（代碼 \($0)）" } ?? ""
+            let code = problem.code.map { "（錯誤 \($0)）" } ?? ""
             reason = "\(problem.title)。\(problem.advice)\(code)"
         case .timedOut(let seconds):
             RenewDiagLog.write("intent timeout \(seconds)s (install keeps running in background)")
-            reason = "安裝太慢（等了 \(seconds) 秒）。還在背景繼續，過 1 分鐘再用「查簽名剩幾天」確認。"
+            reason = "安裝逾時（已等候 \(seconds) 秒）。安裝仍在背景進行，請 1 分鐘後執行「查詢簽名期限」確認。"
         }
-        return try await failed(reason, stopOnFailure: stopOnFailure, prefix: "安裝沒成功")
+        return try await failed(reason, stopOnFailure: stopOnFailure, prefix: "安裝失敗")
     }
 
     /// The failure answer all three share: 結果＝失敗 plus until when the app keeps working.
     /// `prefix` names the step (download / install failures are not 「沒續簽成功」).
     private static func failed(_ reason: String, stopOnFailure: Bool,
-                               prefix: String = "沒續簽成功") async throws -> (value: GpsSimStatusEntity, dialog: String) {
+                               prefix: String = "續簽失敗") async throws -> (value: GpsSimStatusEntity, dialog: String) {
         var value = await GpsSimIntentStatus.make(.failed)
         // Spec 1.8: every failure says until when the app keeps working, to keep it calm.
         let safe = value.signingExpiry.flatMap { expiry in
-            expiry.timeIntervalSinceNow > 0 ? "簽名到 \(GpsProfileRenew.expiryText(expiry)) 前照常能用。" : nil
+            expiry.timeIntervalSinceNow > 0 ? "目前的簽名到 \(GpsProfileRenew.expiryText(expiry)) 前仍可使用。" : nil
         } ?? ""
         value.reason = safe.isEmpty ? reason : "\(reason)\(safe)"
         let message = "\(prefix)：\(value.reason)"
@@ -351,8 +351,8 @@ enum GpsRenewRace {
 
 /// Offline: reads the installed profile's expiry (or the newer one this app installed itself).
 struct SigningStatusIntent: AppIntent {
-    static var title: LocalizedStringResource = "查簽名剩幾天"
-    static var description = IntentDescription("看 PinFly 的簽名還能用幾天，不連網路。")
+    static var title: LocalizedStringResource = "查詢簽名期限"
+    static var description = IntentDescription("查詢 PinFly 簽名的剩餘天數，不需要網路連線。")
     static var openAppWhenRun: Bool = false
 
     @MainActor
@@ -361,8 +361,8 @@ struct SigningStatusIntent: AppIntent {
         guard let sentence = GpsSimIntentStatus.signingSentence(value) else {
             var unknown = value
             unknown.outcome = .failed
-            unknown.reason = "讀不到簽名到期日。"
-            return .result(value: unknown, dialog: "讀不到簽名到期日")
+            unknown.reason = "無法讀取簽名到期日。"
+            return .result(value: unknown, dialog: "無法讀取簽名到期日")
         }
         return .result(value: value, dialog: "\(sentence)")
     }
@@ -373,17 +373,17 @@ struct SigningStatusIntent: AppIntent {
 /// Offline and read-only: never touches the phone's location. Not in App Shortcuts (a building block only).
 struct SimulationStatusIntent: AppIntent {
     static var title: LocalizedStringResource = "目前模擬狀態"
-    static var description = IntentDescription("回傳現在有沒有在模擬、在哪個地點。不連網路、不改定位。")
+    static var description = IntentDescription("回傳目前是否模擬中及所在地點。不需要網路連線，不變更位置。")
     static var openAppWhenRun: Bool = false
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
         let value = await GpsSimIntentStatus.make(.succeeded)
         guard let place = GpsSimIntentStatus.currentPlace() else {
-            return .result(value: value, dialog: "沒有在模擬")
+            return .result(value: value, dialog: "未在模擬")
         }
         // After a relaunch only the persisted last target is known; a stop always clears it.
-        let note = place.confirmed ? "" : "（PinFly 重開過，這是上次送出的地點）"
-        return .result(value: value, dialog: "正在模擬：\(place.name)\(note)")
+        let note = place.confirmed ? "" : "（PinFly 曾重新開啟，此為上次送出的地點）"
+        return .result(value: value, dialog: "模擬中：\(place.name)\(note)")
     }
 }

@@ -99,15 +99,15 @@ private enum GpsSimIntentRunner {
     }
 
     static func tunnelFailureMessage() -> String {
-        guard GpsSimEngine.pairingExists else { return "尚無配對檔。請依安裝教學以電腦產生配對檔。" }
+        guard GpsSimEngine.pairingExists else { return "尚無配對檔。請依使用教學以電腦產生配對檔。" }
         let reason = GpsSimNetwork.shared.onWiFi ? GpsSimNetwork.checkVPNMessage : GpsSimNetwork.noWifiMessage
-        return "連不上手機的定位服務（等了 20 秒）。\(reason)"
+        return "無法連線至手機的定位服務（已等候 20 秒）。\(reason)"
     }
 
     /// Engine status code → Shortcuts dialog text. Code 1's app text points at the in-app 「改回預設」
     /// banner button, which Shortcuts does not have, so the dialog sends the user into the app instead.
     static func failureMessage(_ code: Int32) -> String {
-        code == 1 ? "目標 IP 錯誤，請開啟 PinFly 處理" : GpsSimIssue.from(code: code).message
+        code == 1 ? "目標 IP 錯誤。請開啟 PinFly，點選「改回預設」。（錯誤 1）" : GpsSimIssue.from(code: code).message
     }
 }
 
@@ -116,7 +116,7 @@ private enum GpsSimIntentRunner {
 struct ConnectIntent: AppIntent {
     static var title: LocalizedStringResource = "建立連線"
     // Kept (an old Shortcut may still use it; Shortcuts finds actions by type name) but off App Shortcuts.
-    static var description = IntentDescription("建立定位連線。「定位到地點」會自動連線，新捷徑不需加入此動作。")
+    static var description = IntentDescription("建立定位連線。「前往地點」會自動連線，新捷徑不需要加入此動作。")
     static var openAppWhenRun: Bool = false
 
     @MainActor
@@ -128,11 +128,11 @@ struct ConnectIntent: AppIntent {
 }
 
 struct SendToPlaceIntent: AppIntent {
-    static var title: LocalizedStringResource = "定位到地點"
-    static var description = IntentDescription("把手機定位送到一個已存的地點（圓圈內隨機落點）。")
+    static var title: LocalizedStringResource = "前往地點"
+    static var description = IntentDescription("將手機位置設為已儲存的地點，落點為該地點範圍內的隨機位置。")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "地點", requestValueDialog: "要定位到哪裡？")
+    @Parameter(title: "地點", requestValueDialog: "要前往哪個地點？")
     var place: GpsPlaceEntity
 
     // Failures stay a dialog (not a throw), as before; 結果＝失敗 lets a Shortcut branch on it.
@@ -141,7 +141,7 @@ struct SendToPlaceIntent: AppIntent {
         let store = GpsPlaceStore.shared
         store.reload()
         guard let saved = store.places.first(where: { $0.id == place.id }) else {
-            let message = "找不到地點「\(place.name)」，可能已被刪除。"
+            let message = "找不到地點「\(place.name)」，可能已刪除。"
             return .result(value: await GpsSimIntentStatus.make(.failed, reason: message), dialog: "\(message)")
         }
         let engine = GpsSimEngine.shared
@@ -150,13 +150,13 @@ struct SendToPlaceIntent: AppIntent {
             engine.send(to: landing, name: saved.name, center: saved.coordinate, placeID: saved.id, completion: done)
         }
         guard code == 0 else {
-            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
-            let message = "定位失敗：\(reason)"
+            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在處理其他操作。請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
+            let message = "前往失敗：\(reason)"
             return .result(value: await GpsSimIntentStatus.make(.failed, reason: message), dialog: "\(message)")
         }
         let meters = Int(GpsGeo.meters(saved.coordinate, landing).rounded())
         let value = await GpsSimIntentStatus.make(.succeeded)
-        return .result(value: value, dialog: "已定位到 \(saved.name)（離圓心 \(meters) 公尺）")
+        return .result(value: value, dialog: "已前往 \(saved.name)（距中心 \(meters) 公尺）")
     }
 }
 
@@ -176,14 +176,14 @@ enum GpsSimStopError: Error, CustomLocalizedStringResourceConvertible {
 /// never be renamed or the owner's 「出門改定位」 step would turn into "unknown action".
 struct StopSimulationIntent: AppIntent {
     static var title: LocalizedStringResource = "停止模擬"
-    static var description = IntentDescription("清掉手機上所有模擬定位，讓手機回到真實位置。地圖約 10 秒內更新。")
+    static var description = IntentDescription("清除手機上的模擬位置，回到真實位置。地圖約 10 秒內更新。")
     static var openAppWhenRun: Bool = false
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
         let code = await GpsSimIntentRunner.retryingLink { done in GpsSimEngine.shared.stop(completion: done) }
         guard code == 0 else {
-            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
+            let reason = code == GpsSimEngine.busyCode ? "PinFly 正在處理其他操作。請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
             // Throw (not just a dialog) so Shortcuts marks the step failed instead of looking fine.
             throw GpsSimStopError.failed(reason)
         }
@@ -196,13 +196,13 @@ struct StopSimulationIntent: AppIntent {
 /// While simulating, iOS hands every app (Shortcuts included) the fake point, so the only way
 /// to see the real one is a short stop. Returns the real place so a Shortcut can show or share it.
 struct PeekRealLocationIntent: AppIntent {
-    static var title: LocalizedStringResource = "看真實位置"
-    static var description = IntentDescription("暫停模擬幾秒，抓到真實位置後自動定位回原本的地點。")
+    static var title: LocalizedStringResource = "查看真實位置"
+    static var description = IntentDescription("暫停模擬數秒以取得真實位置，完成後自動回到原本的地點。")
     static var openAppWhenRun: Bool = false
 
     // Kept short on purpose: stop + GPS + resume must finish before Shortcuts gives up on the
     // intent (~30 s), or the phone would be left on the real location (review 2026-10-15).
-    @Parameter(title: "最多等幾秒抓 GPS", default: 8, inclusiveRange: (3, 10))
+    @Parameter(title: "GPS 等候上限（秒）", default: 8, inclusiveRange: (3, 10))
     var seconds: Int
 
     @MainActor
@@ -216,8 +216,8 @@ struct PeekRealLocationIntent: AppIntent {
         if wasActive != nil || stale != nil {
             let code = await GpsSimIntentRunner.retryingLink(seconds: 5) { done in engine.stop(full: false, completion: done) }
             guard code == 0 else {
-                let reason = code == GpsSimEngine.busyCode ? "PinFly 正在忙，請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
-                return .result(value: nil, dialog: "沒辦法暫停模擬：\(reason)")
+                let reason = code == GpsSimEngine.busyCode ? "PinFly 正在處理其他操作。請稍後再試。" : GpsSimIntentRunner.failureMessage(code)
+                return .result(value: nil, dialog: "無法暫停模擬：\(reason)")
             }
         }
         // Leave at least 8 s of the budget for putting the fake location back.
@@ -237,9 +237,9 @@ struct PeekRealLocationIntent: AppIntent {
             }
             resumed = code == 0
         }
-        let back = (wasActive ?? stale?.name).map { resumed ? "，已定位回「\($0)」" : "，但沒能定位回「\($0)」，請再送一次" } ?? ""
+        let back = (wasActive ?? stale?.name).map { resumed ? "，已回到「\($0)」" : "，但無法回到「\($0)」，請重新前往" } ?? ""
         guard let fix else {
-            let why = GpsRealFix.authorized ? "\(Int(gpsWait.rounded())) 秒內抓不到 GPS（室內可能比較久）" : "PinFly 沒有定位權限，請到「設定 › PinFly › 位置」打開"
+            let why = GpsRealFix.authorized ? "\(Int(gpsWait.rounded())) 秒內未取得 GPS 位置（室內需要較長時間）" : "PinFly 沒有位置權限。請至「設定 › PinFly › 位置」開啟。"
             return .result(value: nil, dialog: "\(why)\(back)")
         }
         let placemark = try? await CLGeocoder().reverseGeocodeLocation(fix).first

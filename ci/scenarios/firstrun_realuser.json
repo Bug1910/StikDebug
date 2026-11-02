@@ -1,7 +1,7 @@
 [
  {
   "persona": "第一次用 PinFly 的真實使用者",
-  "situation": "裝好後第一次打開：看引導、搜尋台北101、把圖釘拖到旁邊的建築、改範圍、存起來；點地圖上的圖釘前往、再編輯改名，最後停止模擬",
+  "situation": "安裝後第一次開啟：看引導、搜尋台北101、把圖釘拖到旁邊的建築、改範圍、存起來；點地圖上的圖釘前往、再編輯改名，最後停止模擬",
   "note": "firstrun_realuser, iPhone 16 393x852, order taken from the owner's own run on 2026-11-02 (phone3 018-067). -GpsSimCI: invisible map.pin.* markers so AXe can tap/drag pins, and 前往 pretends the send worked (no phone behind the simulator). Guide never auto-shows on a simulator, so it is opened from Settings."
  },
  {
@@ -229,7 +229,7 @@
  },
  {
   "expect": "儲存變更",
-  "note": "edit mode: the save button reads 儲存變更, not ＋ 存成地點"
+  "note": "edit mode: the save button reads 儲存變更, not 儲存地點"
  },
  {
   "tapId": "draft.save"

@@ -275,8 +275,8 @@ struct StikDebugShortcuts: AppShortcutsProvider {
         )
         AppShortcut(
             intent: SendToPlaceIntent(),
-            phrases: ["用\(.applicationName)定位到\(\.$place)", "\(.applicationName)定位到\(\.$place)"],
-            shortTitle: "定位到地點",
+            phrases: ["用\(.applicationName)前往\(\.$place)", "\(.applicationName)前往\(\.$place)"],
+            shortTitle: "前往地點",
             systemImageName: "location.fill"
         )
         AppShortcut(
@@ -287,8 +287,8 @@ struct StikDebugShortcuts: AppShortcutsProvider {
         )
         AppShortcut(
             intent: RenewSigningIntent(),
-            phrases: ["\(.applicationName)快到期才續簽", "用\(.applicationName)快到期才續簽"],
-            shortTitle: "剩幾天內才續簽 PinFly",
+            phrases: ["\(.applicationName)到期前續簽", "用\(.applicationName)到期前續簽"],
+            shortTitle: "到期前續簽 PinFly",
             systemImageName: "calendar.badge.clock"
         )
         AppShortcut(
@@ -305,14 +305,14 @@ struct StikDebugShortcuts: AppShortcutsProvider {
         )
         AppShortcut(
             intent: SigningStatusIntent(),
-            phrases: ["\(.applicationName)簽名剩幾天", "用\(.applicationName)查簽名剩幾天"],
-            shortTitle: "查簽名剩幾天",
+            phrases: ["\(.applicationName)簽名期限", "用\(.applicationName)查詢簽名期限"],
+            shortTitle: "查詢簽名期限",
             systemImageName: "calendar.badge.clock"
         )
         AppShortcut(
             intent: PeekRealLocationIntent(),
-            phrases: ["用\(.applicationName)看真實位置", "\(.applicationName)看真實位置"],
-            shortTitle: "看真實位置",
+            phrases: ["用\(.applicationName)查看真實位置", "\(.applicationName)查看真實位置"],
+            shortTitle: "查看真實位置",
             systemImageName: "location.magnifyingglass"
         )
         // Upstream StikDebug.

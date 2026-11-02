@@ -1,0 +1,112 @@
+# Codemagic CI = backup build line for when GitHub Actions macOS runners are queued out.
+# Manual start only (no `triggering:` block => never runs on push). No secrets, no signing: unsigned builds only.
+# Syntax: https://docs.codemagic.io/yaml-basic-configuration/yaml-getting-started/
+# Refs: docs.codemagic.io/yaml-basic-configuration/yaml-getting-started/ , docs.codemagic.io/specs-macos/xcode-26-6/
+# Steps mirror .github/workflows/build_ipa.yml and sim_testers.yml. See docs/ci.md.
+
+workflows:
+  pinfly-ipa:
+    name: PinFly unsigned IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: "26.6"   # Codemagic lists Xcode 26.6.x (default); same as GitHub workflows
+      vars:
+        PINFLY_BUNDLE_ID: com.pinfly.app
+    scripts:
+      - name: Check bundle id and pick URL scheme
+        script: |
+          echo "$PINFLY_BUNDLE_ID" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' || { echo "bad bundle id"; exit 1; }
+          if [ "$PINFLY_BUNDLE_ID" = "com.stik.stikdebug" ]; then
+            echo "PINFLY_URL_SCHEME=stikdebug" >> "$CM_ENV"
+          else
+            echo "PINFLY_URL_SCHEME=pinfly" >> "$CM_ENV"
+          fi
+          echo "PINFLY_URL_SCHEME_ALT=stikjit" >> "$CM_ENV"
+      - name: Stamp build
+        script: plutil -insert GpsSimBuild -string "$(git rev-parse --short=7 HEAD) - $(date -u +%Y-%m-%d)" StikDebug/Info.plist
+      - name: Compile Debug archive (unsigned)
+        script: |
+          xcodebuild clean archive \
+            -project StikDebug.xcodeproj \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -scheme StikDebug -configuration Debug \
+            -archivePath build/StikDebug.xcarchive \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            PINFLY_BUNDLE_ID="$PINFLY_BUNDLE_ID" PINFLY_URL_SCHEME="$PINFLY_URL_SCHEME" PINFLY_URL_SCHEME_ALT="$PINFLY_URL_SCHEME_ALT" \
+            SWIFT_OPTIMIZATION_LEVEL="-Onone" IPHONEOS_DEPLOYMENT_TARGET=17.4
+          mkdir -p pkg/Payload && cp -R build/StikDebug.xcarchive/Products/Applications/StikDebug.app pkg/Payload/
+          (cd pkg && zip -qr "../PinFly-${PINFLY_BUNDLE_ID}-debug-$(git rev-parse --short=7 HEAD).ipa" Payload)
+      - name: Compile Release archive (unsigned)
+        script: |
+          xcodebuild archive \
+            -project StikDebug.xcodeproj \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -scheme StikDebug -configuration Release \
+            -archivePath build/StikDebugRelease.xcarchive \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            PINFLY_BUNDLE_ID="$PINFLY_BUNDLE_ID" PINFLY_URL_SCHEME="$PINFLY_URL_SCHEME" PINFLY_URL_SCHEME_ALT="$PINFLY_URL_SCHEME_ALT" \
+            IPHONEOS_DEPLOYMENT_TARGET=17.4
+          mkdir -p pkgr/Payload && cp -R build/StikDebugRelease.xcarchive/Products/Applications/StikDebug.app pkgr/Payload/
+          (cd pkgr && zip -qr "../PinFly-${PINFLY_BUNDLE_ID}-release-$(git rev-parse --short=7 HEAD).ipa" Payload)
+    artifacts:
+      - PinFly-*.ipa
+
+  pinfly-sim:
+    name: PinFly simulator testers
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: "26.6"   # Codemagic lists Xcode 26.6.x (default); same as GitHub workflows
+      vars:
+        # Comma-separated tester names. Known: novice, rushed, careless, offline, advanced, ipad, pending,
+        # addplace, onboarding, guide, guideshots, realuser, move
+        TESTERS: "novice,addplace,realuser,move"
+    scripts:
+      - name: Stamp build
+        script: plutil -insert GpsSimBuild -string "$(git rev-parse --short=7 HEAD) - $(date -u +%Y-%m-%d)" StikDebug/Info.plist
+      - name: Retag prebuilt idevice lib for simulator (workspace copy only)
+        script: bash ci/retag_idevice_sim.sh
+      - name: Build for iphonesimulator
+        script: |
+          xcodebuild build \
+            -project StikDebug.xcodeproj -scheme StikDebug -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            SWIFT_OPTIMIZATION_LEVEL="-Onone" IPHONEOS_DEPLOYMENT_TARGET=17.4 COMPILER_INDEX_STORE_ENABLE=NO
+          test -d build/Build/Products/Debug-iphonesimulator/StikDebug.app
+          cp -R build/Build/Products/Debug-iphonesimulator/StikDebug.app .
+      - name: Install AXe
+        script: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install cameroncooke/axe/axe
+      - name: Play scenarios from TESTERS
+        script: |
+          # tester name | scenario file | simulator devices (same table as sim_testers.yml)
+          table='novice|novice|iPhone SE (3rd generation)
+          rushed|rushed|iPhone 16e;iPhone 13 mini
+          careless|careless|iPhone 16
+          offline|offline|iPhone 13 Pro Max;iPhone 17 Pro Max
+          advanced|advanced|iPhone 16 Pro Max
+          ipad|ipad|iPad Pro 13-inch (M5);iPad Pro 13-inch (M4);iPad Pro 13-inch (M3)
+          pending|renew_pending|iPhone SE (3rd generation)
+          addplace|add_place|iPhone 16
+          onboarding|onboarding|iPhone 16
+          guide|guide|iPhone 16
+          guideshots|guide_shots|iPhone 16
+          realuser|firstrun_realuser|iPhone 16
+          move|move|iPhone 16'
+          fail=0
+          for t in $(echo "$TESTERS" | tr ',' ' '); do
+            line=$(echo "$table" | grep "^[[:space:]]*$t|" | head -1)
+            [ -n "$line" ] || { echo "unknown tester: $t"; fail=1; continue; }
+            scen=$(echo "$line" | cut -d'|' -f2); dev=$(echo "$line" | cut -d'|' -f3-)
+            echo "=== tester $t ($scen on $dev)"
+            python3 ci/run_scenario.py "$scen" "$dev" StikDebug.app "out/$t" || fail=1
+            bash ci/make_summary.sh "out/$t" "summary-out/$t"
+          done
+          exit $fail
+    artifacts:
+      - summary-out/**
+      - out/**

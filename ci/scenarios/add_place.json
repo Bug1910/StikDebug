@@ -1,7 +1,7 @@
 [
  {
   "persona": "出門玩的人臨時加新地點",
-  "situation": "旅途中發現想記下的地方：長按地圖丟圖釘、搜尋店名、貼座標，存好後改名、刪錯復原、重開 App 還在不在、點一下飛過去",
+  "situation": "旅途中發現想記下的地方：長按地圖丟圖釘、搜尋店名、貼座標，存好後改名、刪錯復原、重開 App 還在不在、點地點前往",
   "note": "addplace, iPhone 16 393x852: long-press map -> draft card -> save default name; search 'Taipei 101' (geocoding needs network; whatever error/result shows is captured); type '35.6586, 139.7454' -> draft; rename; delete + undo; relaunch without demo args and check places persist; tap a new place to send."
  },
  {

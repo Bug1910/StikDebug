@@ -92,6 +92,18 @@ for n, step in enumerate(steps, 1):
             ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
         elif kind == "tapId":
             r = tap_retry("--id", val)
+            if r.returncode and val.startswith("settings."):
+                # Settings rows off screen are not in the accessibility tree until scrolled into view
+                # (the help section moved under 位置微飄, 2026-11-02): up to 3 scrolls down, looking after
+                # each one; still missing = the row is above, so up to 3 scrolls up the same way.
+                for start_y, end_y in [(650, 300)] * 3 + [(300, 650)] * 3:
+                    sh("axe", "swipe", "--start-x", "196", "--start-y", str(start_y), "--end-x", "196",
+                       "--end-y", str(end_y), "--udid", udid, check=False)
+                    time.sleep(1)
+                    if val in (tree_dump().stdout or ""):
+                        r = tap_retry("--id", val)
+                        if r.returncode == 0:
+                            break
             ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
         elif kind == "tapLastId":  # tap the last on-screen element whose id starts with val (rows whose label is a geocoded name)
             hits = []
