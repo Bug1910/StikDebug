@@ -7,7 +7,7 @@
 # Usage: pwsh -File resign.ps1            (full run, reinstalls the app on the phone)
 #        pwsh -File resign.ps1 -CheckOnly (steps 1-3 only, changes nothing)
 # Log: C:\Tools\GpsSimPhone\logs\resign.log (one line per run)
-param([switch]$CheckOnly)
+param([switch]$CheckOnly, [string]$AppId = 'com.stik.stikdebug.CJA56ZFU6T')  # AppId: bundle id + team suffix as installed (public build: com.pinfly.app.<TEAM>)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $env:PYTHONIOENCODING = 'utf-8'
@@ -15,7 +15,6 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $logDir = 'C:\Tools\GpsSimPhone\logs'
 $ipaDir = 'C:\Tools\Installers\iOS-StikDebug'
 $iloaderExe = Join-Path $env:LOCALAPPDATA 'iloader\iloader.exe'
-$appId = 'com.stik.stikdebug.CJA56ZFU6T'
 $null = New-Item -ItemType Directory -Force $logDir
 $loginHint = "$([char]0x767B)$([char]0x5165)"  # "login"
 $loginFail = "$([char]0x767B)$([char]0x5165)$([char]0x5931)$([char]0x6557)"  # "login failed"

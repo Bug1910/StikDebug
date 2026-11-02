@@ -8,6 +8,11 @@ on:
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "Bundle id (com.stik.stikdebug = the author's own phone build; com.pinfly.app = public build)"
+        type: string
+        default: "com.stik.stikdebug"
 
 permissions:
   contents: write
@@ -20,10 +25,30 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     env:
       UPLOAD_IPA: ${{ vars.UPLOAD_IPA || 'true' }}
+      # push / pull_request runs have no inputs: keep the author's existing id so his places and Shortcuts stay.
+      PINFLY_BUNDLE_ID: ${{ inputs.bundle_id || 'com.stik.stikdebug' }}
 
     steps:
       - name: 1. Fetch Source Code
         uses: actions/checkout@v6
+
+      - name: Check bundle id
+        run: |
+          echo "$PINFLY_BUNDLE_ID" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' || { echo "bad bundle_id: $PINFLY_BUNDLE_ID"; exit 1; }
+          echo "Building bundle id $PINFLY_BUNDLE_ID"
+          # The author's build keeps stikdebug:// (his Shortcuts may use it); others use pinfly://. Both keep stikjit:// (LiveContainer "Run with JIT" jumps back with it).
+          if [ "$PINFLY_BUNDLE_ID" = "com.stik.stikdebug" ]; then
+            echo "PINFLY_URL_SCHEME=stikdebug" >> "$GITHUB_ENV"
+            echo "PINFLY_URL_SCHEME_ALT=stikjit" >> "$GITHUB_ENV"
+          else
+            echo "PINFLY_URL_SCHEME=pinfly" >> "$GITHUB_ENV"
+            echo "PINFLY_URL_SCHEME_ALT=stikjit" >> "$GITHUB_ENV"
+          fi
+          {
+            echo "### PinFly build"
+            echo "- bundle id: \`$PINFLY_BUNDLE_ID\`"
+            grep '^PINFLY_URL_SCHEME' "$GITHUB_ENV" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stamp build (short sha and date) shown in 設定 as 版本 v<x.y.z>（sha · date）
         run: plutil -insert GpsSimBuild -string "${GITHUB_SHA::7} · $(date -u +%Y-%m-%d)" StikDebug/Info.plist
@@ -55,6 +80,9 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            PINFLY_BUNDLE_ID="$PINFLY_BUNDLE_ID" \
+            PINFLY_URL_SCHEME="$PINFLY_URL_SCHEME" \
+            PINFLY_URL_SCHEME_ALT="$PINFLY_URL_SCHEME_ALT" \
             SWIFT_OPTIMIZATION_LEVEL="-Onone" \
             IPHONEOS_DEPLOYMENT_TARGET=17.4
 
@@ -70,7 +98,7 @@ jobs:
         id: artifact
         if: env.UPLOAD_IPA == 'true'
         run: |
-          file_name="StikDebug-${GITHUB_SHA::7}.ipa"
+          file_name="PinFly-${PINFLY_BUNDLE_ID}-${GITHUB_SHA::7}.ipa"
           cp StikDebug.ipa "$file_name"
           echo "file_name=$file_name" >> "$GITHUB_OUTPUT"
 
@@ -97,17 +125,20 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            PINFLY_BUNDLE_ID="$PINFLY_BUNDLE_ID" \
+            PINFLY_URL_SCHEME="$PINFLY_URL_SCHEME" \
+            PINFLY_URL_SCHEME_ALT="$PINFLY_URL_SCHEME_ALT" \
             IPHONEOS_DEPLOYMENT_TARGET=17.4
           mkdir -p PayloadR
           cp -R build/StikDebugRelease.xcarchive/Products/Applications/StikDebug.app PayloadR/
           mkdir -p relpkg && mv PayloadR relpkg/Payload
-          (cd relpkg && zip -qr ../StikDebug-release-${GITHUB_SHA::7}.ipa Payload)
+          (cd relpkg && zip -qr ../PinFly-${PINFLY_BUNDLE_ID}-release-${GITHUB_SHA::7}.ipa Payload)
 
       - name: 8. Store Release IPA artifact
         if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v7
         with:
-          path: StikDebug-release-*.ipa
+          path: PinFly-*-release-*.ipa
           archive: false
           retention-days: 30
 

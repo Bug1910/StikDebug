@@ -213,7 +213,7 @@ struct InstalledAppsListView: View {
                     title: snapshot.searchIsActive ? "No matching apps".localized : "No JIT Apps Found".localized,
                     message: snapshot.searchIsActive
                         ? "Try a different name or bundle identifier.".localized
-                        : "StikDebug can only connect to apps with the \"get-task-allow\" entitlement.".localized
+                        : "PinFly can only connect to apps with the \"get-task-allow\" entitlement.".localized
                 )
             } else {
                 debuggableAppSections(snapshot: snapshot)

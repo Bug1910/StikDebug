@@ -62,7 +62,7 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .location:
             return "Simulate GPS location"
         case .settings:
-            return "Configure StikDebug"
+            return "Configure PinFly"
         }
     }
 

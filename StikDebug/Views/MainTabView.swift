@@ -155,7 +155,7 @@ struct MainTabView: View {
         guard let coordinate = coordinate(from: url) else {
             showAlert(
                 title: "Invalid Location URL",
-                message: "Use stikdebug://simulate-location?lat=37.3349&lon=-122.0090",
+                message: "Use \(AppIdentity.urlScheme)://simulate-location?lat=37.3349&lon=-122.0090",
                 showOk: true
             )
             return
@@ -186,7 +186,7 @@ struct MainTabView: View {
         guard let coordinate = coordinate(from: url) else {
             showAlert(
                 title: "Invalid Location URL",
-                message: "Use stikdebug://simulate-location?lat=37.3349&lon=-122.0090",
+                message: "Use \(AppIdentity.urlScheme)://simulate-location?lat=37.3349&lon=-122.0090",
                 showOk: true
             )
             return

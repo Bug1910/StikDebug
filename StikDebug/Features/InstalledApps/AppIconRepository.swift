@@ -17,7 +17,7 @@ enum AppIconRepository {
     private static let diskQueue = DispatchQueue(label: "com.stik.iconcache.disk", qos: .utility)
     private static let fetchSemaphore = AsyncSemaphore(permits: 4)
     private static let registry = IconFetchRegistry()
-    private static let appGroupIdentifier = "group.com.stik.sj"
+    private static let appGroupIdentifier = AppIdentity.appGroup
 
     static func cachedImage(for bundleID: String) -> UIImage? {
         memory.object(forKey: bundleID as NSString)

@@ -95,7 +95,7 @@ struct HomeView: View {
                 enableJITForSelectedApp(bundleID: app.bundleID, name: app.name)
             }
         } message: { _ in
-            Text("StikDebug isn't meant to enable JIT for LiveContainer manually. Select StikDebug in LiveContainer settings, enable \"Run with JIT\" for your app, then open your app normally. It will automatically jump back here.")
+            Text("PinFly isn't meant to enable JIT for LiveContainer manually. Select PinFly in LiveContainer settings, enable \"Run with JIT\" for your app, then open your app normally. It will automatically jump back here.")
         }
         .fileImporter(
             isPresented: $isShowingPairingFilePicker,
@@ -337,7 +337,7 @@ struct HomeView: View {
                     }
                     showAlert(
                         title: "Failed to Enable JIT".localized,
-                        message: "The device connection or Developer Disk Image wasn't ready in time. Open StikDebug directly, wait for it to finish connecting, then try again.".localized,
+                        message: "The device connection or Developer Disk Image wasn't ready in time. Open PinFly directly, wait for it to finish connecting, then try again.".localized,
                         showOk: true
                     )
                 }
@@ -364,7 +364,7 @@ struct HomeView: View {
                     }
 
                     if !success {
-                        let failureMessage = detail ?? "StikDebug could not launch or attach to the selected app. Check that the VPN is enabled, the pairing file is current, and the app is still installed.".localized
+                        let failureMessage = detail ?? "PinFly could not launch or attach to the selected app. Check that the VPN is enabled, the pairing file is current, and the app is still installed.".localized
                         showAlert(title: "Failed to Enable JIT".localized, message: failureMessage, showOk: true)
                     }
                 }

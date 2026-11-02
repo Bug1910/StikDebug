@@ -13,7 +13,7 @@ struct ScriptResource {
 enum ScriptStore {
     static let directoryName = "scripts"
     static let assignmentKey = UserDefaults.Keys.bundleScriptMap
-    static let favoriteAppNamesSuiteName = "group.com.stik.sj"
+    static let favoriteAppNamesSuiteName = AppIdentity.appGroup
     static let favoriteAppNamesKey = "favoriteAppNames"
     static let defaultScriptName = UserDefaults.Keys.defaultScriptNameValue
     static let bundledResources: [ScriptResource] = [

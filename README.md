@@ -3,21 +3,15 @@
 > 連線手機、掛載 DDI、送出定位全部沿用 StikDebug 原本的程式；原本的 StikDebug 畫面在「設定 → 進階 (StikDebug)」。授權沿用 AGPL-3.0。
 
 <div align="center">
-   <img width="217" height="217" src="/assets/StikDebug.png" alt="Logo">
+   <img width="217" height="217" src="/StikDebug/Assets.xcassets/PinFlyLogo.imageset/PinFlyLogo-1024.png" alt="PinFly">
 </div>
 
 <div align="center">
-  <h1><b>StikDebug</b></h1>
-  <p><i>An on-device debugger/JIT enabler for iOS versions 17.4+ powered by <a href="https://github.com/jkcoxson/idevice">idevice</a>.</i></p>
+  <h1><b>PinFly</b></h1>
+  <p><i>Based on <a href="https://github.com/StikDebug/StikDebug">StikDebug</a> (AGPL-3.0), an on-device debugger/JIT enabler for iOS 17.4+ powered by <a href="https://github.com/jkcoxson/idevice">idevice</a>. License: <a href="LICENSE">AGPL-3.0</a>.</i></p>
 </div>
 
-<h3 align="center">
-  <a href="https://discord.gg/ZnNcrRT3M8"><img src="https://img.shields.io/badge/Discord-join%20us-7289DA?logo=discord&logoColor=white&style=for-the-badge&labelColor=23272A" /></a>&nbsp;
-  <a href="https://github.com/StikDebug/StikDebug/blob/main/LICENSE"><img src="https://img.shields.io/github/license/StikDebug/StikDebug?label=License&color=5865F2&style=for-the-badge&labelColor=23272A" /></a>&nbsp;
-  <a href="https://github.com/StikDebug/StikDebug"><img src="https://img.shields.io/github/stars/StikDebug/StikDebug?label=Stars&color=FEE75C&style=for-the-badge&labelColor=23272A" /></a>&nbsp;
-  <a href="https://github.com/StikDebug/StikDebug/releases"><img src="https://img.shields.io/github/v/release/StikDebug/StikDebug?label=Latest&color=00BFFF&style=for-the-badge&labelColor=23272A" /></a>
-   <br />
-</h6>
+## StikDebug (upstream)
 
 ## Features
 - **JIT:** Enable Just-In-Time compilation for sideloaded apps that have the `get-task-allow` entitlement.

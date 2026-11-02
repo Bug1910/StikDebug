@@ -4,25 +4,27 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.stik.stikdebug.pinfly.download</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).pinfly.download</string>
 	</array>
-	<key>CFBundleName</key>
-	<string>PinFly</string>
 	<key>CFBundleDisplayName</key>
 	<string>PinFly</string>
 	<key>CFBundleName</key>
 	<string>PinFly</string>
+	<key>PinFlyBaseBundleID</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>PinFlyAppGroup</key>
+	<string>group.$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.stik.stikdebug.enableJIT</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).enableJIT</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>stikdebug</string>
-				<string>stikjit</string>
+				<string>$(PINFLY_URL_SCHEME)</string>
+				<string>$(PINFLY_URL_SCHEME_ALT)</string>
 			</array>
 		</dict>
 	</array>
@@ -47,11 +49,11 @@
 				<string>com.apple.package</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>StikDebug Mini Tool</string>
+			<string>PinFly 工具</string>
 			<key>UTTypeIconFiles</key>
 			<array/>
 			<key>UTTypeIdentifier</key>
-			<string>com.stik.stikdebug.stiktool</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).stiktool</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

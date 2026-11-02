@@ -16,6 +16,10 @@ struct GpsSimLicensesView: View {
         var id: String { name }
     }
 
+    /// PinFly's own Corresponding Source (AGPL-3.0 §6 / §13). The only place this URL is written.
+    /// TODO: confirm once the public repo exists (Bug1910/PinFly is private as of 2026-10-29).
+    static let pinFlySourceURL = "https://github.com/Bug1910/PinFly"
+
     static let items: [Item] = [
         Item(name: "StikDebug", license: "AGPL-3.0", url: "https://github.com/StikDebug/StikDebug",
              note: "PinFly 是從它修改來的。"),
@@ -37,6 +41,22 @@ struct GpsSimLicensesView: View {
 
     var body: some View {
         List {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("PinFly").font(.headline)
+                        Spacer()
+                        Text("AGPL-3.0").font(.subheadline.monospaced()).foregroundStyle(.secondary)
+                    }
+                    Text("基於 StikDebug（AGPL-3.0）修改。").font(.footnote).foregroundStyle(.secondary)
+                    if let url = URL(string: Self.pinFlySourceURL) {
+                        Link("取得原始碼", destination: url).font(.footnote)
+                    }
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("本 App")
+            }
             Section {
                 ForEach(Self.items) { item in
                     VStack(alignment: .leading, spacing: 4) {

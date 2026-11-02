@@ -61,7 +61,7 @@ final class RunJSViewModel: ObservableObject, Identifiable, @unchecked Sendable 
                 return ""
             }
             if self.executionInterrupted {
-                self.context?.exception = JSValue(object: "Script execution is interrupted by StikDebug.", in: self.context!)
+                self.context?.exception = JSValue(object: "Script execution is interrupted by PinFly.", in: self.context!)
                 return ""
             }
 
@@ -152,7 +152,7 @@ final class RunJSViewModel: ObservableObject, Identifiable, @unchecked Sendable 
 
     private func captureScreenshot(named preferredName: String?) -> String {
         if executionInterrupted {
-            raiseException("Script execution is interrupted by StikDebug.")
+            raiseException("Script execution is interrupted by PinFly.")
             return ""
         }
         guard let remoteServer else {

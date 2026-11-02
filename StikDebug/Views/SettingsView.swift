@@ -42,11 +42,11 @@ struct SettingsView: View {
                     HStack {
                         Spacer()
                         VStack(spacing: 12) {
-                            Image("StikDebug")
+                            Image("PinFlyLogo")
                                 .resizable().aspectRatio(contentMode: .fit)
                                 .frame(width: 80, height: 80)
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            Text("StikDebug").font(.title2.weight(.semibold))
+                            Text("PinFly").font(.title2.weight(.semibold))
                         }
                         Spacer()
                     }

@@ -134,8 +134,8 @@ struct RunningProcessQuery: EntityStringQuery {
 struct EnableJITIntent: AppIntent, ForegroundContinuableIntent {
     static var title: LocalizedStringResource = "Enable JIT"
     static var description = IntentDescription(
-        "Enables JIT compilation for an installed app using StikDebug.",
-        categoryName: "StikDebug"
+        "Enables JIT compilation for an installed app using PinFly.",
+        categoryName: "PinFly"
     )
     static var openAppWhenRun: Bool = true
 
@@ -208,8 +208,8 @@ struct EnableJITIntent: AppIntent, ForegroundContinuableIntent {
 struct KillProcessIntent: AppIntent {
     static var title: LocalizedStringResource = "Kill Process"
     static var description = IntentDescription(
-        "Terminates a running process on the device using StikDebug.",
-        categoryName: "StikDebug"
+        "Terminates a running process on the device using PinFly.",
+        categoryName: "PinFly"
     )
     static var openAppWhenRun: Bool = false
 

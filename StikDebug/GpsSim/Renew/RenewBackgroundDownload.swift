@@ -15,7 +15,7 @@ import UIKit
 
 enum RenewBackgroundDownload {
     /// Must match Info.plist BGTaskSchedulerPermittedIdentifiers.
-    static let identifier = "com.stik.stikdebug.pinfly.download"
+    static let identifier = AppIdentity.backgroundTaskID(endingWith: ".pinfly.download")
     static let interval: TimeInterval = 6 * 3_600
     static let withinDays: Double = 3
 

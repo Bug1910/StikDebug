@@ -255,7 +255,7 @@ struct ConsoleLogsView: View {
         logsContent += "Version: \(UIDevice.current.systemVersion)\n"
         logsContent += "Name: \(UIDevice.current.name)\n"
         logsContent += "Model: \(UIDevice.current.model)\n"
-        logsContent += "StikDebug Version: App Version: 1.0\n\n"
+        logsContent += "PinFly Version: App Version: 1.0\n\n"
         logsContent += "=== LOG ENTRIES ===\n"
         logsContent += logManager.logs.map {
             "[\(formatTime(date: $0.timestamp))] [\($0.type.rawValue)] \($0.message)"

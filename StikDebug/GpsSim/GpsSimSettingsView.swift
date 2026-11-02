@@ -103,7 +103,7 @@ struct GpsSimSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .accessibilityValue(advancedOpen ? "已展開" : "已收合")
-                    .accessibilityHint("連不上的說明、地點檔、配對檔、原版 StikDebug 畫面")
+                    .accessibilityHint("連不上的說明、地點檔、配對檔、原始除錯工具")
                     .accessibilityIdentifier("settings.advanced")
                 } footer: {
                     Text("多數時候用不到。")
@@ -208,7 +208,7 @@ struct GpsSimSettingsView: View {
                     Button("進階：原始除錯工具（一般不用）") { showAdvanced = true }
                         .frame(minHeight: 44)
                 } footer: {
-                    Text("原本 StikDebug 的畫面（JIT、裝置資訊、Settings 等）。")
+                    Text("原始除錯工具（JIT、裝置資訊、Settings 等）。")
                 }
                 }
 
