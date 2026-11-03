@@ -513,6 +513,8 @@ struct StopSimulationIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<GpsSimStatusEntity> & ProvidesDialog {
         // engine.stop also cancels a move or wander (takeOverFromMove) and, on success, the 持續時間.
+        // 停止模擬也停止行程（含上次中斷、存著的執行狀態），否則行程會再送點或下次開啟提示「接續行程」。
+        GpsItineraryRunner.shared.stopForStopSimulationIntent()
         let code = await GpsSimIntentRunner.retryingLink { done in GpsSimEngine.shared.stop(completion: done) }
         guard code == 0 else {
             let reason = GpsSimIntentRunner.shortcutFailure(code)

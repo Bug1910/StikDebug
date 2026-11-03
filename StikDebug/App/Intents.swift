@@ -269,10 +269,13 @@ struct KillProcessIntent: AppIntent {
 struct StikDebugShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         // Spec 12.6 slots, most important first (the first one is shown at the top of Spotlight).
-        // An app may have only one provider and at most 10 App Shortcuts; slot 10 is reserved for
-        // 開始行程 (stage 3). Every phrase contains \(.applicationName); phrase parameters are
-        // AppEntity only. Building blocks (ConnectIntent, ImportProfileIntent) and the hidden
-        // upstream EnableJITIntent／KillProcessIntent are not listed (still compiled).
+        // An app may have only one provider and at most 10 App Shortcuts (all 10 used since stage 3:
+        // slot 9 停止行程, slot 10 開始行程). Every phrase contains \(.applicationName); phrase
+        // parameters are AppEntity only. Building blocks (ConnectIntent, ImportProfileIntent,
+        // InstallProfileIntent — only useful right after 下載 PinFly 描述檔) and the hidden upstream
+        // EnableJITIntent／KillProcessIntent are not listed (still compiled, still in the action list).
+        // GpsItineraryStore calls updateAppShortcutParameters() after every save so the
+        // \(\.$itinerary) phrase parameter follows added／renamed／deleted itineraries.
         AppShortcut(
             intent: SendToPlaceIntent(),
             phrases: [
@@ -330,10 +333,20 @@ struct StikDebugShortcuts: AppShortcutsProvider {
             systemImageName: "arrow.down.circle"
         )
         AppShortcut(
-            intent: InstallProfileIntent(),
-            phrases: ["用\(.applicationName)安裝描述檔", "\(.applicationName)安裝描述檔"],
-            shortTitle: "安裝 PinFly 描述檔",
-            systemImageName: "square.and.arrow.down"
+            intent: StopItineraryIntent(),
+            phrases: ["用\(.applicationName)停止行程", "\(.applicationName)停止行程"],
+            shortTitle: "停止行程",
+            systemImageName: "stop.circle"
+        )
+        AppShortcut(
+            intent: StartItineraryIntent(),
+            phrases: [
+                "用\(.applicationName)開始行程\(\.$itinerary)",
+                "\(.applicationName)開始行程\(\.$itinerary)",
+                "用\(.applicationName)開始行程"
+            ],
+            shortTitle: "開始行程",
+            systemImageName: "play.circle"
         )
     }
 }

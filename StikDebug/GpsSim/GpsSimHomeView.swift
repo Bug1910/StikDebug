@@ -230,6 +230,11 @@ struct GpsSimHomeView: View {
     @ObservedObject private var renew = GpsRenewCenter.shared
     /// 模擬移動／原地漫步的狀態（每秒更新）。
     @ObservedObject private var mover = GpsSimRouteMover.shared
+    /// 預排行程（規格 10.6.3）：「行程」圓鈕、清單／執行畫面、首頁行程進度卡。
+    @ObservedObject private var itinRunner = GpsItineraryRunner.shared
+    @State private var showItineraries = false
+    @State private var showItineraryRun = false
+    @State private var showItineraryResume = false
     /// Sign-in sheet for 「登入並續簽」 on the home reminder card.
     @State private var showRenewSignIn = false
     @Environment(\.scenePhase) private var scenePhase
@@ -375,7 +380,8 @@ struct GpsSimHomeView: View {
         guard !engine.connectionLost, let t = engine.lastLinkOK else { return false }
         return Date().timeIntervalSince(t) <= 15
     }
-    private var linkUp: Bool { tunnel.isConnected || locationLinkAlive }
+    /// GPSSIM_LINK_MOCK（只有測試版）：模擬器沒有手機，連線一律算通，「前往」等按鈕才不會被擋。
+    private var linkUp: Bool { GpsSimEngine.linkMock || tunnel.isConnected || locationLinkAlive }
 
     private var isConnecting: Bool { !demoReady && pairingExists && !linkUp && !tunnelGraceOver }
     private var isMountingNow: Bool {
@@ -417,13 +423,19 @@ struct GpsSimHomeView: View {
         }
     }
 
+    // mainContent is split into three properties (layout → first handlers → rest) because Xcode 26
+    // gave up type-checking it as one expression ("unable to type-check ... in reasonable time").
     private var mainContent: some View {
         // Read `now` here so the 15 s freshness expiry always re-renders the whole screen.
         let _ = now
-        // Map above, fixed solid panel below (owner: 「下面不用縮回去可以讓我直接點擊」).
-        // The panel is not floated over the map, so pins, map text and the Apple Maps legal
-        // label are never covered, and the keyboard pushes the panel up instead of hiding it.
-        return VStack(spacing: 0) {
+        return mainContentStaged
+    }
+
+    // Map above, fixed solid panel below (owner: 「下面不用縮回去可以讓我直接點擊」).
+    // The panel is not floated over the map, so pins, map text and the Apple Maps legal
+    // label are never covered, and the keyboard pushes the panel up instead of hiding it.
+    private var mainLayout: some View {
+        VStack(spacing: 0) {
             ZStack {
                 // Measured inside ignoresSafeArea: outside it the frame stops at the status bar, so the
                 // camera maths ran on a map 62 pt too short and pins landed under the search bar (v1.0.14).
@@ -489,6 +501,10 @@ struct GpsSimHomeView: View {
                 .frame(maxWidth: .infinity)
                 .background(GpsTheme.background.ignoresSafeArea(edges: .bottom))
         }
+    }
+
+    private var mainContentFirst: some View {
+        mainLayout
         .dynamicTypeSize(...Self.maxTypeSize)
         .background(GpsTheme.background.ignoresSafeArea())
         .accessibilityHidden(searchMode)
@@ -558,6 +574,10 @@ struct GpsSimHomeView: View {
                 if mover.wanderStartedAt == nil { wanderPlaceID = nil }
             }
         }
+    }
+
+    private var mainContentStaged: some View {
+        mainContentFirst
         // Only the first places (empty -> some) refit the camera; adding one more must not jump away.
         .onChange(of: store.places.count) { old, _ in if old == 0 { fitAllPlaces() } }
         // Overlays changed size (banner, toast, bigger text, bottom card): frame the same thing
@@ -597,7 +617,7 @@ struct GpsSimHomeView: View {
         }
         // Wi-Fi came back (e.g. the 4G airplane + Wi-Fi trick): the JIT tunnel can come up now.
         .onChange(of: network.onWiFi) { _, onWiFi in
-            if onWiFi, Self.demoState == nil, pairingExists, !tunnel.isConnected { retryTunnel() }
+            if onWiFi, Self.demoState == nil, pairingExists, !GpsSimEngine.linkMock, !tunnel.isConnected { retryTunnel() }
         }
         .sheet(item: $editing) { place in
             GpsPlaceEditSheet(
@@ -1637,9 +1657,50 @@ struct GpsSimHomeView: View {
                 .accessibilityHint("改名、改範圍、隱藏或刪除")
                 .accessibilityIdentifier("btn.editPlaces")
             }
+            itineraryButton
             shortcutsMenu
         }
         .fixedSize()
+    }
+
+    /// 「行程」圓鈕（一律顯示）：進行中或待命時 mint 底、直接開執行畫面；否則開行程清單（規格 10.6.3）。
+    /// 上次 PinFly 關閉時中斷的行程在這裡提示「接續行程」（規格 10.4.3）。
+    private var itineraryButton: some View {
+        let active = itinRunner.isActive
+        return Button {
+            clearToast()
+            draft = nil
+            pinMenuID = nil
+            if active { showItineraryRun = true } else { showItineraries = true }
+        } label: {
+            Image(systemName: "list.bullet.clipboard")
+                .font(Self.roundIconFont)
+                .foregroundStyle(active ? GpsTheme.background : .white)
+                .frame(width: 44, height: 44)
+                .background(active ? GpsTheme.mint : GpsTheme.card.opacity(0.94), in: Circle())
+                .overlay(Circle().stroke(GpsTheme.line, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("行程")
+        .accessibilityHint("建立、編輯或開始預排行程")
+        .accessibilityValue(active ? (itinRunner.state == .armed ? "行程待命" : "行程進行中") : "")
+        .accessibilityIdentifier("btn.itinerary")
+        .onAppear {
+            if !itinRunner.isActive, itinRunner.savedRunName != nil { showItineraryResume = true }
+        }
+        .alert("行程「\(itinRunner.savedRunName ?? "")」在 PinFly 關閉時中斷。", isPresented: $showItineraryResume) {
+            Button("接續行程") {
+                if (try? itinRunner.resumeSavedRun()) != nil { showItineraryRun = true }
+            }
+            Button("停止行程", role: .cancel) { itinRunner.discardSavedRun() }
+        }
+        .sheet(isPresented: $showItineraries) {
+            GpsSimItineraryListView()
+        }
+        .sheet(isPresented: $showItineraryRun) {
+            GpsSimItineraryRunView().preferredColorScheme(.dark)
+        }
     }
 
     /// The owner's own shortcuts, one tap away even without the 4G banner (owner request 2026-10-27).
@@ -2280,7 +2341,10 @@ struct GpsSimHomeView: View {
 
     private var bottomPanel: some View {
         VStack(spacing: 10) {
-            if mover.isActive || mover.isPlanning {
+            if itinRunner.isActive {
+                // 預排行程進行中：行程進度卡取代「模擬移動」進度卡（規格 10.6.3）。
+                GpsItineraryProgressCard(onShow: { showItineraryRun = true })
+            } else if mover.isActive || mover.isPlanning {
                 // 移動中仍可點地圖上的地點：卡片疊在進度卡下方，「前往」會先取消移動再瞬移（規格 3.4）。
                 moveProgressCard
                 if let p = pinMenuPlace { pinMenuCard(p) }
@@ -3191,6 +3255,9 @@ struct GpsSimHomeView: View {
     // MARK: - Lifecycle / device plumbing
 
     private func handleAppear() {
+        #if DEBUG
+        scheduleDebugLaunchShortcuts()
+        #endif
         if let state = Self.demoState {
             GpsSimEngine.demoMoveSends = Self.ciMode
             runDemo(state)
@@ -3276,7 +3343,7 @@ struct GpsSimHomeView: View {
         pairingExists = GpsSimEngine.pairingExists
         // Retry the JIT tunnel only where it can come up (Wi-Fi); on 4G it only spins,
         // and the location link works without it.
-        if startTunnel, pairingExists, !tunnel.isConnected {
+        if startTunnel, pairingExists, !GpsSimEngine.linkMock, !tunnel.isConnected {
             if network.onWiFi {
                 retryTunnel()
             } else {
@@ -3933,6 +4000,38 @@ extension GpsSimHomeView {
         movePreview = nil
         moveSetup = p
     }
+
+    #if DEBUG
+    /// 只執行一次（回到首頁時 handleAppear 會再跑）。
+    private static var debugLaunchShortcutsDone = false
+
+    /// 測試版啟動參數（Intel 模擬器地圖全灰、點不到圖釘時給 CI 用；Release 不編進來）。值＝地點 id 或名稱：
+    /// - `-GpsSimMoveFrom <地點>`：只在 `-GpsSimCI` 時有效，先假裝已定位在該地點（當移動起點）。
+    /// - `-GpsSimOpenMove <地點>`：直接開該地點的「模擬移動」設定卡片（同圖釘選單「移動」）。
+    /// - `-GpsSimOpenWander <地點>`：直接開該地點的圖釘選單（「原地漫步」開關在這裡）。
+    /// 找不到地點就不做事。
+    private func scheduleDebugLaunchShortcuts() {
+        guard !Self.debugLaunchShortcutsDone else { return }
+        Self.debugLaunchShortcutsDone = true
+        let d = UserDefaults.standard
+        guard d.string(forKey: "GpsSimOpenMove") != nil || d.string(forKey: "GpsSimOpenWander") != nil else { return }
+        // runDemo 0.6 秒後才設畫面狀態，等它之後再開，免得被蓋掉。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            func place(_ key: String) -> GpsPlace? {
+                guard let v = d.string(forKey: key), !v.isEmpty else { return nil }
+                return store.places.first(where: { $0.id == v }) ?? store.places.first(where: { $0.name == v })
+            }
+            if Self.ciMode, let from = place("GpsSimMoveFrom") {
+                engine.applyDemoSimulation(name: from.name, coordinate: from.coordinate)
+            }
+            if let dest = place("GpsSimOpenMove") {
+                openMoveSetup(dest)
+            } else if let p = place("GpsSimOpenWander") {
+                pinMenuID = p.id
+            }
+        }
+    }
+    #endif
 
     private var movePreviewKey: String {
         "\(moveSetup?.id ?? "-")|\(moveModeRaw)|\(moveSpeed.transportType.rawValue)"

@@ -1,0 +1,742 @@
+[
+ {
+  "persona": "第一次用預排行程的真實使用者",
+  "situation": "出門前想讓手機照時間表移動：幾分鐘後出現在台北101停留，開車到中正紀念堂，到了在附近小範圍漫步；排好後開始、途中暫停一下、結束時停在原地，最後存一份到檔案、誤刪再救回",
+  "note": "itinerary_real_user, iPhone 16 393x852, spec docs/spec-route-move.md 10.10 steps 1-14 (UI-drivable parts). Launch arg -GPSSIM_LINK_MOCK 1 (Debug only; read via UserDefaults argument domain, GpsSimEngine.linkMock) = sends/clears return 0 and log [LinkMock]. Places 台北101/中正紀念堂 are created first by pasting coordinates (10.10 前置). Skipped: 15-17 (Shortcuts app), 18 (Dynamic Type), 10 waiting to T+8 and 11 pause during the move (too long for ~3 min: started with 立即開始 and paused during the stay). Item 1 time = the editor's default (next 5-minute mark), not exactly T+3: the compact DatePicker cannot be set by AXe; so 開始 vs 從目前的項目接續 depends on the clock (both optional)."
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_LINK_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 15
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 8
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "type": "25.033976, 121.564539\n"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "draft.name"
+ },
+ {
+  "selectAll": true
+ },
+ {
+  "type": "台北101\n"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_LINK_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 10
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 8
+ },
+ {
+  "tapId": "search.field"
+ },
+ {
+  "wait": 2
+ },
+ {
+  "type": "25.034611, 121.521774\n"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "draft.name"
+ },
+ {
+  "selectAll": true
+ },
+ {
+  "type": "中正紀念堂\n"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "draft.save"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "relaunch": [
+   "-GPSSIM_LINK_MOCK",
+   "1"
+  ]
+ },
+ {
+  "wait": 10
+ },
+ {
+  "shot": "setup_places"
+ },
+ {
+  "expect": "台北101"
+ },
+ {
+  "expect": "中正紀念堂"
+ },
+ {
+  "tapId": "btn.itinerary",
+  "note": "10.10 #1"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s01_list_empty"
+ },
+ {
+  "tree": "s01_list_empty"
+ },
+ {
+  "expect": "尚未建立行程"
+ },
+ {
+  "expect": "新增行程"
+ },
+ {
+  "tapId": "itin.empty.add",
+  "note": "10.10 #2"
+ },
+ {
+  "wait": 14
+ },
+ {
+  "expect": "新增第一個項目。第一項需為停留或原地漫步，用來決定起點。"
+ },
+ {
+  "tapId": "itin.edit.name"
+ },
+ {
+  "selectAll": true
+ },
+ {
+  "type": "測試行程\n"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "s02_named"
+ },
+ {
+  "tree": "s02_named"
+ },
+ {
+  "expect": "測試行程"
+ },
+ {
+  "tapId": "plus",
+  "note": "10.10 #3"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "itin.add.move"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.item.place"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.place.row.中正紀念堂",
+  "index": 0,
+  "note": "picker row (top); the same name is also on the map sheet behind"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s03_move_first"
+ },
+ {
+  "tapId": "itin.item.commit"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s03_error30"
+ },
+ {
+  "tree": "s03_error30"
+ },
+ {
+  "expect": "第一項必須是「停留」或「原地漫步」，才能決定起點。請在最前面新增停留項目。（錯誤 30）"
+ },
+ {
+  "tapId": "itin.fix.30"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.time.fixed",
+  "note": "10.10 #4 (time = editor default, next 5-min mark)"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "itin.item.place"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.place.row.台北101",
+  "index": 0,
+  "note": "picker row (top); the same name is also on the map sheet behind"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.unit.minute"
+ },
+ {
+  "selectAll": true
+ },
+ {
+  "type": "5"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "s04_stay"
+ },
+ {
+  "tree": "s04_stay"
+ },
+ {
+  "expect": "5 分鐘"
+ },
+ {
+  "tapId": "itin.item.commit"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "第 1 項，停留，在 "
+  ]
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "台北101，5 分"
+  ]
+ },
+ {
+  "tapLastId": "itin.edit.row",
+  "note": "10.10 #5: open the move row"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.speed.drive"
+ },
+ {
+  "wait": 8
+ },
+ {
+  "shot": "s05_drive"
+ },
+ {
+  "tree": "s05_drive"
+ },
+ {
+  "expect": "路線距離",
+  "optional": true,
+  "note": "needs MapKit directions over the network; else 無法規劃路線，以直線估算"
+ },
+ {
+  "tapId": "itin.item.commit"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "第 2 項，移動，約 "
+  ]
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "駕車"
+  ]
+ },
+ {
+  "tapId": "plus",
+  "note": "10.10 #6"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "tapId": "itin.add.wander"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.time.after"
+ },
+ {
+  "tapId": "itin.wander.small"
+ },
+ {
+  "tapId": "itin.unit.minute"
+ },
+ {
+  "selectAll": true
+ },
+ {
+  "type": "10"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "s06_wander"
+ },
+ {
+  "expect": "中正紀念堂"
+ },
+ {
+  "tapId": "itin.item.commit"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s06_three_items"
+ },
+ {
+  "tree": "s06_three_items"
+ },
+ {
+  "expect": "共 3 個項目"
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "第 3 項，原地漫步"
+  ]
+ },
+ {
+  "longPressId": [
+   "itin.edit.row",
+   2
+  ],
+  "note": "10.10 #7"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s07_menu"
+ },
+ {
+  "expect": "上移"
+ },
+ {
+  "expect": "下移"
+ },
+ {
+  "tapId": "itin.row.moveUp"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "第 2 項，原地漫步"
+  ]
+ },
+ {
+  "longPressId": [
+   "itin.edit.row",
+   1
+  ]
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.row.moveDown"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s07_restored"
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "第 3 項，原地漫步"
+  ]
+ },
+ {
+  "expectRow": [
+   "itin.edit.row",
+   "第 2 項，移動"
+  ]
+ },
+ {
+  "tapId": "itin.edit.save",
+  "note": "10.10 #8"
+ },
+ {
+  "wait": 8
+ },
+ {
+  "tap": "允許",
+  "optional": true,
+  "note": "first save asks for notification permission (zh-Hant system alert)"
+ },
+ {
+  "tap": "Allow",
+  "optional": true,
+  "note": "same alert when the simulator system language is English (save waits for the answer before closing the editor)"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s08_list"
+ },
+ {
+  "tree": "s08_list"
+ },
+ {
+  "expectRow": [
+   "itin.row",
+   "測試行程"
+  ]
+ },
+ {
+  "expectRow": [
+   "itin.row",
+   "3 個項目・"
+  ]
+ },
+ {
+  "expectRow": [
+   "itin.row",
+   " 開始"
+  ]
+ },
+ {
+  "tapId": "itin.row",
+  "note": "10.10 #9: open the itinerary, then 開始行程"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.edit.start"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s09_start_sheet"
+ },
+ {
+  "tree": "s09_start_sheet"
+ },
+ {
+  "expect": "保持 PinFly 開啟、螢幕亮著"
+ },
+ {
+  "expect": "計步器與動作感測不會變化"
+ },
+ {
+  "tapId": "itin.start.go",
+  "optional": true,
+  "note": "on time: 開始 -> 待命"
+ },
+ {
+  "tapId": "itin.start.resume",
+  "optional": true,
+  "note": "item 1 time already passed: 從目前的項目接續"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s09_after_start"
+ },
+ {
+  "tree": "s09_after_start"
+ },
+ {
+  "expect": "立即開始",
+  "optional": true,
+  "note": "armed screen"
+ },
+ {
+  "tapId": "itin.run.startNow",
+  "optional": true,
+  "note": "10.10 #10 shortened: start the armed itinerary now"
+ },
+ {
+  "wait": 8
+ },
+ {
+  "shot": "s10_running"
+ },
+ {
+  "tree": "s10_running"
+ },
+ {
+  "expect": "行程「測試行程」",
+  "note": "running card shown (item number depends on how slow the VM is)"
+ },
+ {
+  "expect": "停留在 台北101",
+  "optional": true,
+  "note": "only if still in the 5-minute stay"
+ },
+ {
+  "tapId": "itin.ctl.pause",
+  "note": "10.10 #11 (during the stay, not the move)"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s11_paused"
+ },
+ {
+  "expectRow": [
+   "itin.ctl.pause",
+   "繼續"
+  ]
+ },
+ {
+  "expect": "暫停期間，指定時間的項目仍依原時間開始。"
+ },
+ {
+  "wait": 5
+ },
+ {
+  "tapId": "itin.ctl.pause"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s11_resumed"
+ },
+ {
+  "expectRow": [
+   "itin.ctl.pause",
+   "暫停"
+  ]
+ },
+ {
+  "expect": "停留在 台北101",
+  "optional": true,
+  "note": "only if still in the 5-minute stay"
+ },
+ {
+  "tapId": "itin.ctl.stopItin",
+  "note": "10.10 #12"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s12_stopped"
+ },
+ {
+  "tree": "s12_stopped"
+ },
+ {
+  "expect": "行程已停止，停留在目前位置。"
+ },
+ {
+  "expect": "停留在 台北101",
+  "optional": true,
+  "note": "only if still in the 5-minute stay"
+ },
+ {
+  "expect": "!已回到真實位置"
+ },
+ {
+  "tapId": "itin.run.done"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.edit.cancel"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "tapId": "itin.list.close"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s12_home"
+ },
+ {
+  "tree": "s12_home"
+ },
+ {
+  "expect": "!已回到真實位置"
+ },
+ {
+  "tapId": "btn.itinerary",
+  "note": "10.10 #13: export up to the share sheet; saving inside Files not automated"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "longPressId": [
+   "itin.row",
+   0
+  ]
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s13_menu"
+ },
+ {
+  "expect": "匯出行程"
+ },
+ {
+  "tapId": "itin.export"
+ },
+ {
+  "wait": 8
+ },
+ {
+  "shot": "s13_share"
+ },
+ {
+  "tree": "s13_share"
+ },
+ {
+  "expect": "測試行程",
+  "optional": true
+ },
+ {
+  "swipe": [
+   "196",
+   "430",
+   "196",
+   "840"
+  ],
+  "optional": true,
+  "note": "close the share sheet"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "swipeId": [
+   "itin.row",
+   0,
+   -260,
+   0
+  ],
+  "note": "10.10 #14"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "s14_swipe"
+ },
+ {
+  "tapId": "itin.delete"
+ },
+ {
+  "wait": 3
+ },
+ {
+  "shot": "s14_deleted"
+ },
+ {
+  "expect": "已刪除「測試行程」。"
+ },
+ {
+  "tapId": "itin.undo"
+ },
+ {
+  "wait": 6
+ },
+ {
+  "shot": "s14_undo"
+ },
+ {
+  "tree": "s14_undo"
+ },
+ {
+  "expectRow": [
+   "itin.row",
+   "測試行程"
+  ]
+ }
+]

@@ -1,11 +1,15 @@
 [
  {
   "persona": "出門玩的人想讓位置沿途移動",
-  "situation": "已經定位在東京鐵塔，想從這裡沿途移動到雪梨歌劇院看進度與抵達時間，中途暫停再繼續、結束移動停在原地；再回東京鐵塔開原地漫步，最後停止模擬",
-  "note": "move, iPhone 16 393x852, -GpsSimCI: 前往 pretends the send worked and every move step is a fake successful send (GpsSimEngine.demoMoveSends), so no phone is needed. Tokyo -> Sydney is ~7,800 km: MKDirections has no route, so 已改為直線 and the >12 h confirm alert are expected. Checks pin.menu.move, move.mode.*, move.speed.* (bike shows 沿步行路線 in 路線 mode), move.start, progress card (剩餘 / 抵達時間), move.pause (暫停/繼續), move.stop (結束移動), wander.size.*, wander.toggle, move.stopSim."
+  "situation": "已經定位在東京鐵塔，想從這裡沿途移動到雪梨歌劇院看進度與抵達時間，中途暫停再繼續、結束移動停在原地；再到東京鐵塔開原地漫步，最後停止模擬",
+  "note": "move, iPhone 16 393x852, -GpsSimCI: 前往 pretends the send worked and every move step is a fake successful send (GpsSimEngine.demoMoveSends), so no phone is needed. Tokyo -> Sydney is ~7,800 km: MKDirections has no route, so 已改為直線 and the >12 h confirm alert are expected. Intel VM map is grey (pins unreachable), so the move card and the wander pin menu are opened by DEBUG launch args -GpsSimMoveFrom 3 -GpsSimOpenMove 4 and -GpsSimOpenWander 3 (GpsSimHomeView scheduleDebugLaunchShortcuts). Checks move.mode.*, move.speed.* (bike shows 沿步行路線 in 路線 mode), move.start, progress card (剩餘 / 抵達時間), move.pause (暫停/繼續), move.stop (結束移動), wander.size.*, wander.toggle, move.stopSim."
  },
  {
-  "relaunch": ["-GpsSimDemo", "home", "-GpsSimCI"]
+  "relaunch": [
+   "-GpsSimDemo",
+   "home",
+   "-GpsSimCI"
+  ]
  },
  {
   "wait": 3
@@ -14,40 +18,18 @@
   "shot": "01_start"
  },
  {
-  "tapId": "place.row.3"
+  "relaunch": [
+   "-GpsSimDemo",
+   "home",
+   "-GpsSimCI",
+   "-GpsSimMoveFrom",
+   "3",
+   "-GpsSimOpenMove",
+   "4"
+  ]
  },
  {
-  "wait": 2
- },
- {
-  "tapId": "btn.fitAll"
- },
- {
-  "wait": 2
- },
- {
-  "tapId": "map.pin.4"
- },
- {
-  "wait": 1
- },
- {
-  "shot": "02_pin_menu"
- },
- {
-  "tree": "pin_menu"
- },
- {
-  "expect": "pin.menu.move"
- },
- {
-  "expect": "wander.toggle"
- },
- {
-  "tapId": "pin.menu.move"
- },
- {
-  "wait": 2
+  "wait": 4
  },
  {
   "shot": "03_move_card"
@@ -140,7 +122,10 @@
   "wait": 1
  },
  {
-  "expectRow": ["move.pause", "繼續"]
+  "expectRow": [
+   "move.pause",
+   "繼續"
+  ]
  },
  {
   "shot": "08_paused"
@@ -152,7 +137,10 @@
   "wait": 2
  },
  {
-  "expectRow": ["move.pause", "暫停"]
+  "expectRow": [
+   "move.pause",
+   "暫停"
+  ]
  },
  {
   "tapId": "move.stop"
@@ -167,16 +155,19 @@
   "shot": "09_move_ended"
  },
  {
-  "tapId": "btn.fitAll"
+  "relaunch": [
+   "-GpsSimDemo",
+   "home",
+   "-GpsSimCI",
+   "-GpsSimOpenWander",
+   "3"
+  ]
  },
  {
-  "wait": 2
+  "wait": 4
  },
  {
-  "tapId": "map.pin.3"
- },
- {
-  "wait": 1
+  "expect": "wander.toggle"
  },
  {
   "tapId": "wander.size.small"

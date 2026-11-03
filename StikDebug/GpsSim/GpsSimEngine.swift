@@ -197,6 +197,10 @@ final class GpsSimEngine: ObservableObject {
     /// Completion code meaning "another send/stop was already running" (not a device status code).
     static let busyCode: Int32 = -100
 
+    /// 每次「前往」（send(to:)）或「停止模擬」（stop）真的開始執行就加 1（忙碌被拒不算）。
+    /// 預排行程用它判斷「使用者手動接手」：行程自己送完會立刻重記，下一次不同＝別人送的。
+    private(set) var controlSerial = 0
+
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private var failStreak = 0
     /// Resolved once per send() so the 4 s resend ticks do no disk work (prepareURL touches the file system).
@@ -247,6 +251,7 @@ final class GpsSimEngine: ObservableObject {
     /// status line's 「離圓心 N 公尺」 is a real, non-zero distance.
     func applyDemoSimulation(name: String, coordinate: CLLocationCoordinate2D, landingOffsetMeters: Double = 18) {
         // CI「前往」在移動中按下：和真的 send 一樣先取消移動。
+        controlSerial &+= 1
         takeOverFromMove()
         let north = landingOffsetMeters * 0.6
         let east = landingOffsetMeters * 0.8
@@ -264,7 +269,20 @@ final class GpsSimEngine: ObservableObject {
     static var pairingFilePath: String { PairingFileStore.prepareURL().path }
 
     static var pairingExists: Bool {
-        FileManager.default.fileExists(atPath: pairingFilePath)
+        // GPSSIM_LINK_MOCK（只有測試版）：模擬器沒有配對檔也當作已配對，首頁與捷徑的配對檢查才不會擋。
+        linkMock || FileManager.default.fileExists(atPath: pairingFilePath)
+    }
+
+    /// 測試版 GPSSIM_LINK_MOCK=1（或啟動參數 `-GPSSIM_LINK_MOCK 1`）：模擬器沒有手機，送點與清除一律回 0，
+    /// 每次送出的座標寫進紀錄（規格 10.10 前置）。正式版（Release）永遠 false、不讀此參數。
+    nonisolated static var linkMock: Bool {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment["GPSSIM_LINK_MOCK"] ?? ""
+        if !env.isEmpty && env != "0" { return true }
+        return UserDefaults.standard.bool(forKey: "GPSSIM_LINK_MOCK")
+        #else
+        return false
+        #endif
     }
 
     private var driftEnabled: Bool {
@@ -288,8 +306,9 @@ final class GpsSimEngine: ObservableObject {
               center: CLLocationCoordinate2D? = nil, placeID: String? = nil,
               completion: ((Int32) -> Void)? = nil) {
         guard !isBusy else { completion?(Self.busyCode); return }
+        controlSerial &+= 1
         let path = Self.pairingFilePath
-        guard FileManager.default.fileExists(atPath: path) else {
+        guard Self.linkMock || FileManager.default.fileExists(atPath: path) else {
             issue = GpsSimIssue(kind: .pairing, message: "尚未配對。請依使用教學以電腦產生配對檔。")
             completion?(2)
             return
@@ -303,7 +322,7 @@ final class GpsSimEngine: ObservableObject {
         let ip = DeviceConnectionContext.targetIPAddress
         let before = activeTarget
         LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(ip, coordinate.latitude, coordinate.longitude, path)
+            let code = gpsSimSetLocation(ip, coordinate.latitude, coordinate.longitude, path)
             Task { @MainActor in
                 self.isBusy = false
                 guard code == 0 else {
@@ -369,7 +388,7 @@ final class GpsSimEngine: ObservableObject {
         current = next
         LocationSimulationSession.shared.updateCoordinate(next)
         LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(ip, next.latitude, next.longitude, path)
+            let code = gpsSimSetLocation(ip, next.latitude, next.longitude, path)
             Task { @MainActor in
                 if code == 0 {
                     self.failStreak = 0
@@ -401,6 +420,7 @@ final class GpsSimEngine: ObservableObject {
     /// because it has a 24 s budget and puts the point back right after.
     func stop(full: Bool = true, completion: ((Int32) -> Void)? = nil) {
         guard !isBusy else { completion?(Self.busyCode); return }
+        controlSerial &+= 1
         // 抵達前按停止模擬：取消移動，照既有 stop() 流程（規格 3.5）。
         takeOverFromMove()
         isBusy = true
@@ -421,13 +441,13 @@ final class GpsSimEngine: ObservableObject {
                 // Set-then-clear fallback only while we are simulating ourselves: from an idle press
                 // a failed clear after the set would pin the phone to the stale point.
                 let fallback = wasSimulating ? reopenPoint.map { (latitude: $0.latitude, longitude: $0.longitude) } : nil
-                finalCode = clear_all_simulated_locations(ip, path, fallbackPoint: fallback)
+                finalCode = gpsSimClearAllLocations(ip, path, fallbackPoint: fallback)
             } else {
-                var code = clear_simulated_location()
+                var code = gpsSimClearLocation()
                 // Code 12 = no open handle in this process: reopen at the current point, then clear.
                 if code == 12, let point = reopenPoint {
-                    let reopened = simulate_location(ip, point.latitude, point.longitude, path)
-                    code = reopened == 0 ? clear_simulated_location() : reopened
+                    let reopened = gpsSimSetLocation(ip, point.latitude, point.longitude, path)
+                    code = reopened == 0 ? gpsSimClearLocation() : reopened
                 }
                 finalCode = code == 12 && reopenPoint == nil ? 0 : code
             }
@@ -508,7 +528,7 @@ final class GpsSimEngine: ObservableObject {
         let ip = sessionIP ?? DeviceConnectionContext.targetIPAddress
         LocationSimulationSession.shared.updateCoordinate(point)
         LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(ip, point.latitude, point.longitude, path)
+            let code = gpsSimSetLocation(ip, point.latitude, point.longitude, path)
             Task { @MainActor in
                 // 回來時移動已被取消（使用者按了前往／停止）：不改任何狀態。
                 guard self.isMoving else { completion(code); return }
@@ -607,6 +627,7 @@ final class GpsSimEngine: ObservableObject {
 
     /// Screenshot-only: what a successful 停止模擬 leaves behind, without touching the device.
     func applyDemoStop() {
+        controlSerial &+= 1
         takeOverFromMove()
         LocationSimulationSession.shared.stop()
         previous = activeTarget
@@ -631,4 +652,40 @@ final class GpsSimEngine: ObservableObject {
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
         backgroundTaskID = .invalid
     }
+}
+
+// MARK: - GPSSIM_LINK_MOCK（測試版、模擬器用；規格 10.10、12.8）
+// 引擎所有送點與清除都經過這三個函式：測試開關沒開＝直接呼叫原本的 FFI；開著＝不碰手機、回 0。
+// 座標只在開關開著時寫進紀錄（平常的紀錄不寫座標）。
+
+private func gpsSimSetLocation(_ deviceIP: String, _ latitude: Double, _ longitude: Double,
+                               _ pairingFile: String) -> Int32 {
+    if GpsSimEngine.linkMock {
+        gpsSimLinkMockLog(String(format: "set %.6f,%.6f", latitude, longitude))
+        return 0
+    }
+    return simulate_location(deviceIP, latitude, longitude, pairingFile)
+}
+
+private func gpsSimClearLocation() -> Int32 {
+    if GpsSimEngine.linkMock {
+        gpsSimLinkMockLog("clear")
+        return 0
+    }
+    return clear_simulated_location()
+}
+
+private func gpsSimClearAllLocations(_ deviceIP: String, _ pairingFile: String,
+                                     fallbackPoint: (latitude: Double, longitude: Double)?) -> Int32 {
+    if GpsSimEngine.linkMock {
+        gpsSimLinkMockLog("clear all")
+        return 0
+    }
+    return clear_all_simulated_locations(deviceIP, pairingFile, fallbackPoint: fallbackPoint)
+}
+
+/// App 內紀錄（LogManager）＋系統紀錄（NSLog，模擬器 `log stream` 讀得到）。
+private func gpsSimLinkMockLog(_ message: String) {
+    LogManager.shared.addInfoLog("[LinkMock] \(message)")
+    NSLog("[LinkMock] %@", message)
 }

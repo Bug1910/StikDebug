@@ -1,6 +1,6 @@
 """Play ci/scenarios/<tester>.json on one simulator using AXe (tap/type/swipe) and simctl (screenshots).
 usage: run_scenario.py <tester> <device1;device2;...> <app> <outdir>
-A failing step is recorded in results.json and the run continues."""
+A failing step is retried once after 3 s; a second failure (not "optional") stops the run: STOPPED_AT=<n>, SCEN_RC=1."""
 import json, os, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from simlib import *
@@ -16,7 +16,11 @@ sh("xcrun", "simctl", "ui", udid, "appearance", "light", check=False, quiet=True
 launch(udid, bid)
 time.sleep(10)
 results = []
-META = ("note", "persona", "situation")  # who the tester is and when they use the app; not steps
+META = ("note", "persona", "situation", "optional", "index")  # who the tester is and when they use the app; not steps
+# "index": N on a "tap"/"tapId" step = when several elements share that label or id (e.g. a place name in the picker
+# list and on the map sheet behind it), tap the N-th one counted top to bottom (default 0).
+# "optional": true on a step = its failure is recorded (detail starts with "optional:") but does not
+# fail the run; for branches the app picks by the clock (e.g. itinerary 開始 vs 從目前的項目接續).
 persona = {k: steps[0][k] for k in ("persona", "situation") if steps and k in steps[0]}
 
 
@@ -76,22 +80,96 @@ def tree_dump():
 ui_ready()
 
 
+def nth_frame(prefix, idx):
+    """Frame of the idx-th on-screen element (tree order; -1 = last) whose id starts with prefix.
+    For rows that share one accessibility id (itin.edit.row, itin.row)."""
+    hits = []
+
+    def walk(node):
+        if isinstance(node, list):
+            for x in node:
+                walk(x)
+        elif isinstance(node, dict):
+            f = node.get("frame") or {}
+            if (node.get("AXUniqueId") or "").startswith(prefix) and f.get("height", 0) > 0:
+                hits.append(f)
+            walk(node.get("children") or [])
+    try:
+        walk(json.loads(tree_dump().stdout))
+    except ValueError:
+        pass
+    try:
+        return hits[idx]
+    except IndexError:
+        return None
+
+
 def snap(path):
     return sh("xcrun", "simctl", "io", udid, "screenshot", path, check=False, quiet=True).returncode == 0
 
 
-for n, step in enumerate(steps, 1):
-    kind = next((k for k in step if k not in META), None)
-    if kind is None:
-        continue
-    val = step[kind]
+def tap_nth(field, val, idx, r):
+    """AXe refuses to tap when several elements match (--label or --id). Collect every on-screen element whose
+    field (AXLabel / AXUniqueId) equals val, merge ones sharing a frame, sort top to bottom and tap the centre
+    of the idx-th one. Seen 2026-11-03: a place name in the picker list and on the map sheet behind it; a
+    toolbar button (itin.item.commit / itin.edit.save) reported twice, once as the bar item and once inside."""
+    if not r.returncode or "Multiple" not in (r.stderr or r.stdout):
+        return r
+    frames = []
+
+    def walk(node):
+        if isinstance(node, list):
+            for x in node:
+                walk(x)
+        elif isinstance(node, dict):
+            f = node.get("frame") or {}
+            if node.get(field) == val and f.get("height", 0) > 0:
+                key = tuple(round(f[k]) for k in ("x", "y", "width", "height"))
+                if key not in frames:
+                    frames.append(key)
+            walk(node.get("children") or [])
+    try:
+        walk(json.loads(tree_dump().stdout))
+    except ValueError:
+        pass
+    frames.sort(key=lambda k: (k[1], k[0]))
+    if idx >= len(frames):
+        r.stderr = "%s: only %d matches, index %d " % (val, len(frames), idx) + (r.stderr or "")
+        return r
+    x, y, w, h = frames[idx]
+    r2 = tap_retry("-x", str(int(x + w / 2)), "-y", str(int(y + h / 2)))
+    r2.stderr = ("%s #%d of %d at %d,%d " % (val, idx, len(frames), x + w / 2, y + h / 2)) + (r2.stderr or "")
+    return r2
+
+
+
+
+def pasteboard_ok():
+    """`type` steps paste through the simulator pasteboard. With no macOS GUI login (VM rebooted to the login
+    window) simctl pbcopy returns 0 but stores nothing and every paste is silently empty (seen 2026-11-03)."""
+    import subprocess
+    probe = "pinfly-pb-%d" % int(time.time())
+    subprocess.run(["xcrun", "simctl", "pbcopy", udid], input=probe.encode())
+    return sh("xcrun", "simctl", "pbpaste", udid, check=False, quiet=True).stdout.strip() == probe
+
+
+if any("type" in s for s in steps) and not pasteboard_ok():
+    print("PASTEBOARD_DEAD: simctl pbcopy stored nothing; log in to the macOS GUI (login window) first", flush=True)
+    print("STOPPED_AT=0", flush=True)
+    print("SCEN_RC=1", flush=True)
+    sys.exit(1)
+stopped = None
+
+
+def run_step(n, step, kind, val):
+    """Do one scenario step; returns (ok, detail)."""
     ok, detail = True, ""
     try:
         if kind == "tap":
-            r = tap_retry("--label", val)
+            r = tap_nth("AXLabel", val, int(step.get("index", 0)), tap_retry("--label", val))
             ok, detail = r.returncode == 0, (r.stderr or r.stdout).strip()[:200]
         elif kind == "tapId":
-            r = tap_retry("--id", val)
+            r = tap_nth("AXUniqueId", val, int(step.get("index", 0)), tap_retry("--id", val))
             if r.returncode and val.startswith("settings."):
                 # Settings rows off screen are not in the accessibility tree until scrolled into view
                 # (the help section moved under 位置微飄, 2026-11-02): up to 3 scrolls down, looking after
@@ -167,12 +245,19 @@ for n, step in enumerate(steps, 1):
         elif kind == "expect":  # text (or "!text" = must be absent) somewhere in the accessibility tree
             want = not val.startswith("!")
             text = val if want else val[1:]
-            raw = tree_dump().stdout or ""
-            try:  # compare decoded text, in case the dump escapes non-ASCII as \uXXXX
-                raw = json.dumps(json.loads(raw), ensure_ascii=False)
-            except ValueError:
-                pass
-            found = text in raw
+            # A positive expect keeps looking for up to 30 s: on the slow Intel VM a new screen can take
+            # 10-20 s to draw, and one early look failed steps whose screen simply was not drawn yet.
+            deadline = time.time() + (30 if want else 0)
+            while True:
+                raw = tree_dump().stdout or ""
+                try:  # compare decoded text, in case the dump escapes non-ASCII as \uXXXX
+                    raw = json.dumps(json.loads(raw), ensure_ascii=False)
+                except ValueError:
+                    pass
+                found = text in raw
+                if found == want or time.time() >= deadline:
+                    break
+                time.sleep(2)
             ok, detail = found == want, ("" if found == want else ("missing: " if want else "still shown: ") + text)
         elif kind == "expectRow":  # ["<id prefix>", "text"]: some element with that id prefix has text in its label
             def rows(node, out):
@@ -237,20 +322,64 @@ for n, step in enumerate(steps, 1):
             launch(udid, bid, val)
             time.sleep(4)
             ui_ready()
+        elif kind in ("longPressId", "swipeId"):
+            # longPressId ["<id prefix>", nth]: hold 2 s on the nth match (context menu).
+            # swipeId ["<id prefix>", nth, dx, dy]: swipe from its centre by (dx, dy) pt (swipe actions).
+            f = nth_frame(val[0], int(val[1]))
+            if f is None:
+                ok, detail = False, "no element #%s with id prefix %s" % (val[1], val[0])
+            else:
+                cx, cy = int(f["x"] + f["width"] / 2), int(f["y"] + f["height"] / 2)
+                if kind == "longPressId":
+                    # separate down / wait / up commands: on the Intel VM one `touch --down --up --delay` arrived
+                    # as a plain tap (opened the row instead of its context menu), 2026-11-03
+                    r = sh("axe", "touch", "-x", str(cx), "-y", str(cy), "--down", "--udid", udid, check=False)
+                    time.sleep(2.0)
+                    r2 = sh("axe", "touch", "-x", str(cx), "-y", str(cy), "--up", "--udid", udid, check=False)
+                    if r.returncode == 0:
+                        r = r2
+                else:
+                    r = sh("axe", "swipe", "--start-x", str(cx), "--start-y", str(cy), "--end-x",
+                           str(max(1, cx + int(val[2]))), "--end-y", str(cy + int(val[3])), "--udid", udid, check=False)
+                ok, detail = r.returncode == 0, ("%d,%d " % (cx, cy) + (r.stderr or r.stdout).strip())[:200]
         else:
             ok, detail = False, "unknown step type"
     except Exception as e:
         ok, detail = False, str(e)[:200]
+    return ok, detail
+
+
+for n, step in enumerate(steps, 1):
+    kind = next((k for k in step if k not in META), None)
+    if kind is None:
+        continue
+    val = step[kind]
+    ok, detail = run_step(n, step, kind, val)
+    if not ok and not step.get("optional") and kind not in ("wait", "shot"):
+        # the slow Intel VM: give the screen 3 s more and do the same step once again before giving up
+        print(n, kind, "RETRY after: " + detail, flush=True)
+        time.sleep(3)
+        ok, detail = run_step(n, step, kind, val)
     time.sleep(1)
     label = re.sub(r"\W+", "_", str(val))[:20] if kind in ("shot", "tree") else ""
     shot = "%02d_%s%s.png" % (n, kind, ("_" + label) if label else "")
     snap("%s/%s" % (out, shot))
     if os.path.exists("%s/%s" % (out, shot)) and os.path.getsize("%s/%s" % (out, shot)) < 10240:
         ok, detail = False, (detail + " screenshot under 10 KB (blank/failed)").strip()
+    if not ok and step.get("optional"):
+        ok, detail = True, ("optional: " + detail).strip()
     results.append({"n": n, "step": step, "ok": ok, "detail": detail, "screenshot": shot})
     print(n, kind, "OK" if ok else "FAIL " + detail, flush=True)
 
-json.dump({"tester": tester, **persona, "device": name, "results": results, "failed": sum(not r["ok"] for r in results)},
+    if not ok:  # stop here instead of a long tail of knock-on failures (2026-11-03)
+        stopped = n
+        break
+
+json.dump({"tester": tester, **persona, "device": name, "results": results, "failed": sum(not r["ok"] for r in results), "stopped_at": stopped},
           open(out + "/results.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 sh("xcrun", "simctl", "shutdown", udid, check=False, quiet=True)
+if stopped:
+    print("STOPPED_AT=%d" % stopped, flush=True)
+    print("SCEN_RC=1", flush=True)
+    sys.exit(1)
 sys.exit(1 if any(not r["ok"] for r in results) else 0)  # a scenario with any failed step turns the CI job red

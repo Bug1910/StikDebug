@@ -34,13 +34,16 @@ struct StikDebugTests {
     }
 
     @Test func coordinateParsesDegreesMinutesSeconds() async throws {
-        let lat = 25 + 2.0 / 60 + 1.2 / 3600
-        let lon = 121 + 33.0 / 60 + 54.0 / 3600
+        let lat: Double = 25 + 2.0 / 60 + 1.2 / 3600
+        let lon: Double = 121 + 33.0 / 60 + 54.0 / 3600
         #expect(near("25°2'1.2\"N 121°33'54\"E", lat, lon))
         #expect(near("25°2′1.2″N 121°33′54″E", lat, lon))
         #expect(near("25°2'1.2N 121°33'54E", lat, lon))
         #expect(near("25°2'1.2'' N, 121°33'54'' E", lat, lon))
-        #expect(near("-33°52'10\", 151°12'30\"", -(33 + 52.0 / 60 + 10.0 / 3600), 151 + 12.0 / 60 + 30.0 / 3600))
+        // Computed outside #expect: inside the macro Xcode 26 timed out type-checking the arithmetic.
+        let sydneyLat: Double = -(33 + 52.0 / 60 + 10.0 / 3600)
+        let sydneyLon: Double = 151 + 12.0 / 60 + 30.0 / 3600
+        #expect(near("-33°52'10\", 151°12'30\"", sydneyLat, sydneyLon))
         #expect(GpsGeo.parseCoordinate("25°61'0\"N 121°0'0\"E") == nil)
     }
 

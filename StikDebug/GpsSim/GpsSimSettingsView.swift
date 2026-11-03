@@ -91,6 +91,8 @@ struct GpsSimSettingsView: View {
                     Text("模擬實際 GPS 的輕微漂移，與落點的距離不超過 4 公尺。")
                 }
 
+                GpsItinerarySettingsSection()
+
                 Section {
                     Button("使用引導") {
                         dismiss()

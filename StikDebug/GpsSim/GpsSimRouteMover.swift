@@ -148,6 +148,8 @@ final class GpsSimRouteMover: ObservableObject {
     // 漫步專用
     private var wanderCenter: CLLocationCoordinate2D?
     private var wanderRadius: Double = 0
+    /// false＝不套用 4 小時自動停止（預排行程的漫步項目）。
+    private var wanderAutoStop = true
     private var wanderSegment: MovePlan?
     private var wanderHeading: Double?
     private var dwellUntil: Date?
@@ -192,10 +194,15 @@ final class GpsSimRouteMover: ObservableObject {
 
     /// 用已經規劃好的路徑開始（行程預先規劃、測試用）。
     /// afterArrival／autoReturnAfter：捷徑用；App 內呼叫沿用預設（停留、不限時間）。
+    /// startAtMeters：從路徑上第幾公尺開始（行程補位：斷線、鎖定、App 重開後直接接到應在的位置，
+    /// 規格 10.2.3）；預設 0＝從起點走。超過全長＝下一跳就抵達。
     func start(plan: MovePlan, name: String, placeID: String? = nil,
                center: CLLocationCoordinate2D? = nil, kmh: Double,
-               afterArrival: MoveArrivalAction = .stay, autoReturnAfter: TimeInterval? = nil) {
-        guard let first = plan.start else { return }
+               afterArrival: MoveArrivalAction = .stay, autoReturnAfter: TimeInterval? = nil,
+               startAtMeters: Double = 0) {
+        guard let origin = plan.start else { return }
+        let skipMeters = startAtMeters.isFinite ? min(max(0, startAtMeters), plan.totalMeters) : 0
+        let first = skipMeters > 0 ? (plan.coordinate(atDistance: skipMeters) ?? origin) : origin
         finishPreviousRun()
         tearDown()
         // 新的移動取消之前的「持續時間」（規格 12.3.1）。
@@ -208,7 +215,7 @@ final class GpsSimRouteMover: ObservableObject {
         self.plan = plan
         destinationName = name
         targetKmh = MoveSpeedPreset.clampCustom(kmh)
-        traveledMeters = 0
+        traveledMeters = skipMeters
         movingSeconds = 0
         rampUpSeconds = Double.random(in: GpsSimMotion.rampUpSecondsRange, using: &rng)
         wobble = SpeedWobble(amplitude: Self.routeWobble)
@@ -224,12 +231,16 @@ final class GpsSimRouteMover: ObservableObject {
 
     /// 開始原地漫步。center＝圈心、radius＝已取「檔位與地點圈」較小者
     /// （GpsSimWanderPlanner.radius(size:placeRadius:)）；from＝目前位置（預設圈心）。
+    /// autoStop：漫步滿 4 小時自動停止；預排行程傳 false（項目結束由行程決定，
+    /// 暫停過的漫步項目才不會被 4 小時上限提早結束，工程規劃第四節第 6 點）。
     func startWander(center: CLLocationCoordinate2D, radius: Double, name: String,
-                     placeID: String? = nil, from current: CLLocationCoordinate2D? = nil) {
+                     placeID: String? = nil, from current: CLLocationCoordinate2D? = nil,
+                     autoStop: Bool = true) {
         finishPreviousRun()
         tearDown()
         GpsSimAutoReturn.shared.clear(reason: "new wander")
         beginRunCounters()
+        wanderAutoStop = autoStop
         let here = current.map { GpsSimWanderPlanner.clamp($0, center: center, radius: max(1, radius)) } ?? center
         plan = nil
         destinationName = name
@@ -482,7 +493,8 @@ final class GpsSimRouteMover: ObservableObject {
     }
 
     private func tickWander(dt: Double, now: Date) {
-        if let started = wanderStartedAt, GpsSimWanderPlanner.isExpired(startedAt: started, now: now) {
+        if wanderAutoStop, let started = wanderStartedAt,
+           GpsSimWanderPlanner.isExpired(startedAt: started, now: now) {
             wanderAutoStoppedAt = now
             stopMoving()
             return
